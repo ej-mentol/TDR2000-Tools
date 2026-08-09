@@ -1,0 +1,58 @@
+# Agent / AI tool files
+.claude/
+.cursor/
+.codex/
+.windsurf/
+.roocode/
+.github/copilot/
+.gemini/
+.agents/
+.assistant/
+scratch/
+
+# Skills / project assistants
+.skills/
+skill/
+skills/
+
+# Build & Compilation Outputs
+[Bb]in/
+[Oo]bj/
+[Oo]ut/
+[Ll]og/
+[Ll]ogs/
+[Tt]emp/
+[Tt]mp/
+publish/
+*.nupkg
+*.tmp
+*.log
+*.bat
+*.ps1
+
+# IDE & User-specific files
+.vs/
+.idea/
+.vscode/
+.avalonia/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Local environment
+.env
+.env.*
+*.local
+
+# Tool/cache
+.cache/
+.npm/
+.pnpm-store/
+.yarn/cache/
+yarn-error.log
+
+# OS generated files
+.DS_Store
+Thumbs.db
+Desktop.ini

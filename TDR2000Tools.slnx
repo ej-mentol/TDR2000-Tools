@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/lib/">
+    <Project Path="lib/TDR.Formats/TDR.Formats.csproj" />
+    <Project Path="lib/TDR.PakLib/TDR.PakLib.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/TDR.Tools/TDR.Tools.csproj" />
+  </Folder>
+</Solution>

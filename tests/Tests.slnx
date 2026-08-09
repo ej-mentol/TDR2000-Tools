@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/tests/">
+    <Project Path="pak/TDR.Pak.Tests.csproj" />
+    <Project Path="tracks/TDR.Track.Tests.csproj" />
+    <Project Path="json/TDR.Json.Tests.csproj" />
+    <Project Path="paklib/TDR.PakLib.Tests.csproj" />
+  </Folder>
+</Solution>

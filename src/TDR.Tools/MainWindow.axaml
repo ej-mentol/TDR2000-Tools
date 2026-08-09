@@ -1,0 +1,459 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="clr-namespace:TDR.Tools.ViewModels"
+        x:Class="TDR.Tools.MainWindow"
+        x:DataType="vm:MainViewModel"
+        Title="TDR2000 Tools"
+        Icon="/Assets/icon.png"
+        Width="1420" Height="860"
+        WindowStartupLocation="CenterScreen"
+        Background="{DynamicResource BgPrimaryBrush}" Foreground="{DynamicResource TextPrimaryBrush}"
+        FontFamily="Inter, Segoe UI, sans-serif"
+        KeyDown="OnWindowKeyDown">
+
+    <Grid RowDefinitions="Auto,*,130">
+        <!-- HEADER -->
+        <Border Grid.Row="0" Height="42" Background="#151515" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="0,0,0,1" Padding="16,0">
+            <Grid ColumnDefinitions="Auto,*,Auto">
+                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="20" VerticalAlignment="Center">
+                    <TextBlock Text="TDR2000 Tools" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                    <Menu VerticalAlignment="Center" Background="Transparent">
+                        <MenuItem Header="_File">
+                            <MenuItem Header="_Open Source Folder..." InputGesture="Ctrl+O" Click="OnSelectSourceFolderClick"/>
+                            <MenuItem Header="_Select Destination Folder..." InputGesture="Ctrl+Shift+O" Click="OnSelectDestinationFolderClick"/>
+                            <Separator/>
+                            <MenuItem Header="_Pack Directory to .PAK..." InputGesture="Ctrl+N" Click="OnPackFolderToPakClick"/>
+                            <Separator/>
+                            <MenuItem Header="_Exit" InputGesture="Alt+F4" Click="OnExitClick"/>
+                        </MenuItem>
+                        <MenuItem Header="_Edit">
+                            <MenuItem Header="_Extract Selected" InputGesture="F5" Click="OnExtractSelectedClick"/>
+                            <MenuItem Header="_Delete Selected" InputGesture="Delete" Click="OnDeleteSelectedClick"/>
+                        </MenuItem>
+                        <MenuItem Header="_View">
+                            <MenuItem Header="_Refresh Source Tree" InputGesture="F5" Click="OnRefreshSourceClick"/>
+                            <MenuItem Header="Refresh _Destination Tree" Click="OnRefreshDestinationClick"/>
+                            <Separator/>
+                            <MenuItem Header="_Toggle Preview Drawer" Click="OnTogglePreviewClick"/>
+                        </MenuItem>
+                        <MenuItem Header="_Tools">
+                            <MenuItem Header="_Pack Directory to .PAK Archive..." Click="OnPackFolderToPakClick"/>
+                        </MenuItem>
+                        <MenuItem Header="_Options">
+                            <MenuItem Header="_Settings &amp; Preferences..." InputGesture="Ctrl+P" Click="OnSettingsMenuClick"/>
+                        </MenuItem>
+                        <MenuItem Header="_Help">
+                            <MenuItem Header="_About TDR2000 Tools..." Click="OnAboutMenuClick"/>
+                        </MenuItem>
+                    </Menu>
+                </StackPanel>
+
+                <!-- RIGHT HEADER SPEEDBUTTONS BAR -->
+                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                    <ToggleButton IsChecked="{Binding Preview.IsPreviewDrawerExpanded, Mode=TwoWay}" Width="26" Height="26" Background="{Binding Preview.PreviewDrawerModeBrush}" Foreground="{DynamicResource TextPrimaryBrush}" CornerRadius="6" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ToolTip.Tip="Toggle Details / Inspector Drawer">
+                        <TextBlock Text="ⓘ" FontSize="12" FontWeight="SemiBold"/>
+                    </ToggleButton>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- MAIN DUAL-PANE CONTENT WITH PREVIEW DRAWER -->
+        <Grid Grid.Row="1" ColumnDefinitions="*,Auto,*,Auto">
+            <!-- LEFT PANEL: SOURCE -->
+            <Border Grid.Column="0" Background="{DynamicResource BgPanelBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="0,0,1,0">
+                <Grid RowDefinitions="62,*">
+                    <!-- SOURCE TOOLBAR -->
+                    <Border Grid.Row="0" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="0,0,0,1" Padding="12,10">
+                        <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto">
+                            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
+                                <Button Content="‹" Width="26" Height="26" Background="Transparent" Foreground="#A8A8A8" CornerRadius="6" HorizontalContentAlignment="Center" Click="OnSourceNavBackClick"/>
+                                <Button Content="›" Width="26" Height="26" Background="Transparent" Foreground="#A8A8A8" CornerRadius="6" HorizontalContentAlignment="Center" Click="OnSourceNavForwardClick"/>
+                                <Button Content="↑" Width="26" Height="26" Background="Transparent" Foreground="#A8A8A8" CornerRadius="6" HorizontalContentAlignment="Center" Click="OnSourceNavUpClick"/>
+                            </StackPanel>
+                            <Button Grid.Column="1" Margin="10,0" VerticalAlignment="Center" Background="Transparent" Padding="0" Click="OnSelectSourceFolderClick">
+                                <StackPanel>
+                                    <TextBlock Text="{Binding SourcePathText}" FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Text="Source · Click to select PAK / ASSETS folder" FontSize="10" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,2,0,0"/>
+                                </StackPanel>
+                            </Button>
+                            <!-- SEARCH FIELD -->
+                            <TextBox Grid.Column="2" Width="130" Height="26" PlaceholderText="Search source" Text="{Binding SearchSourceQuery}" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextPrimaryBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" CornerRadius="6" FontSize="11" Padding="6,2" Margin="0,0,8,0"/>
+                            <!-- SPEEDBUTTON VIEW MODE SWITCHER AT FAR RIGHT EDGE -->
+                            <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
+                                <Button Content="☰" Width="26" Height="26" Background="{Binding SourceTreeModeBrush}" Foreground="{DynamicResource TextPrimaryBrush}" CornerRadius="6" HorizontalContentAlignment="Center" Click="OnSourceViewTreeClick" ToolTip.Tip="Tree View (Hierarchy)"/>
+                                <Button Content="≡" Width="26" Height="26" Background="{Binding SourceListModeBrush}" Foreground="{DynamicResource TextPrimaryBrush}" CornerRadius="6" HorizontalContentAlignment="Center" Click="OnSourceViewListClick" ToolTip.Tip="Flat Details Table (Sortable Columns)"/>
+                                <Button Content="▦" Width="26" Height="26" Background="{Binding SourceGridModeBrush}" Foreground="{DynamicResource TextPrimaryBrush}" CornerRadius="6" HorizontalContentAlignment="Center" Click="OnSourceViewGridClick" ToolTip.Tip="Grid Cards View"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <!-- SOURCE VIEWPORT AREA (TREE / FLAT TABLE / GRID TILES) -->
+                    <Grid Grid.Row="1">
+                        <!-- 1. TREE VIEW MODE (☰) -->
+                        <TreeView x:Name="SourceTreeView" IsVisible="{Binding IsSourceTreeVisible}" ItemsSource="{Binding SourceNodes}" SelectedItem="{Binding SelectedSourceNode}" SelectedItems="{Binding SelectedSourceNodes}" IsEnabled="{Binding !IsSourceLoading}" PointerPressed="OnSourcePointerPressed" PointerMoved="OnSourcePointerMoved" DoubleTapped="OnSourceTreeDoubleTapped" SelectionMode="Multiple" GotFocus="OnSourceTreeGotFocus" DragDrop.AllowDrop="True" DragDrop.DragOver="OnSourceDragOver" DragDrop.Drop="OnSourceDrop" Margin="8">
+                            <TreeView.Styles>
+                                <Style Selector="TreeViewItem" x:DataType="vm:FileNodeViewModel">
+                                    <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}"/>
+                                    <Setter Property="MinHeight" Value="28"/>
+                                    <Setter Property="Padding" Value="2,0"/>
+                                </Style>
+                                <Style Selector="TreeViewItem /template/ Border#PART_LayoutRoot">
+                                    <Setter Property="BorderThickness" Value="3,0,0,0"/>
+                                    <Setter Property="BorderBrush" Value="Transparent"/>
+                                    <Setter Property="CornerRadius" Value="2"/>
+                                </Style>
+                                <Style Selector="TreeViewItem:pointerover /template/ Border#PART_LayoutRoot">
+                                    <Setter Property="Background" Value="#0DFFFFFF"/>
+                                </Style>
+                                <Style Selector="TreeViewItem:selected /template/ Border#PART_LayoutRoot">
+                                    <Setter Property="Background" Value="{DynamicResource AccentSubtleBrush}"/>
+                                    <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                                </Style>
+                                <Style Selector="TreeViewItem:empty /template/ ToggleButton#PART_ExpandCollapseChevron">
+                                    <Setter Property="IsVisible" Value="False"/>
+                                    <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+                                    <Setter Property="Width" Value="24"/>
+                                    <Setter Property="Height" Value="24"/>
+                                    <Setter Property="Margin" Value="0,0,2,0"/>
+                                    <Setter Property="Background" Value="Transparent"/>
+                                    <Setter Property="HorizontalContentAlignment" Value="Center"/>
+                                    <Setter Property="VerticalContentAlignment" Value="Center"/>
+                                </Style>
+                                <Style Selector="TreeViewItem /template/ ToggleButton#PART_ExpandCollapseChevron Path">
+                                    <Setter Property="Width" Value="9"/>
+                                    <Setter Property="Height" Value="9"/>
+                                    <Setter Property="Stretch" Value="Uniform"/>
+                                </Style>
+                                <Style Selector="TreeViewItem /template/ ToggleButton#PART_ExpandCollapseChevron TextBlock">
+                                    <Setter Property="FontSize" Value="10"/>
+                                </Style>
+                            </TreeView.Styles>
+                            <TreeView.ItemTemplate>
+                                <TreeDataTemplate ItemsSource="{Binding Children}">
+                                    <Border Padding="4,0,18,0" CornerRadius="4">
+                                        <Grid ColumnDefinitions="Auto,*,Auto,Auto" Height="28">
+                                            <!-- Vector PathIcon (Tabler Style) -->
+                                            <PathIcon Grid.Column="0" Data="{Binding IconData}" Width="14" Height="14" Margin="0,0,8,0" VerticalAlignment="Center" Foreground="{Binding IconBrush}"/>
+                                            <TextBlock Grid.Column="1" IsVisible="{Binding !IsEditing}" Text="{Binding Name}" VerticalAlignment="Center" Foreground="{DynamicResource TextPrimaryBrush}" FontSize="12"/>
+                                            <TextBox Grid.Column="1" IsVisible="{Binding IsEditing}" Text="{Binding EditName, Mode=TwoWay}" VerticalAlignment="Center" FontSize="12" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextPrimaryBrush}" BorderBrush="{DynamicResource AccentBrush}" Padding="4,2" Loaded="OnRenameTextBoxLoaded" KeyDown="OnRenameTextBoxKeyDown" LostFocus="OnRenameTextBoxLostFocus"/>
+                                            <TextBlock Grid.Column="2" Text="{Binding FormattedSize}" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="10" Margin="8,0" VerticalAlignment="Center" HorizontalAlignment="Right"/>
+                                            <!-- Badge Pill with Scrollbar Clearance Margin -->
+                                            <Border Grid.Column="3" IsVisible="{Binding IsTrack}" Background="{Binding BadgeSubtleBrush}" BorderBrush="{Binding BadgeBrush}" BorderThickness="1" CornerRadius="6" Padding="6,1" VerticalAlignment="Center" Margin="0,0,18,0" DoubleTapped="OnTrackBadgeDoubleTapped" ToolTip.Tip="Double-click badge to export track">
+                                                <TextBlock Text="{Binding BadgeText}" Foreground="{Binding BadgeBrush}" FontSize="10" FontWeight="Medium"/>
+                                            </Border>
+                                        </Grid>
+                                    </Border>
+                                </TreeDataTemplate>
+                            </TreeView.ItemTemplate>
+                            <TreeView.ContextMenu>
+                                <ContextMenu Opening="OnSourceContextMenuOpening">
+                                    <MenuItem Header="✨ New PAK Archive" Click="OnCreateNewPakClick"/>
+                                    <MenuItem Header="📁 Add Files to Archive..." Click="OnAddFilesToArchiveClick" IsEnabled="{Binding SelectedSourceNode.IsArchive}"/>
+                                    <Separator/>
+                                    <MenuItem Header="Open" Click="OnOpenNodeClick"/>
+                                    <Separator/>
+                                    <MenuItem Header="Export Track to OBJ..." Click="OnConvertTrackMenuClick" IsEnabled="{Binding SelectedSourceNode.IsTrack}"/>
+                                    <MenuItem Header="Quick Export Track" Click="OnQuickConvertTrackMenuClick" IsEnabled="{Binding SelectedSourceNode.IsTrack}"/>
+                                    <MenuItem Header="Extract to Destination" Click="OnExtractMenuClick"/>
+                                    <MenuItem Header="Rebuild Archive (Defrag)" Click="OnRebuildArchiveClick" IsEnabled="{Binding SelectedSourceNode.IsArchive}"/>
+                                    <Separator/>
+                                    <MenuItem Header="Rename" InputGesture="F2" Click="OnRenameNodeClick"/>
+                                    <MenuItem Header="Copy File" Click="OnCopyFileClick"/>
+                                    <MenuItem Header="Copy Path" Click="OnCopyPathClick"/>
+                                    <MenuItem Header="Open Containing Folder" Click="OnOpenContainingFolderClick"/>
+                                    <Separator/>
+                                    <MenuItem Header="Delete" InputGesture="Delete" Click="OnSourceDeleteNodeClick"/>
+                                    <Separator/>
+                                    <MenuItem Header="Properties" InputGesture="Alt+Enter" Click="OnPropertiesClick"/>
+                                </ContextMenu>
+                            </TreeView.ContextMenu>
+                        </TreeView>
+
+                        <!-- 2. FLAT DETAILS TABLE MODE (≡) -->
+                        <Grid IsVisible="{Binding IsSourceFlatListVisible}" RowDefinitions="30,*" Margin="8">
+                            <!-- TABLE COLUMN HEADER BAR WITH SORT BUTTONS -->
+                            <Border Grid.Row="0" Background="{DynamicResource BgInputBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="1" CornerRadius="6,6,0,0" Padding="8,0">
+                                <Grid ColumnDefinitions="*,100,80,120">
+                                    <Button Grid.Column="0" Content="Name ↕" Background="Transparent" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11" FontWeight="SemiBold" HorizontalAlignment="Left" Click="OnSortNameClick"/>
+                                    <Button Grid.Column="1" Content="Size ↕" Background="Transparent" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11" FontWeight="SemiBold" HorizontalAlignment="Right" Click="OnSortSizeClick"/>
+                                    <Button Grid.Column="2" Content="Type ↕" Background="Transparent" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11" FontWeight="SemiBold" HorizontalAlignment="Center" Click="OnSortTypeClick"/>
+                                    <Button Grid.Column="3" Content="Archive ↕" Background="Transparent" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11" FontWeight="SemiBold" HorizontalAlignment="Left" Click="OnSortSourceClick"/>
+                                </Grid>
+                            </Border>
+
+                            <!-- TABLE ROWS LISTBOX -->
+                            <ListBox Grid.Row="1" ItemsSource="{Binding FlatSourceNodes}" SelectedItem="{Binding SelectedSourceNode}" Background="Transparent" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="1,0,1,1" CornerRadius="0,0,6,6">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate DataType="vm:FileNodeViewModel">
+                                        <Grid ColumnDefinitions="*,100,80,120" Height="26">
+                                            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                                <PathIcon Data="{Binding IconData}" Width="13" Height="13" Foreground="{Binding IconBrush}"/>
+                                                <TextBlock Text="{Binding Name}" FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}" TextTrimming="CharacterEllipsis"/>
+                                            </StackPanel>
+                                            <TextBlock Grid.Column="1" Text="{Binding FormattedSize}" FontSize="10" Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center" HorizontalAlignment="Right"/>
+                                            <Border Grid.Column="2" IsVisible="{Binding IsTrack}" Background="{Binding BadgeSubtleBrush}" BorderBrush="{Binding BadgeBrush}" BorderThickness="1" CornerRadius="4" Padding="4,1" VerticalAlignment="Center" HorizontalAlignment="Center">
+                                                <TextBlock Text="{Binding BadgeText}" Foreground="{Binding BadgeBrush}" FontSize="9" FontWeight="Medium"/>
+                                            </Border>
+                                            <TextBlock Grid.Column="3" Text="{Binding SourceArchiveName}" FontSize="10" Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </Grid>
+
+                        <!-- 3. GRID CARDS VIEW MODE (▦) -->
+                        <ListBox IsVisible="{Binding IsSourceGridVisible}" ItemsSource="{Binding FlatSourceNodes}" SelectedItem="{Binding SelectedSourceNode}" Background="Transparent" Margin="8">
+                            <ListBox.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <WrapPanel Orientation="Horizontal"/>
+                                </ItemsPanelTemplate>
+                            </ListBox.ItemsPanel>
+                            <ListBox.ItemTemplate>
+                                <DataTemplate DataType="vm:FileNodeViewModel">
+                                    <Border Width="110" Height="90" Margin="4" Padding="8" Background="{DynamicResource BgInputBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="1" CornerRadius="6">
+                                        <Grid RowDefinitions="Auto,*,Auto">
+                                            <PathIcon Grid.Row="0" Data="{Binding IconData}" Width="24" Height="24" Foreground="{Binding IconBrush}" HorizontalAlignment="Center" Margin="0,2,0,4"/>
+                                            <TextBlock Grid.Row="1" Text="{Binding Name}" FontSize="11" FontWeight="Medium" Foreground="{DynamicResource TextPrimaryBrush}" TextWrapping="Wrap" TextAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Grid.Row="2" Text="{Binding FormattedSize}" FontSize="9" Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Center"/>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+
+                        <!-- CENTERED RADIAL PROGRESS OVERLAY -->
+                        <Border IsVisible="{Binding IsSourceLoading}" Background="#F00E0E0E" CornerRadius="6" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="16,10" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="1">
+                            <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                                <Grid Width="18" Height="18" VerticalAlignment="Center">
+                                    <Grid.Styles>
+                                        <Style Selector="Grid">
+                                            <Style.Animations>
+                                                <Animation Duration="0:0:0.85" IterationCount="Infinite">
+                                                    <KeyFrame Cue="0%">
+                                                        <Setter Property="RotateTransform.Angle" Value="0"/>
+                                                    </KeyFrame>
+                                                    <KeyFrame Cue="100%">
+                                                        <Setter Property="RotateTransform.Angle" Value="360"/>
+                                                    </KeyFrame>
+                                                </Animation>
+                                            </Style.Animations>
+                                        </Style>
+                                    </Grid.Styles>
+                                    <Ellipse Width="18" Height="18" Stroke="#262B2E" StrokeThickness="2"/>
+                                    <Arc Width="18" Height="18" StartAngle="-90" SweepAngle="100" Stroke="#9EB6C8" StrokeThickness="2" StrokeLineCap="Square"/>
+                                </Grid>
+                                <TextBlock Text="Indexing VFS..." FontSize="11" FontWeight="Medium" Foreground="{DynamicResource TextPrimaryBrush}" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+                </Grid>
+            </Border>
+
+            <!-- RESIZABLE SPLITTER BETWEEN PANELS -->
+            <GridSplitter Grid.Column="1" Width="5" Background="{DynamicResource BorderSubtleBrush}" ResizeDirection="Columns" HorizontalAlignment="Center"/>
+
+            <!-- RIGHT PANEL: DESTINATION -->
+            <Border Grid.Column="2" Background="{DynamicResource BgPanelBrush}">
+                <Grid RowDefinitions="62,*">
+                    <!-- DESTINATION TOOLBAR -->
+                    <Border Grid.Row="0" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="0,0,0,1" Padding="12,10">
+                        <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto">
+                            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
+                                <Button Content="‹" Width="26" Height="26" Background="Transparent" Foreground="#A8A8A8" CornerRadius="6" HorizontalContentAlignment="Center" Click="OnDestinationNavBackClick"/>
+                                <Button Content="›" Width="26" Height="26" Background="Transparent" Foreground="#A8A8A8" CornerRadius="6" HorizontalContentAlignment="Center" Click="OnDestinationNavForwardClick"/>
+                                <Button Content="↑" Width="26" Height="26" Background="Transparent" Foreground="#A8A8A8" CornerRadius="6" HorizontalContentAlignment="Center" Click="OnDestinationNavUpClick"/>
+                            </StackPanel>
+                            <Button Grid.Column="1" Margin="10,0" VerticalAlignment="Center" Background="Transparent" Padding="0" Click="OnSelectDestinationFolderClick">
+                                <StackPanel>
+                                    <TextBlock Text="{Binding DestinationPathText}" FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Text="Destination · Click to select output folder" FontSize="10" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,2,0,0"/>
+                                </StackPanel>
+                            </Button>
+                            <!-- SEARCH FIELD -->
+                            <TextBox Grid.Column="2" Width="130" Height="26" PlaceholderText="Search output" Text="{Binding SearchDestinationQuery}" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextPrimaryBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" CornerRadius="6" FontSize="11" Padding="6,2" Margin="0,0,8,0"/>
+                            <!-- SPEEDBUTTON VIEW MODE SWITCHER AT FAR RIGHT EDGE -->
+                            <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
+                                <Button Content="☰" Width="26" Height="26" Background="{DynamicResource AccentSubtleBrush}" Foreground="{DynamicResource AccentBrush}" CornerRadius="6" HorizontalContentAlignment="Center" ToolTip.Tip="Tree View"/>
+                                <Button Content="≡" Width="26" Height="26" Background="Transparent" Foreground="#A8A8A8" CornerRadius="6" HorizontalContentAlignment="Center" ToolTip.Tip="Details Table"/>
+                                <Button Content="▦" Width="26" Height="26" Background="Transparent" Foreground="#A8A8A8" CornerRadius="6" HorizontalContentAlignment="Center" ToolTip.Tip="Grid Cards View"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <Grid x:Name="DestinationGrid" Grid.Row="1" DragDrop.AllowDrop="True" DragDrop.DragOver="OnDestinationDragOver" DragDrop.Drop="OnDestinationDrop">
+                        <TreeView ItemsSource="{Binding DestinationNodes}" SelectedItem="{Binding SelectedDestinationNode}" SelectedItems="{Binding SelectedDestinationNodes}" IsEnabled="{Binding !IsDestinationLoading}" DoubleTapped="OnDestinationTreeDoubleTapped" DragDrop.AllowDrop="True" DragDrop.DragOver="OnDestinationDragOver" DragDrop.Drop="OnDestinationDrop" SelectionMode="Multiple" GotFocus="OnDestinationTreeGotFocus" PointerPressed="OnDestinationPointerPressed" PointerMoved="OnDestinationPointerMoved" Margin="8">
+                            <TreeView.Styles>
+                                <Style Selector="TreeViewItem" x:DataType="vm:FileNodeViewModel">
+                                    <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}"/>
+                                    <Setter Property="MinHeight" Value="28"/>
+                                    <Setter Property="Padding" Value="2,0"/>
+                                </Style>
+                                <Style Selector="TreeViewItem /template/ Border#PART_LayoutRoot">
+                                    <Setter Property="BorderThickness" Value="3,0,0,0"/>
+                                    <Setter Property="BorderBrush" Value="Transparent"/>
+                                    <Setter Property="CornerRadius" Value="2"/>
+                                </Style>
+                                <Style Selector="TreeViewItem:pointerover /template/ Border#PART_LayoutRoot">
+                                    <Setter Property="Background" Value="#0DFFFFFF"/>
+                                </Style>
+                                <Style Selector="TreeViewItem:selected /template/ Border#PART_LayoutRoot">
+                                    <Setter Property="Background" Value="{DynamicResource AccentSubtleBrush}"/>
+                                    <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                                </Style>
+                                <Style Selector="TreeViewItem:empty /template/ ToggleButton#PART_ExpandCollapseChevron">
+                                    <Setter Property="IsVisible" Value="False"/>
+                                    <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+                                    <Setter Property="Width" Value="24"/>
+                                    <Setter Property="Height" Value="24"/>
+                                    <Setter Property="Margin" Value="0,0,2,0"/>
+                                    <Setter Property="Background" Value="Transparent"/>
+                                    <Setter Property="HorizontalContentAlignment" Value="Center"/>
+                                    <Setter Property="VerticalContentAlignment" Value="Center"/>
+                                </Style>
+                                <Style Selector="TreeViewItem /template/ ToggleButton#PART_ExpandCollapseChevron Path">
+                                    <Setter Property="Width" Value="9"/>
+                                    <Setter Property="Height" Value="9"/>
+                                    <Setter Property="Stretch" Value="Uniform"/>
+                                </Style>
+                                <Style Selector="TreeViewItem /template/ ToggleButton#PART_ExpandCollapseChevron TextBlock">
+                                    <Setter Property="FontSize" Value="10"/>
+                                </Style>
+                            </TreeView.Styles>
+                            <TreeView.ItemTemplate>
+                                <TreeDataTemplate ItemsSource="{Binding Children}">
+                                    <Border Padding="4,0,18,0" CornerRadius="4">
+                                        <Grid ColumnDefinitions="Auto,*,Auto" Height="28">
+                                            <PathIcon Grid.Column="0" Data="{Binding IconData}" Width="14" Height="14" Margin="0,0,8,0" VerticalAlignment="Center" Foreground="{Binding IconBrush}"/>
+                                            <TextBlock Grid.Column="1" IsVisible="{Binding !IsEditing}" Text="{Binding Name}" VerticalAlignment="Center" Foreground="{DynamicResource TextPrimaryBrush}" FontSize="12"/>
+                                            <TextBox Grid.Column="1" IsVisible="{Binding IsEditing}" Text="{Binding EditName, Mode=TwoWay}" VerticalAlignment="Center" FontSize="12" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextPrimaryBrush}" BorderBrush="{DynamicResource AccentBrush}" Padding="4,2" Loaded="OnRenameTextBoxLoaded" KeyDown="OnRenameTextBoxKeyDown" LostFocus="OnRenameTextBoxLostFocus"/>
+                                            <TextBlock Grid.Column="2" Text="{Binding FormattedSize}" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="10" Margin="8,0,18,0" VerticalAlignment="Center" HorizontalAlignment="Right"/>
+                                        </Grid>
+                                    </Border>
+                                </TreeDataTemplate>
+                            </TreeView.ItemTemplate>
+                            <TreeView.ContextMenu>
+                                <ContextMenu Opening="OnDestinationContextMenuOpening">
+                                    <MenuItem Header="New Folder" Click="OnCreateNewFolderInDestinationClick"/>
+                                    <Separator/>
+                                    <MenuItem Header="Open" Click="OnOpenNodeClick"/>
+                                    <Separator/>
+                                    <MenuItem Header="Rename" InputGesture="F2" Click="OnRenameNodeClick"/>
+                                    <MenuItem Header="Copy File" Click="OnCopyFileClick"/>
+                                    <MenuItem Header="Copy Path" Click="OnCopyPathClick"/>
+                                    <MenuItem Header="Open Containing Folder" Click="OnOpenContainingFolderClick"/>
+                                    <Separator/>
+                                    <MenuItem Header="Delete" InputGesture="Delete" Click="OnDestinationDeleteNodeClick"/>
+                                    <Separator/>
+                                    <MenuItem Header="Refresh" Click="OnRefreshDestinationClick"/>
+                                    <Separator/>
+                                    <MenuItem Header="Properties" InputGesture="Alt+Enter" Click="OnPropertiesClick"/>
+                                </ContextMenu>
+                            </TreeView.ContextMenu>
+                        </TreeView>
+                    </Grid>
+                </Grid>
+            </Border>
+
+            <!-- PREVIEW DRAWER (COLLAPSIBLE SIDE PANEL) -->
+            <Border Grid.Column="3" Width="300" IsVisible="{Binding Preview.IsPreviewDrawerOpen}" Background="{DynamicResource BgPanelBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="1,0,0,0">
+                <Grid RowDefinitions="40,*,Auto">
+                    <!-- PREVIEW HEADER -->
+                    <Border Grid.Row="0" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="0,0,0,1" Padding="12,0">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                <TextBlock Text="{Binding Preview.PreviewTitle}" FontSize="12" FontWeight="Medium" Foreground="{DynamicResource TextPrimaryBrush}" TextTrimming="CharacterEllipsis"/>
+                                <TextBlock Text="{Binding Preview.PreviewSubTitle}" FontSize="10" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                            </StackPanel>
+                            <Button Grid.Column="1" Content="✕" Width="22" Height="22" Background="Transparent" Foreground="{DynamicResource TextSecondaryBrush}" CornerRadius="4" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Click="OnClosePreviewClick"/>
+                        </Grid>
+                    </Border>
+
+                    <!-- IMAGE PREVIEW OR METADATA CONTENT -->
+                    <ScrollViewer Grid.Row="1" Padding="12">
+                        <StackPanel Spacing="12">
+                            <!-- IMAGE DISPLAY -->
+                            <Border IsVisible="{Binding Preview.PreviewImage, Converter={x:Static ObjectConverters.IsNotNull}}" Background="{DynamicResource BgInputBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="1" CornerRadius="6" Padding="8">
+                                <Image Source="{Binding Preview.PreviewImage}" MaxHeight="240" Stretch="Uniform"/>
+                            </Border>
+
+                            <!-- TEXT PREVIEW DISPLAY (.txt, .h, .ini, .cfg, .json, .descriptor) -->
+                            <Border IsVisible="{Binding Preview.IsPreviewTextVisible}" Background="{DynamicResource BgInputBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="1" CornerRadius="6" Padding="8">
+                                <ScrollViewer MaxHeight="280">
+                                    <SelectableTextBlock Text="{Binding Preview.PreviewText}" FontFamily="Consolas, Fira Code, monospace" FontSize="11" Foreground="{DynamicResource TextPrimaryBrush}" TextWrapping="Wrap"/>
+                                </ScrollViewer>
+                            </Border>
+
+                            <!-- METADATA KEY-VALUE TABLE -->
+                            <Border Background="{DynamicResource BgInputBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="1" CornerRadius="6" Padding="8">
+                                <ItemsControl ItemsSource="{Binding Preview.PreviewMetadata}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Grid ColumnDefinitions="*,Auto" Margin="0,3">
+                                                <SelectableTextBlock Grid.Column="0" Text="{Binding Key}" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" SelectionBrush="{DynamicResource SelectionHighlightBrush}"/>
+                                                <SelectableTextBlock Grid.Column="1" Text="{Binding Value}" FontSize="11" FontWeight="Medium" Foreground="{DynamicResource TextPrimaryBrush}" SelectionBrush="{DynamicResource SelectionHighlightBrush}"/>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </Border>
+                        </StackPanel>
+                    </ScrollViewer>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <!-- BOTTOM LOG PANEL -->
+        <Border Grid.Row="2" Background="#131313" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="0,1,0,0">
+            <Grid RowDefinitions="30,*">
+                <Border Grid.Row="0" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="0,0,0,1" Padding="12,0">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                            <TextBlock Text="SESSION LOG" FontFamily="Consolas, Fira Code, monospace" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                        </StackPanel>
+                    </Grid>
+                </Border>
+                <ScrollViewer x:Name="LogScrollViewer" Grid.Row="1" Padding="12,8">
+                    <ItemsControl ItemsSource="{Binding LogLines}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <SelectableTextBlock Text="{Binding}" FontFamily="Consolas, Fira Code, monospace" FontSize="10" Foreground="#C8C8C8" SelectionBrush="{DynamicResource SelectionHighlightBrush}"/>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </Grid>
+        </Border>
+        <!-- DUAL PROGRESS MODAL OVERLAY -->
+        <Grid Grid.RowSpan="3" IsVisible="{Binding IsBusy}" Background="#A0000000" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" ZIndex="999">
+            <Border Background="{DynamicResource BgPanelBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="1" CornerRadius="8" Padding="28,20" Width="480" MaxWidth="560" HorizontalAlignment="Center" VerticalAlignment="Center">
+                <StackPanel Spacing="12">
+                    <!-- Primary Macro Task Status -->
+                    <Grid ColumnDefinitions="Auto,*">
+                        <TextBlock Grid.Column="0" Text="⚙️" FontSize="18" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                        <TextBlock Grid.Column="1" Text="{Binding BusyMessage}" FontSize="13" FontWeight="Bold" Foreground="{DynamicResource TextPrimaryBrush}" VerticalAlignment="Center" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" MaxHeight="50"/>
+                    </Grid>
+
+                    <!-- Primary Overall Progress Bar -->
+                    <ProgressBar Height="6" Minimum="0" Maximum="100" Value="{Binding BusyProgressValue}" IsIndeterminate="{Binding IsBusyProgressIndeterminate}" Foreground="{DynamicResource AccentBrush}" Background="{DynamicResource BgInputBrush}" CornerRadius="3"/>
+
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Grid.Column="0" Text="Overall Progress" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                        <TextBlock Grid.Column="1" Text="{Binding BusyProgressValue, StringFormat='{}{0:F0}%'}" IsVisible="{Binding !IsBusyProgressIndeterminate}" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource AccentBrush}"/>
+                    </Grid>
+
+                    <!-- Secondary Micro Sub-Progress Bar (Visible during glTF / OBJ streaming export) -->
+                    <StackPanel Spacing="6" IsVisible="{Binding IsBusySubProgressVisible}" Margin="0,8,0,0">
+                        <TextBlock Text="{Binding BusySubMessage}" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" MaxHeight="36"/>
+                        <ProgressBar Height="5" Minimum="0" Maximum="100" Value="{Binding BusySubProgressValue}" Foreground="{DynamicResource AccentBrush}" Background="{DynamicResource BgInputBrush}" CornerRadius="2.5"/>
+                        <Grid ColumnDefinitions="*,Auto">
+                            <TextBlock Grid.Column="0" Text="Current Asset" FontSize="10" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                            <TextBlock Grid.Column="1" Text="{Binding BusySubProgressValue, StringFormat='{}{0:F0}%'}" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource AccentBrush}"/>
+                        </Grid>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Grid>
+    </Grid>
+</Window>

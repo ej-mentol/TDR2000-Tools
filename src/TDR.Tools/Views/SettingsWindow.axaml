@@ -1,0 +1,84 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="TDR.Tools.Views.SettingsWindow"
+        Title="Settings &amp; Preferences"
+        Width="520" Height="530"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False"
+        RequestedThemeVariant="Dark"
+        Background="{DynamicResource BgPrimaryBrush}">
+
+    <Grid RowDefinitions="Auto,*,Auto" Margin="20">
+        <!-- Title Header -->
+        <StackPanel Grid.Row="0" Spacing="6" Margin="0,0,0,16">
+            <TextBlock Text="Application Settings &amp; Defaults" FontSize="16" FontWeight="SemiBold" Foreground="#FFFFFF"/>
+            <TextBlock Text="Configure default drag &amp; drop actions, confirmation dialogs, and export options." FontSize="12" Foreground="#9EB6C8"/>
+        </StackPanel>
+
+        <!-- Options List -->
+        <ScrollViewer Grid.Row="1">
+            <StackPanel Spacing="14">
+                <!-- General Section -->
+                <Border Background="{DynamicResource BgPanelBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="1" CornerRadius="6" Padding="12">
+                    <StackPanel Spacing="10">
+                        <TextBlock Text="General Preferences" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource AccentBrush}"/>
+                        
+                        <CheckBox x:Name="ConfirmDeleteCheckBox" Content="Show confirmation dialog on file deletion" Foreground="{DynamicResource TextPrimaryBrush}" ToolTip.Tip="Ask for confirmation before sending files to Recycle Bin or deleting."/>
+
+                        <CheckBox x:Name="ShowDirIndexFilesCheckBox" Content="Show .dir index files in disk browser" Foreground="{DynamicResource TextPrimaryBrush}" ToolTip.Tip="TDR2000 archives are a .pak/.dir pair — the .dir is the trie index. Hidden by default to reduce clutter; enable if you need to see or handle it directly (e.g. reverse engineering)."/>
+
+                        <StackPanel Spacing="4" Margin="0,4,0,0">
+                            <TextBlock Text="Default Drag &amp; Drop PAK Action:" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                            <ComboBox x:Name="PakDragActionComboBox" HorizontalAlignment="Stretch" Background="{DynamicResource BgInputBrush}">
+                                <ComboBoxItem Content="Ask every time (Show prompt)"/>
+                                <ComboBoxItem Content="Always Extract raw contents"/>
+                                <ComboBoxItem Content="Always open Convert Track dialog"/>
+                            </ComboBox>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- Track Discovery Section -->
+                <Border Background="{DynamicResource BgPanelBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="1" CornerRadius="6" Padding="12">
+                    <StackPanel Spacing="10">
+                        <TextBlock Text="Track Discovery Mode" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource AccentBrush}"/>
+                        <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
+                                   Text="Controls how the tool finds track descriptors inside loaded PAK archives."/>
+                        <StackPanel Spacing="4">
+                            <ComboBox x:Name="TrackDiscoveryModeComboBox" HorizontalAlignment="Stretch" Background="{DynamicResource BgInputBrush}">
+                                <ComboBoxItem Content="Auto — races.txt first, heuristic fallback" Tag="Auto"/>
+                                <ComboBoxItem Content="Strict — races.txt only (CARMA.pak/races.txt)" Tag="RacesOnly"/>
+                                <ComboBoxItem Content="Heuristic — full .txt scan (legacy, slow)" Tag="Heuristic"/>
+                            </ComboBox>
+                            <TextBlock x:Name="DiscoveryModeHint" FontSize="10" Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap" Margin="0,2,0,0"
+                                       Text="Auto: reads CARMA.pak/races.txt when present; scans .txt files only if races.txt is absent."/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- Export Defaults Section -->
+                <Border Background="{DynamicResource BgPanelBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="1" CornerRadius="6" Padding="12">
+                    <StackPanel Spacing="10">
+                        <TextBlock Text="Default 3D Track Export Options" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource AccentBrush}"/>
+
+                        <CheckBox x:Name="ExportObjCheckBox" Content="Export Combined 3D Geometry (.OBJ / .MTL)" Foreground="{DynamicResource TextPrimaryBrush}"/>
+                        <CheckBox x:Name="IncludeMovablePropsCheckBox" Content="Bake Props, Signs &amp; Checkpoints into .OBJ" Foreground="{DynamicResource TextPrimaryBrush}" Margin="20,0,0,0"/>
+                        <CheckBox x:Name="ExportSceneJsonCheckBox" Content="Export Engine Scene Manifesto (.JSON) + Prefabs (0,0,0)" Foreground="{DynamicResource TextPrimaryBrush}"/>
+                        <CheckBox x:Name="UseGroupingCheckBox" Content="Group Mesh Instances (g &lt;HieName&gt;)" Foreground="{DynamicResource TextPrimaryBrush}"/>
+                        <CheckBox x:Name="DumpAllCheckBox" Content="Dump All Raw Hierarchy Assets (.HIE)" Foreground="{DynamicResource TextPrimaryBrush}"/>
+                        <CheckBox x:Name="VerboseLogCheckBox" Content="Enable verbose diagnostic logging" Foreground="{DynamicResource TextPrimaryBrush}"/>
+                        <CheckBox x:Name="DebugModeCheckBox" Content="Debug mode — timing metrics in session log" Foreground="{DynamicResource TextPrimaryBrush}"
+                                  ToolTip.Tip="Writes timing information (VFS index, tree build, track discovery) to the session log. Use to identify slow operations."/>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Action Buttons -->
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10" Margin="0,16,0,0">
+            <Button Content="Reset Defaults" Click="OnResetClick" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextSecondaryBrush}" Padding="14,6"/>
+            <Button Content="Cancel" Click="OnCancelClick" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextSecondaryBrush}" Padding="14,6"/>
+            <Button Content="Save Settings" Click="OnSaveClick" Background="{DynamicResource AccentBrush}" Foreground="#111111" FontWeight="SemiBold" Padding="16,6"/>
+        </StackPanel>
+    </Grid>
+</Window>

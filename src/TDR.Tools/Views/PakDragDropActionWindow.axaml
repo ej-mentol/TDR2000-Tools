@@ -1,0 +1,36 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="TDR.Tools.Views.PakDragDropActionWindow"
+        Title="PAK Archive Action"
+        Width="460" Height="220"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False"
+        RequestedThemeVariant="Dark"
+        Background="{DynamicResource BgPrimaryBrush}">
+
+    <Border Padding="20" Background="{DynamicResource BgPanelBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="1">
+        <Grid RowDefinitions="Auto,*,Auto,Auto">
+            <!-- HEADER / ICON -->
+            <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="12">
+                <TextBlock Text="📦" FontSize="24" VerticalAlignment="Center"/>
+                <StackPanel VerticalAlignment="Center">
+                    <TextBlock Text="PAK Archive Drag &amp; Drop Action" FontSize="14" FontWeight="Bold" Foreground="{DynamicResource TextPrimaryBrush}"/>
+                    <TextBlock x:Name="TargetPakTextBlock" Text="Choose action for archive..." FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap" Margin="0,2,0,0"/>
+                </StackPanel>
+            </StackPanel>
+
+            <!-- ACTION SELECTION DESCRIPTION -->
+            <TextBlock Grid.Row="1" Text="Extract raw contents directly or convert 3D track/mission geometry?" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+
+            <!-- REMEMBER CHOICE CHECKBOX -->
+            <CheckBox x:Name="RememberChoiceCheckBox" Grid.Row="2" Content="Remember my choice" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,12" ToolTip.Tip="Save selected action as default in Settings."/>
+
+            <!-- ACTION BUTTONS -->
+            <Grid Grid.Row="3" ColumnDefinitions="*,Auto,Auto,Auto">
+                <Button Grid.Column="1" Content="Extract Archive" Width="120" Height="30" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Background="{DynamicResource AccentSubtleBrush}" Foreground="{DynamicResource AccentBrush}" FontWeight="Medium" CornerRadius="6" Margin="0,0,8,0" Click="OnExtractClick" ToolTip.Tip="Unpack raw archive contents into Destination folder."/>
+                <Button Grid.Column="2" Content="Convert Track..." Width="120" Height="30" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Background="{DynamicResource AccentBrush}" Foreground="#111111" FontWeight="SemiBold" CornerRadius="6" Margin="0,0,8,0" Click="OnConvertClick" ToolTip.Tip="Open 3D Track/Mission Export Options dialog."/>
+                <Button Grid.Column="3" Content="Cancel" Width="80" Height="30" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" IsCancel="True" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextSecondaryBrush}" CornerRadius="6" Click="OnCancelClick"/>
+            </Grid>
+        </Grid>
+    </Border>
+</Window>
