@@ -96,13 +96,18 @@ namespace TDR.Tools.ViewModels
 
         private bool _exportObj = true;
         private bool _exportGltf = true;
+        private bool _exportPngTextures = true;
+        private bool _autoUnpackInnerPaks = true;
+        private bool _hasInnerPakFiles = false;
         private bool _includeMovableProps = true;
         private bool _exportSceneJson = true;
         private bool _useZeroOriginForJsonAssets = true;
         private bool _useGrouping = true;
         private bool _useLocalCoords = false;
         private bool _enableGroundSnap = false;
+        private bool _dumpAll = false;
         private bool _verboseLog = false;
+        private bool _debugMode = false;
         private string _searchHieQuery = string.Empty;
         private string _selectedVariant = PresetAllSupported;
         private bool _isUpdatingFromPreset = false;
@@ -151,6 +156,28 @@ namespace TDR.Tools.ViewModels
             set { _exportGltf = value; OnPropertyChanged(); }
         }
 
+        public bool ExportPngTextures
+        {
+            get => _exportPngTextures;
+            set { _exportPngTextures = value; OnPropertyChanged(); }
+        }
+
+        public bool HasInnerPakFiles
+        {
+            get => _hasInnerPakFiles;
+            set { _hasInnerPakFiles = value; OnPropertyChanged(); OnPropertyChanged(nameof(InnerPakStatusTooltip)); }
+        }
+
+        public bool AutoUnpackInnerPaks
+        {
+            get => _autoUnpackInnerPaks;
+            set { _autoUnpackInnerPaks = value; OnPropertyChanged(); }
+        }
+
+        public string InnerPakStatusTooltip => HasInnerPakFiles
+            ? "Track folder contains nested .PAK archives — check this to automatically unpack them before 3D export."
+            : "No nested .PAK archives found in this track folder.";
+
         public bool IncludeMovableProps
         {
             get => _includeMovableProps;
@@ -187,10 +214,22 @@ namespace TDR.Tools.ViewModels
             set { _enableGroundSnap = value; OnPropertyChanged(); }
         }
 
+        public bool DumpAll
+        {
+            get => _dumpAll;
+            set { _dumpAll = value; OnPropertyChanged(); }
+        }
+
         public bool VerboseLog
         {
             get => _verboseLog;
             set { _verboseLog = value; OnPropertyChanged(); }
+        }
+
+        public bool DebugMode
+        {
+            get => _debugMode;
+            set { _debugMode = value; OnPropertyChanged(); }
         }
 
         public string SearchHieQuery
@@ -219,15 +258,24 @@ namespace TDR.Tools.ViewModels
         public ConvertTrackModalViewModel()
         {
             var settings = Services.AppSettings.Load();
+            LoadFromSettings(settings);
+        }
+
+        public void LoadFromSettings(AppSettings settings)
+        {
             ExportObj = settings.ExportObj;
             ExportGltf = settings.ExportGltf;
+            ExportPngTextures = settings.ExportPngTextures;
+            AutoUnpackInnerPaks = settings.AutoUnpackInnerPaks;
             IncludeMovableProps = settings.IncludeMovableProps;
             ExportSceneJson = settings.ExportSceneJson;
             UseZeroOriginForJsonAssets = settings.UseZeroOriginForJsonAssets;
             UseGrouping = settings.UseGrouping;
             UseLocalCoords = settings.UseLocalCoords;
             EnableGroundSnap = settings.EnableGroundSnap;
+            DumpAll = settings.DumpAll;
             VerboseLog = settings.VerboseLog;
+            DebugMode = settings.DebugMode;
         }
 
         public void NotifyUserTreeToggled()
@@ -392,13 +440,17 @@ namespace TDR.Tools.ViewModels
             var settings = Services.AppSettings.Load();
             settings.ExportObj = ExportObj;
             settings.ExportGltf = ExportGltf;
+            settings.ExportPngTextures = ExportPngTextures;
+            settings.AutoUnpackInnerPaks = AutoUnpackInnerPaks;
             settings.IncludeMovableProps = IncludeMovableProps;
             settings.ExportSceneJson = ExportSceneJson;
             settings.UseZeroOriginForJsonAssets = UseZeroOriginForJsonAssets;
             settings.UseGrouping = UseGrouping;
             settings.UseLocalCoords = UseLocalCoords;
             settings.EnableGroundSnap = EnableGroundSnap;
+            settings.DumpAll = DumpAll;
             settings.VerboseLog = VerboseLog;
+            settings.DebugMode = DebugMode;
             settings.Save();
 
             RequestStartExport?.Invoke(this);

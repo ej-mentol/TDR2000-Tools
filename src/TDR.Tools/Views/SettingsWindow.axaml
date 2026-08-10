@@ -2,7 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="TDR.Tools.Views.SettingsWindow"
         Title="Settings &amp; Preferences"
-        Width="520" Height="530"
+        Width="580" Height="590"
         WindowStartupLocation="CenterOwner"
         CanResize="False"
         RequestedThemeVariant="Dark"
@@ -16,8 +16,8 @@
         </StackPanel>
 
         <!-- Options List -->
-        <ScrollViewer Grid.Row="1">
-            <StackPanel Spacing="14">
+        <ScrollViewer Grid.Row="1" Margin="0,0,8,0">
+            <StackPanel Spacing="14" Margin="0,0,8,0">
                 <!-- General Section -->
                 <Border Background="{DynamicResource BgPanelBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="1" CornerRadius="6" Padding="12">
                     <StackPanel Spacing="10">
@@ -31,7 +31,7 @@
                             <TextBlock Text="Default Drag &amp; Drop PAK Action:" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"/>
                             <ComboBox x:Name="PakDragActionComboBox" HorizontalAlignment="Stretch" Background="{DynamicResource BgInputBrush}">
                                 <ComboBoxItem Content="Ask every time (Show prompt)"/>
-                                <ComboBoxItem Content="Always Extract raw contents"/>
+                                <ComboBoxItem Content="Always Unpack raw archives"/>
                                 <ComboBoxItem Content="Always open Convert Track dialog"/>
                             </ComboBox>
                         </StackPanel>
@@ -62,10 +62,17 @@
                         <TextBlock Text="Default 3D Track Export Options" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource AccentBrush}"/>
 
                         <CheckBox x:Name="ExportObjCheckBox" Content="Export Combined 3D Geometry (.OBJ / .MTL)" Foreground="{DynamicResource TextPrimaryBrush}"/>
-                        <CheckBox x:Name="IncludeMovablePropsCheckBox" Content="Bake Props, Signs &amp; Checkpoints into .OBJ" Foreground="{DynamicResource TextPrimaryBrush}" Margin="20,0,0,0"/>
-                        <CheckBox x:Name="ExportSceneJsonCheckBox" Content="Export Engine Scene Manifesto (.JSON) + Prefabs (0,0,0)" Foreground="{DynamicResource TextPrimaryBrush}"/>
+                        <CheckBox x:Name="ExportGltfCheckBox" Content="Export Modern 3D Scene (.GLTF / .GLB)" Foreground="{DynamicResource TextPrimaryBrush}"/>
+                        <CheckBox x:Name="ExportPngTexturesCheckBox" Content="Convert Textures to PNG (.png)" Foreground="{DynamicResource TextPrimaryBrush}"/>
+                        <CheckBox x:Name="AutoUnpackInnerPaksCheckBox" Content="Also unpack inner .PAK archives before export" Foreground="{DynamicResource TextPrimaryBrush}"/>
+                        <CheckBox x:Name="IncludeMovablePropsCheckBox" Content="Bake Props, Signs &amp; Checkpoints into .OBJ / glTF" Foreground="{DynamicResource TextPrimaryBrush}" Margin="20,0,0,0"/>
+                        <CheckBox x:Name="ExportSceneJsonCheckBox" Content="Export Engine Scene Manifesto (.JSON)" Foreground="{DynamicResource TextPrimaryBrush}"/>
+                        <CheckBox x:Name="UseZeroOriginForJsonAssetsCheckBox" Content="Center Extracted Prefabs at Local Origin (0,0,0)" Foreground="{DynamicResource TextPrimaryBrush}" Margin="20,0,0,0"/>
                         <CheckBox x:Name="UseGroupingCheckBox" Content="Group Mesh Instances (g &lt;HieName&gt;)" Foreground="{DynamicResource TextPrimaryBrush}"/>
-                        <CheckBox x:Name="DumpAllCheckBox" Content="Dump All Raw Hierarchy Assets (.HIE)" Foreground="{DynamicResource TextPrimaryBrush}"/>
+                        <CheckBox x:Name="UseLocalCoordsCheckBox" Content="Use Local Coordinates" Foreground="{DynamicResource TextPrimaryBrush}"/>
+                        <CheckBox x:Name="EnableGroundSnapCheckBox" Content="Raycast Ground Snap Props to Surface" Foreground="{DynamicResource TextPrimaryBrush}"/>
+                        <CheckBox x:Name="DumpAllCheckBox" Content="Dump All Raw Hierarchy Assets (.HIE)" Foreground="{DynamicResource TextPrimaryBrush}"
+                                  ToolTip.Tip="Advanced/Debug: Dumps all raw .HIE files into individual uncombined .OBJ models without building the world map. Use for extracting standalone 3D props or reversing assets."/>
                         <CheckBox x:Name="VerboseLogCheckBox" Content="Enable verbose diagnostic logging" Foreground="{DynamicResource TextPrimaryBrush}"/>
                         <CheckBox x:Name="DebugModeCheckBox" Content="Debug mode — timing metrics in session log" Foreground="{DynamicResource TextPrimaryBrush}"
                                   ToolTip.Tip="Writes timing information (VFS index, tree build, track discovery) to the session log. Use to identify slow operations."/>
@@ -74,11 +81,11 @@
             </StackPanel>
         </ScrollViewer>
 
-        <!-- Action Buttons -->
+        <!-- Action Buttons (Standard Order: Save / Apply | Cancel | Reset) -->
         <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10" Margin="0,16,0,0">
-            <Button Content="Reset Defaults" Click="OnResetClick" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextSecondaryBrush}" Padding="14,6"/>
-            <Button Content="Cancel" Click="OnCancelClick" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextSecondaryBrush}" Padding="14,6"/>
-            <Button Content="Save Settings" Click="OnSaveClick" Background="{DynamicResource AccentBrush}" Foreground="#111111" FontWeight="SemiBold" Padding="16,6"/>
+            <Button Content="Save Settings" Click="OnSaveClick" Background="{DynamicResource AccentBrush}" Foreground="#0E0E0E" FontWeight="SemiBold" FontSize="12" Height="32" Padding="16,0" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="1" CornerRadius="4"/>
+            <Button Content="Cancel" Click="OnCancelClick" IsCancel="True" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextPrimaryBrush}" FontWeight="SemiBold" FontSize="12" Height="32" Padding="14,0" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="1" CornerRadius="4"/>
+            <Button Content="Reset Defaults" Click="OnResetClick" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextSecondaryBrush}" FontWeight="SemiBold" FontSize="12" Height="32" Padding="14,0" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="1" CornerRadius="4"/>
         </StackPanel>
     </Grid>
 </Window>

@@ -31,17 +31,54 @@ namespace TDR.Tools.ViewModels
         private bool _isPreviewDrawerExpanded;
         private string? _previewText;
 
+        private bool _isAudioFile;
+        private bool _isAudioPlaying;
+        private bool _isAudioLooping;
+        private bool _isAudioMuted;
+        private double _audioProgressPercent;
+        private string _audioFormatText = string.Empty;
+        private string _audioDurationText = "0:00";
+        private byte[]? _currentAudioBytes;
+
+        private double _currentAudioTotalSeconds;
+
         public event PropertyChangedEventHandler? PropertyChanged;
 
         public PreviewViewModel(Func<FileNodeViewModel, byte[]?> readFileBytes, Action<string> log)
         {
             _readFileBytes = readFileBytes ?? throw new ArgumentNullException(nameof(readFileBytes));
             _log = log ?? throw new ArgumentNullException(nameof(log));
+
+            Services.AudioPlayerService.Instance.PlaybackStateChanged += (isPlaying) =>
+            {
+                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                {
+                    IsAudioPlaying = isPlaying;
+                });
+            };
+
+            Services.AudioPlayerService.Instance.ProgressUpdated += (elapsed, total, percent) =>
+            {
+                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                {
+                    AudioProgressPercent = percent;
+                    if (total > 0) _currentAudioTotalSeconds = total;
+                    int curSec = (int)Math.Floor(elapsed);
+                    int totSec = (int)Math.Round(_currentAudioTotalSeconds);
+                    AudioDurationText = $"{curSec / 60}:{curSec % 60:D2} / {totSec / 60}:{totSec % 60:D2}";
+                });
+            };
         }
 
         // ──────────────────────────────────────────────
         //  Bindable Properties
         // ──────────────────────────────────────────────
+
+        public double AudioProgressPercent
+        {
+            get => _audioProgressPercent;
+            set => SetField(ref _audioProgressPercent, value);
+        }
 
         public Bitmap? PreviewImage
         {
@@ -59,6 +96,104 @@ namespace TDR.Tools.ViewModels
         {
             get => _previewSubTitle;
             set => SetField(ref _previewSubTitle, value);
+        }
+
+        public bool IsAudioFile
+        {
+            get => _isAudioFile;
+            set => SetField(ref _isAudioFile, value);
+        }
+
+        public bool IsAudioPlaying
+        {
+            get => _isAudioPlaying;
+            set
+            {
+                if (SetField(ref _isAudioPlaying, value))
+                {
+                    OnPropertyChanged(nameof(AudioPlayIconData));
+                }
+            }
+        }
+
+        public string AudioFormatText
+        {
+            get => _audioFormatText;
+            set => SetField(ref _audioFormatText, value);
+        }
+
+        public string AudioDurationText
+        {
+            get => _audioDurationText;
+            set => SetField(ref _audioDurationText, value);
+        }
+
+        public string AudioPlayIconData => IsAudioPlaying
+            ? "M6 19h4V5H6v14zm8-14v14h4V5h-4z"
+            : "M8 5v14l11-7z";
+
+        public bool IsAudioLooping
+        {
+            get => _isAudioLooping;
+            set
+            {
+                if (SetField(ref _isAudioLooping, value))
+                {
+                    Services.AudioPlayerService.Instance.IsLooping = value;
+                    OnPropertyChanged(nameof(AudioLoopBrush));
+                }
+            }
+        }
+
+        public bool IsAudioMuted
+        {
+            get => _isAudioMuted;
+            set
+            {
+                if (SetField(ref _isAudioMuted, value))
+                {
+                    OnPropertyChanged(nameof(AudioMuteIconData));
+                }
+            }
+        }
+
+        public string AudioLoopBrush => IsAudioLooping ? "#38BDF8" : "#888888";
+        public string AudioMuteBrush => IsAudioMuted ? "#EF4444" : "#888888";
+
+        public string AudioMuteIconData => IsAudioMuted
+            ? "M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73 4.27 3zM12 4L9.91 6.09 12 8.18V4z"
+            : "M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z";
+
+        public void ToggleAudioLoop()
+        {
+            IsAudioLooping = !IsAudioLooping;
+        }
+
+        public void ToggleAudioMute()
+        {
+            Services.AudioPlayerService.Instance.ToggleMute(_currentAudioBytes);
+            IsAudioMuted = Services.AudioPlayerService.Instance.IsMuted;
+        }
+
+        public void ToggleAudioPlay()
+        {
+            if (_currentAudioBytes == null || _currentAudioBytes.Length == 0) return;
+            Services.AudioPlayerService.Instance.TogglePlay(_currentAudioBytes);
+            IsAudioPlaying = Services.AudioPlayerService.Instance.IsPlaying;
+            if (IsAudioPlaying)
+            {
+                _log($"Playing '{PreviewTitle}' ({AudioFormatText})");
+            }
+            else
+            {
+                _log($"Stopped playing '{PreviewTitle}'");
+            }
+        }
+
+        public void StopAudio()
+        {
+            Services.AudioPlayerService.Instance.Stop();
+            IsAudioPlaying = false;
         }
 
         public bool IsPreviewVisible
@@ -112,6 +247,9 @@ namespace TDR.Tools.ViewModels
 
         public void ClosePreview()
         {
+            StopAudio();
+            IsAudioFile = false;
+            _currentAudioBytes = null;
             PreviewImage = null;
             PreviewText = null;
             PreviewMetadata.Clear();
@@ -155,6 +293,8 @@ namespace TDR.Tools.ViewModels
                 PreviewMetadata.Clear();
                 PreviewImage = null;
                 PreviewText = null;
+                IsAudioFile = false;
+                StopAudio();
 
                 if (ext == ".tga")
                 {
@@ -177,6 +317,23 @@ namespace TDR.Tools.ViewModels
                         PreviewMetadata.Add(new KeyValuePair<string, string>("Dimensions", $"{PreviewImage.PixelSize.Width} × {PreviewImage.PixelSize.Height}"));
                         _log($"In-memory preview image: {node.Name}");
                     }
+                }
+                else if (ext == ".wav" || ext == ".snd")
+                {
+                    IsAudioFile = true;
+                    _currentAudioBytes = fileBytes;
+                    var wavInfo = Services.AudioPlayerService.Instance.ParseWavHeader(fileBytes);
+                    AudioFormatText = wavInfo.FormatText;
+                    _currentAudioTotalSeconds = wavInfo.DurationSeconds;
+                    int totalSec = (int)Math.Round(wavInfo.DurationSeconds);
+                    string totalDurationStr = $"{totalSec / 60}:{totalSec % 60:D2}";
+                    AudioDurationText = $"0:00 / {totalDurationStr}";
+
+                    PreviewMetadata.Add(new KeyValuePair<string, string>("Format", $"Audio ({ext})"));
+                    PreviewMetadata.Add(new KeyValuePair<string, string>("Audio Info", AudioFormatText));
+                    PreviewMetadata.Add(new KeyValuePair<string, string>("Duration", totalDurationStr));
+                    PreviewMetadata.Add(new KeyValuePair<string, string>("Source", node.IsArchive ? "VFS PAK Memory" : "Disk"));
+                    _log($"Loaded audio: '{node.Name}' ({AudioFormatText}, {totalDurationStr})");
                 }
                 else if (ext == ".txt" || ext == ".h" || ext == ".ini" || ext == ".cfg" || ext == ".json" || ext == ".xml" || ext == ".descriptor")
                 {

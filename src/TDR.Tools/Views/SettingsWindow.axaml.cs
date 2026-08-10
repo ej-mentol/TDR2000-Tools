@@ -37,9 +37,15 @@ namespace TDR.Tools.Views
             UpdateDiscoveryHint();
 
             ExportObjCheckBox.IsChecked = _settings.ExportObj;
+            ExportGltfCheckBox.IsChecked = _settings.ExportGltf;
+            ExportPngTexturesCheckBox.IsChecked = _settings.ExportPngTextures;
+            AutoUnpackInnerPaksCheckBox.IsChecked = _settings.AutoUnpackInnerPaks;
             IncludeMovablePropsCheckBox.IsChecked = _settings.IncludeMovableProps;
             ExportSceneJsonCheckBox.IsChecked = _settings.ExportSceneJson;
+            UseZeroOriginForJsonAssetsCheckBox.IsChecked = _settings.UseZeroOriginForJsonAssets;
             UseGroupingCheckBox.IsChecked = _settings.UseGrouping;
+            UseLocalCoordsCheckBox.IsChecked = _settings.UseLocalCoords;
+            EnableGroundSnapCheckBox.IsChecked = _settings.EnableGroundSnap;
             DumpAllCheckBox.IsChecked = _settings.DumpAll;
             VerboseLogCheckBox.IsChecked = _settings.VerboseLog;
             DebugModeCheckBox.IsChecked = _settings.DebugMode;
@@ -81,9 +87,15 @@ namespace TDR.Tools.Views
             }
 
             _settings.ExportObj = ExportObjCheckBox.IsChecked == true;
+            _settings.ExportGltf = ExportGltfCheckBox.IsChecked == true;
+            _settings.ExportPngTextures = ExportPngTexturesCheckBox.IsChecked == true;
+            _settings.AutoUnpackInnerPaks = AutoUnpackInnerPaksCheckBox.IsChecked == true;
             _settings.IncludeMovableProps = IncludeMovablePropsCheckBox.IsChecked == true;
             _settings.ExportSceneJson = ExportSceneJsonCheckBox.IsChecked == true;
+            _settings.UseZeroOriginForJsonAssets = UseZeroOriginForJsonAssetsCheckBox.IsChecked == true;
             _settings.UseGrouping = UseGroupingCheckBox.IsChecked == true;
+            _settings.UseLocalCoords = UseLocalCoordsCheckBox.IsChecked == true;
+            _settings.EnableGroundSnap = EnableGroundSnapCheckBox.IsChecked == true;
             _settings.DumpAll = DumpAllCheckBox.IsChecked == true;
             _settings.VerboseLog = VerboseLogCheckBox.IsChecked == true;
             _settings.DebugMode = DebugModeCheckBox.IsChecked == true;

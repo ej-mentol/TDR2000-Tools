@@ -2,7 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="TDR.Tools.Views.PakDragDropActionWindow"
         Title="PAK Archive Action"
-        Width="460" Height="220"
+        Width="460" Height="250"
         WindowStartupLocation="CenterOwner"
         CanResize="False"
         RequestedThemeVariant="Dark"
@@ -12,7 +12,7 @@
         <Grid RowDefinitions="Auto,*,Auto,Auto">
             <!-- HEADER / ICON -->
             <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="12">
-                <TextBlock Text="📦" FontSize="24" VerticalAlignment="Center"/>
+                <PathIcon Data="M5 8h14M5 8a2 2 0 01-2-2V5a2 2 0 012-2h14a2 2 0 012 2v1a2 2 0 01-2 2M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" Width="24" Height="24" Foreground="{DynamicResource AccentBrush}" VerticalAlignment="Center"/>
                 <StackPanel VerticalAlignment="Center">
                     <TextBlock Text="PAK Archive Drag &amp; Drop Action" FontSize="14" FontWeight="Bold" Foreground="{DynamicResource TextPrimaryBrush}"/>
                     <TextBlock x:Name="TargetPakTextBlock" Text="Choose action for archive..." FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap" Margin="0,2,0,0"/>
@@ -20,17 +20,33 @@
             </StackPanel>
 
             <!-- ACTION SELECTION DESCRIPTION -->
-            <TextBlock Grid.Row="1" Text="Extract raw contents directly or convert 3D track/mission geometry?" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+            <TextBlock Grid.Row="1" Text="Unpack raw archive contents or convert 3D track/mission geometry?" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center"/>
 
-            <!-- REMEMBER CHOICE CHECKBOX -->
-            <CheckBox x:Name="RememberChoiceCheckBox" Grid.Row="2" Content="Remember my choice" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,12" ToolTip.Tip="Save selected action as default in Settings."/>
+            <!-- OPTION CHECKBOXES -->
+            <StackPanel Grid.Row="2" Margin="0,0,0,12">
+                <CheckBox x:Name="RememberChoiceCheckBox" Content="Remember my choice" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" ToolTip.Tip="Save selected action as default in Settings."/>
+            </StackPanel>
 
-            <!-- ACTION BUTTONS -->
-            <Grid Grid.Row="3" ColumnDefinitions="*,Auto,Auto,Auto">
-                <Button Grid.Column="1" Content="Extract Archive" Width="120" Height="30" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Background="{DynamicResource AccentSubtleBrush}" Foreground="{DynamicResource AccentBrush}" FontWeight="Medium" CornerRadius="6" Margin="0,0,8,0" Click="OnExtractClick" ToolTip.Tip="Unpack raw archive contents into Destination folder."/>
-                <Button Grid.Column="2" Content="Convert Track..." Width="120" Height="30" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Background="{DynamicResource AccentBrush}" Foreground="#111111" FontWeight="SemiBold" CornerRadius="6" Margin="0,0,8,0" Click="OnConvertClick" ToolTip.Tip="Open 3D Track/Mission Export Options dialog."/>
-                <Button Grid.Column="3" Content="Cancel" Width="80" Height="30" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" IsCancel="True" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextSecondaryBrush}" CornerRadius="6" Click="OnCancelClick"/>
-            </Grid>
+            <!-- ACTION BUTTONS (Fast Default: Convert Track | Split Menu: Copy/Unpack | Cancel) -->
+            <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10">
+                <Button x:Name="ConvertButton" Content="Convert Track..." Click="OnConvertClick" Width="130" Height="32" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" IsDefault="True" Background="{DynamicResource AccentBrush}" Foreground="#0E0E0E" FontWeight="SemiBold" FontSize="12" CornerRadius="4" ToolTip.Tip="Fastest action: Open 3D Track/Mission Export Options dialog (Press Enter)."/>
+                
+                <Button x:Name="FileOpsButton" Width="130" Height="32" Padding="10,0" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextPrimaryBrush}" FontWeight="SemiBold" FontSize="12" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="1" CornerRadius="4" ToolTip.Tip="Click for copy &amp; unpack operations.">
+                    <Grid ColumnDefinitions="*,Auto" HorizontalAlignment="Stretch">
+                        <TextBlock x:Name="FileOpsText" Text="File Ops" VerticalAlignment="Center"/>
+                        <TextBlock Text="▾" Grid.Column="1" Margin="6,0,0,0" VerticalAlignment="Center" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                    </Grid>
+                    <Button.Flyout>
+                        <MenuFlyout>
+                            <MenuItem x:Name="CopyAndUnpackMenuItem" Header="📂 Copy Folder &amp; Unpack PAKs" Click="OnCopyAndUnpackClick"/>
+                            <MenuItem x:Name="CopyOnlyMenuItem" Header="📋 Copy Folder Files Only" Click="OnCopyOnlyClick"/>
+                            <MenuItem x:Name="UnpackOnlyMenuItem" Header="📦 Unpack .PAK Archives Only" Click="OnUnpackOnlyClick"/>
+                        </MenuFlyout>
+                    </Button.Flyout>
+                </Button>
+
+                <Button x:Name="CancelButton" Content="Cancel" Click="OnCancelClick" IsCancel="True" Width="90" Height="32" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextSecondaryBrush}" FontWeight="SemiBold" FontSize="12" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="1" CornerRadius="4"/>
+            </StackPanel>
         </Grid>
     </Border>
 </Window>

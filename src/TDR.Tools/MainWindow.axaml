@@ -11,7 +11,7 @@
         FontFamily="Inter, Segoe UI, sans-serif"
         KeyDown="OnWindowKeyDown">
 
-    <Grid RowDefinitions="Auto,*,130">
+    <Grid RowDefinitions="Auto,*,Auto,130">
         <!-- HEADER -->
         <Border Grid.Row="0" Height="42" Background="#151515" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="0,0,0,1" Padding="16,0">
             <Grid ColumnDefinitions="Auto,*,Auto">
@@ -27,7 +27,7 @@
                             <MenuItem Header="_Exit" InputGesture="Alt+F4" Click="OnExitClick"/>
                         </MenuItem>
                         <MenuItem Header="_Edit">
-                            <MenuItem Header="_Extract Selected" InputGesture="F5" Click="OnExtractSelectedClick"/>
+                            <MenuItem Header="_Unpack / Copy Selected" InputGesture="F5" Click="OnExtractSelectedClick"/>
                             <MenuItem Header="_Delete Selected" InputGesture="Delete" Click="OnDeleteSelectedClick"/>
                         </MenuItem>
                         <MenuItem Header="_View">
@@ -35,9 +35,6 @@
                             <MenuItem Header="Refresh _Destination Tree" Click="OnRefreshDestinationClick"/>
                             <Separator/>
                             <MenuItem Header="_Toggle Preview Drawer" Click="OnTogglePreviewClick"/>
-                        </MenuItem>
-                        <MenuItem Header="_Tools">
-                            <MenuItem Header="_Pack Directory to .PAK Archive..." Click="OnPackFolderToPakClick"/>
                         </MenuItem>
                         <MenuItem Header="_Options">
                             <MenuItem Header="_Settings &amp; Preferences..." InputGesture="Ctrl+P" Click="OnSettingsMenuClick"/>
@@ -51,7 +48,7 @@
                 <!-- RIGHT HEADER SPEEDBUTTONS BAR -->
                 <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
                     <ToggleButton IsChecked="{Binding Preview.IsPreviewDrawerExpanded, Mode=TwoWay}" Width="26" Height="26" Background="{Binding Preview.PreviewDrawerModeBrush}" Foreground="{DynamicResource TextPrimaryBrush}" CornerRadius="6" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ToolTip.Tip="Toggle Details / Inspector Drawer">
-                        <TextBlock Text="ⓘ" FontSize="12" FontWeight="SemiBold"/>
+                        <PathIcon Data="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2zm11 2v12h5V6h-5z" Width="14" Height="14"/>
                     </ToggleButton>
                 </StackPanel>
             </Grid>
@@ -66,9 +63,15 @@
                     <Border Grid.Row="0" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="0,0,0,1" Padding="12,10">
                         <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto">
                             <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
-                                <Button Content="‹" Width="26" Height="26" Background="Transparent" Foreground="#A8A8A8" CornerRadius="6" HorizontalContentAlignment="Center" Click="OnSourceNavBackClick"/>
-                                <Button Content="›" Width="26" Height="26" Background="Transparent" Foreground="#A8A8A8" CornerRadius="6" HorizontalContentAlignment="Center" Click="OnSourceNavForwardClick"/>
-                                <Button Content="↑" Width="26" Height="26" Background="Transparent" Foreground="#A8A8A8" CornerRadius="6" HorizontalContentAlignment="Center" Click="OnSourceNavUpClick"/>
+                                <Button Width="26" Height="26" IsEnabled="{Binding CanSourceNavigateBack}" Background="Transparent" Foreground="#A8A8A8" CornerRadius="6" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Click="OnSourceNavBackClick" ToolTip.Tip="Navigate Back">
+                                    <PathIcon Data="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z" Width="12" Height="12"/>
+                                </Button>
+                                <Button Width="26" Height="26" IsEnabled="{Binding CanSourceNavigateForward}" Background="Transparent" Foreground="#A8A8A8" CornerRadius="6" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Click="OnSourceNavForwardClick" ToolTip.Tip="Navigate Forward">
+                                    <PathIcon Data="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" Width="12" Height="12"/>
+                                </Button>
+                                <Button Width="26" Height="26" Background="Transparent" Foreground="#A8A8A8" CornerRadius="6" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Click="OnSourceNavUpClick" ToolTip.Tip="Navigate Up (Parent Folder)">
+                                    <PathIcon Data="M12 4l-6 6h4v8h4v-8h4l-6-6z" Width="12" Height="12"/>
+                                </Button>
                             </StackPanel>
                             <Button Grid.Column="1" Margin="10,0" VerticalAlignment="Center" Background="Transparent" Padding="0" Click="OnSelectSourceFolderClick">
                                 <StackPanel>
@@ -77,12 +80,18 @@
                                 </StackPanel>
                             </Button>
                             <!-- SEARCH FIELD -->
-                            <TextBox Grid.Column="2" Width="130" Height="26" PlaceholderText="Search source" Text="{Binding SearchSourceQuery}" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextPrimaryBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" CornerRadius="6" FontSize="11" Padding="6,2" Margin="0,0,8,0"/>
+                            <TextBox Grid.Column="2" Width="165" Height="28" VerticalAlignment="Center" VerticalContentAlignment="Center" PlaceholderText="Search source..." Text="{Binding SearchSourceQuery}" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextPrimaryBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" CornerRadius="6" FontSize="12" Padding="8,4" Margin="0,0,8,0"/>
                             <!-- SPEEDBUTTON VIEW MODE SWITCHER AT FAR RIGHT EDGE -->
                             <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
-                                <Button Content="☰" Width="26" Height="26" Background="{Binding SourceTreeModeBrush}" Foreground="{DynamicResource TextPrimaryBrush}" CornerRadius="6" HorizontalContentAlignment="Center" Click="OnSourceViewTreeClick" ToolTip.Tip="Tree View (Hierarchy)"/>
-                                <Button Content="≡" Width="26" Height="26" Background="{Binding SourceListModeBrush}" Foreground="{DynamicResource TextPrimaryBrush}" CornerRadius="6" HorizontalContentAlignment="Center" Click="OnSourceViewListClick" ToolTip.Tip="Flat Details Table (Sortable Columns)"/>
-                                <Button Content="▦" Width="26" Height="26" Background="{Binding SourceGridModeBrush}" Foreground="{DynamicResource TextPrimaryBrush}" CornerRadius="6" HorizontalContentAlignment="Center" Click="OnSourceViewGridClick" ToolTip.Tip="Grid Cards View"/>
+                                <Button Width="26" Height="26" Background="{Binding SourceTreeModeBrush}" Foreground="{DynamicResource TextPrimaryBrush}" CornerRadius="6" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Click="OnSourceViewTreeClick" ToolTip.Tip="Tree View (Hierarchy)">
+                                    <PathIcon Data="M3 4h4v4H3V4zm6 1h12v2H9V5zm0 6h12v2H9v-2zm0 6h12v2H9v-2zM5 8v9h2V8H5z" Width="13" Height="13"/>
+                                </Button>
+                                <Button Width="26" Height="26" Background="{Binding SourceListModeBrush}" Foreground="{DynamicResource TextPrimaryBrush}" CornerRadius="6" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Click="OnSourceViewListClick" ToolTip.Tip="Flat Details Table (Sortable Columns)">
+                                    <PathIcon Data="M3 4h18v16H3V4zm2 4h14V6H5v2zm0 4h14v-2H5v2zm0 4h14v-2H5v2z" Width="13" Height="13"/>
+                                </Button>
+                                <Button Width="26" Height="26" Background="{Binding SourceGridModeBrush}" Foreground="{DynamicResource TextPrimaryBrush}" CornerRadius="6" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Click="OnSourceViewGridClick" ToolTip.Tip="Grid Cards View">
+                                    <PathIcon Data="M4 4h6v6H4zm10 0h6v6h-6zM4 14h6v6H4zm10 0h6v6h-6z" Width="13" Height="13"/>
+                                </Button>
                             </StackPanel>
                         </Grid>
                     </Border>
@@ -98,12 +107,6 @@
                                     <Setter Property="Padding" Value="2,0"/>
                                 </Style>
                                 <Style Selector="TreeViewItem /template/ Border#PART_LayoutRoot">
-                                    <Setter Property="BorderThickness" Value="3,0,0,0"/>
-                                    <Setter Property="BorderBrush" Value="Transparent"/>
-                                    <Setter Property="CornerRadius" Value="2"/>
-                                </Style>
-                                <Style Selector="TreeViewItem:pointerover /template/ Border#PART_LayoutRoot">
-                                    <Setter Property="Background" Value="#0DFFFFFF"/>
                                 </Style>
                                 <Style Selector="TreeViewItem:selected /template/ Border#PART_LayoutRoot">
                                     <Setter Property="Background" Value="{DynamicResource AccentSubtleBrush}"/>
@@ -259,9 +262,15 @@
                     <Border Grid.Row="0" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="0,0,0,1" Padding="12,10">
                         <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto">
                             <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
-                                <Button Content="‹" Width="26" Height="26" Background="Transparent" Foreground="#A8A8A8" CornerRadius="6" HorizontalContentAlignment="Center" Click="OnDestinationNavBackClick"/>
-                                <Button Content="›" Width="26" Height="26" Background="Transparent" Foreground="#A8A8A8" CornerRadius="6" HorizontalContentAlignment="Center" Click="OnDestinationNavForwardClick"/>
-                                <Button Content="↑" Width="26" Height="26" Background="Transparent" Foreground="#A8A8A8" CornerRadius="6" HorizontalContentAlignment="Center" Click="OnDestinationNavUpClick"/>
+                                <Button Width="26" Height="26" IsEnabled="{Binding CanDestinationNavigateBack}" Background="Transparent" Foreground="#A8A8A8" CornerRadius="6" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Click="OnDestinationNavBackClick" ToolTip.Tip="Navigate Back">
+                                    <PathIcon Data="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z" Width="12" Height="12"/>
+                                </Button>
+                                <Button Width="26" Height="26" IsEnabled="{Binding CanDestinationNavigateForward}" Background="Transparent" Foreground="#A8A8A8" CornerRadius="6" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Click="OnDestinationNavForwardClick" ToolTip.Tip="Navigate Forward">
+                                    <PathIcon Data="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" Width="12" Height="12"/>
+                                </Button>
+                                <Button Width="26" Height="26" Background="Transparent" Foreground="#A8A8A8" CornerRadius="6" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Click="OnDestinationNavUpClick" ToolTip.Tip="Navigate Up (Parent Folder)">
+                                    <PathIcon Data="M12 4l-6 6h4v8h4v-8h4l-6-6z" Width="12" Height="12"/>
+                                </Button>
                             </StackPanel>
                             <Button Grid.Column="1" Margin="10,0" VerticalAlignment="Center" Background="Transparent" Padding="0" Click="OnSelectDestinationFolderClick">
                                 <StackPanel>
@@ -270,12 +279,18 @@
                                 </StackPanel>
                             </Button>
                             <!-- SEARCH FIELD -->
-                            <TextBox Grid.Column="2" Width="130" Height="26" PlaceholderText="Search output" Text="{Binding SearchDestinationQuery}" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextPrimaryBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" CornerRadius="6" FontSize="11" Padding="6,2" Margin="0,0,8,0"/>
+                            <TextBox Grid.Column="2" Width="165" Height="28" VerticalAlignment="Center" VerticalContentAlignment="Center" PlaceholderText="Search output..." Text="{Binding SearchDestinationQuery}" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextPrimaryBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" CornerRadius="6" FontSize="12" Padding="8,4" Margin="0,0,8,0"/>
                             <!-- SPEEDBUTTON VIEW MODE SWITCHER AT FAR RIGHT EDGE -->
                             <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
-                                <Button Content="☰" Width="26" Height="26" Background="{DynamicResource AccentSubtleBrush}" Foreground="{DynamicResource AccentBrush}" CornerRadius="6" HorizontalContentAlignment="Center" ToolTip.Tip="Tree View"/>
-                                <Button Content="≡" Width="26" Height="26" Background="Transparent" Foreground="#A8A8A8" CornerRadius="6" HorizontalContentAlignment="Center" ToolTip.Tip="Details Table"/>
-                                <Button Content="▦" Width="26" Height="26" Background="Transparent" Foreground="#A8A8A8" CornerRadius="6" HorizontalContentAlignment="Center" ToolTip.Tip="Grid Cards View"/>
+                                <Button Width="26" Height="26" Background="{DynamicResource AccentSubtleBrush}" Foreground="{DynamicResource AccentBrush}" CornerRadius="6" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ToolTip.Tip="Tree View">
+                                    <PathIcon Data="M3 4h4v4H3V4zm6 1h12v2H9V5zm0 6h12v2H9v-2zm0 6h12v2H9v-2zM5 8v9h2V8H5z" Width="13" Height="13"/>
+                                </Button>
+                                <Button Width="26" Height="26" Background="Transparent" Foreground="#A8A8A8" CornerRadius="6" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ToolTip.Tip="Details Table">
+                                    <PathIcon Data="M3 4h18v16H3V4zm2 4h14V6H5v2zm0 4h14v-2H5v2zm0 4h14v-2H5v2z" Width="13" Height="13"/>
+                                </Button>
+                                <Button Width="26" Height="26" Background="Transparent" Foreground="#A8A8A8" CornerRadius="6" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ToolTip.Tip="Grid Cards View">
+                                    <PathIcon Data="M4 4h6v6H4zm10 0h6v6h-6zM4 14h6v6H4zm10 0h6v6h-6z" Width="13" Height="13"/>
+                                </Button>
                             </StackPanel>
                         </Grid>
                     </Border>
@@ -383,6 +398,36 @@
                                 </ScrollViewer>
                             </Border>
 
+                            <!-- AUDIO PREVIEW DISPLAY (.wav, .snd) -->
+                            <Border IsVisible="{Binding Preview.IsAudioFile}" Background="{DynamicResource BgInputBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="1" CornerRadius="6" Padding="12">
+                                <StackPanel Spacing="8">
+                                    <!-- 1. Header: FileName.wav | 22 kHz @ 16-bit Mono -->
+                                    <Grid ColumnDefinitions="*,Auto">
+                                        <TextBlock Grid.Column="0" Text="{Binding Preview.PreviewTitle}" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimaryBrush}" TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Preview.AudioFormatText}" FontSize="10" Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+                                    </Grid>
+
+                                    <!-- 2. Progress Line: progress indicator -->
+                                    <Grid ColumnDefinitions="*,Auto" Margin="0,4,0,0">
+                                        <ProgressBar Grid.Column="0" Height="4" Minimum="0" Maximum="100" Value="{Binding Preview.AudioProgressPercent}" Background="#222222" Foreground="{DynamicResource AccentBrush}" CornerRadius="2" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Preview.AudioDurationText}" FontSize="11" FontFamily="Consolas, monospace" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                                    </Grid>
+
+                                    <!-- 3. Lower Control Row: [>] Play Icon | [🔁] Loop | [🔊] Vol Mute Icon -->
+                                    <Grid ColumnDefinitions="Auto,*,Auto,6,Auto" Margin="0,4,0,0">
+                                        <Button Grid.Column="0" Click="OnToggleAudioPlayClick" Width="30" Height="30" Background="{DynamicResource AccentBrush}" Foreground="#0E0E0E" CornerRadius="4" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ToolTip.Tip="Play / Pause Audio">
+                                            <PathIcon Data="{Binding Preview.AudioPlayIconData}" Width="12" Height="12"/>
+                                        </Button>
+                                        <Button Grid.Column="2" Click="OnToggleAudioLoopClick" Width="30" Height="30" Background="Transparent" Foreground="{Binding Preview.AudioLoopBrush}" CornerRadius="4" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ToolTip.Tip="Toggle Infinite Loop">
+                                            <PathIcon Data="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z" Width="14" Height="14"/>
+                                        </Button>
+                                        <Button Grid.Column="4" Click="OnToggleAudioMuteClick" Width="30" Height="30" Background="Transparent" Foreground="{Binding Preview.AudioMuteBrush}" CornerRadius="4" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ToolTip.Tip="Click: Mute / Unmute">
+                                            <PathIcon Data="{Binding Preview.AudioMuteIconData}" Width="14" Height="14"/>
+                                        </Button>
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+
                             <!-- METADATA KEY-VALUE TABLE -->
                             <Border Background="{DynamicResource BgInputBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="1" CornerRadius="6" Padding="8">
                                 <ItemsControl ItemsSource="{Binding Preview.PreviewMetadata}">
@@ -402,36 +447,62 @@
             </Border>
         </Grid>
 
+        <!-- THIN 5PX RESIZABLE HORIZONTAL SPLITTER BEFORE LOG PANEL -->
+        <GridSplitter Grid.Row="2" Height="5" Background="#1E1E1E" ResizeDirection="Rows" VerticalAlignment="Center" HorizontalAlignment="Stretch">
+            <GridSplitter.Styles>
+                <Style Selector="GridSplitter:pointerover">
+                    <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+                </Style>
+            </GridSplitter.Styles>
+        </GridSplitter>
+
         <!-- BOTTOM LOG PANEL -->
-        <Border Grid.Row="2" Background="#131313" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="0,1,0,0">
+        <Border Grid.Row="3" Background="#0F0F0F" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="0,1,0,0">
             <Grid RowDefinitions="30,*">
-                <Border Grid.Row="0" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="0,0,0,1" Padding="12,0">
+                <Border Grid.Row="0" Background="#141414" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="0,0,0,1" Padding="12,0">
                     <Grid ColumnDefinitions="*,Auto">
                         <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                            <TextBlock Text="SESSION LOG" FontFamily="Consolas, Fira Code, monospace" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                            <TextBlock Text="SESSION LOG" FontFamily="Inter, Segoe UI, sans-serif" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11" FontWeight="Bold" LetterSpacing="0.5" VerticalAlignment="Center"/>
                         </StackPanel>
-                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                            <Button Content="Clear Log" Click="OnClearLogClick" Height="22" FontSize="10" Padding="8,0" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextSecondaryBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="1" CornerRadius="4" ToolTip.Tip="Clear all session log entries"/>
                         </StackPanel>
                     </Grid>
                 </Border>
-                <ScrollViewer x:Name="LogScrollViewer" Grid.Row="1" Padding="12,8">
-                    <ItemsControl ItemsSource="{Binding LogLines}">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <SelectableTextBlock Text="{Binding}" FontFamily="Consolas, Fira Code, monospace" FontSize="10" Foreground="#C8C8C8" SelectionBrush="{DynamicResource SelectionHighlightBrush}"/>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                </ScrollViewer>
+
+                <!-- LOG LISTBOX WITH MULTIPLE SELECTION AND COPY CONTEXT MENU -->
+                <ListBox x:Name="LogListBox" Grid.Row="1" ItemsSource="{Binding LogLines}" SelectionMode="Multiple" KeyDown="OnLogListBoxKeyDown" Background="Transparent" BorderThickness="0" Padding="6,4">
+                    <ListBox.Styles>
+                        <Style Selector="ListBoxItem">
+                            <Setter Property="MinHeight" Value="22"/>
+                            <Setter Property="Padding" Value="6,2"/>
+                            <Setter Property="Margin" Value="0,1"/>
+                            <Setter Property="CornerRadius" Value="3"/>
+                        </Style>
+                    </ListBox.Styles>
+                    <ListBox.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="Copy Selected Lines" InputGesture="Ctrl+C" Click="OnCopySelectedLogLinesClick"/>
+                            <MenuItem Header="Copy All Log Lines" Click="OnCopyAllLogLinesClick"/>
+                            <Separator/>
+                            <MenuItem Header="Clear Session Log" Click="OnClearLogClick"/>
+                        </ContextMenu>
+                    </ListBox.ContextMenu>
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding}" FontFamily="Consolas, Cascadia Code, Fira Code, monospace" FontSize="11" Foreground="#CCCCCC" VerticalAlignment="Center"/>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
             </Grid>
         </Border>
         <!-- DUAL PROGRESS MODAL OVERLAY -->
-        <Grid Grid.RowSpan="3" IsVisible="{Binding IsBusy}" Background="#A0000000" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" ZIndex="999">
+        <Grid Grid.RowSpan="4" IsVisible="{Binding IsBusy}" Background="#A0000000" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" ZIndex="999">
             <Border Background="{DynamicResource BgPanelBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="1" CornerRadius="8" Padding="28,20" Width="480" MaxWidth="560" HorizontalAlignment="Center" VerticalAlignment="Center">
                 <StackPanel Spacing="12">
                     <!-- Primary Macro Task Status -->
                     <Grid ColumnDefinitions="Auto,*">
-                        <TextBlock Grid.Column="0" Text="⚙️" FontSize="18" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                        <PathIcon Grid.Column="0" Data="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z" Width="20" Height="20" Foreground="{DynamicResource AccentBrush}" VerticalAlignment="Center" Margin="0,0,10,0"/>
                         <TextBlock Grid.Column="1" Text="{Binding BusyMessage}" FontSize="13" FontWeight="Bold" Foreground="{DynamicResource TextPrimaryBrush}" VerticalAlignment="Center" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" MaxHeight="50"/>
                     </Grid>
 

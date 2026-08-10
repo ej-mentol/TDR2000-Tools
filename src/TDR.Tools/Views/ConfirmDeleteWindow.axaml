@@ -12,7 +12,7 @@
         <Grid RowDefinitions="Auto,*,Auto">
             <!-- HEADER / ICON -->
             <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="12">
-                <TextBlock Text="🗑️" FontSize="22" VerticalAlignment="Center"/>
+                <PathIcon Data="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" Width="24" Height="24" Foreground="#E55353" VerticalAlignment="Center"/>
                 <StackPanel VerticalAlignment="Center">
                     <TextBlock Text="Confirm Deletion" FontSize="14" FontWeight="Bold" Foreground="{DynamicResource TextPrimaryBrush}"/>
                     <TextBlock x:Name="TargetItemTextBlock" Text="Are you sure you want to delete this item?" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap" Margin="0,2,0,0"/>
@@ -22,10 +22,10 @@
             <!-- DONT ASK AGAIN CHECKBOX -->
             <CheckBox x:Name="DontAskCheckBox" Grid.Row="1" Content="Don't ask again" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="34,0,0,0"/>
 
-            <!-- ACTIONS (Standard Windows UX Order: Primary Action, then Cancel) -->
+            <!-- ACTIONS (Standard Order: Delete | Cancel) -->
             <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10">
-                <Button Content="Delete" Width="90" Height="28" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" IsDefault="True" Background="#B83838" Foreground="White" FontWeight="SemiBold" CornerRadius="6" Click="OnDeleteClick"/>
-                <Button Content="Cancel" Width="90" Height="28" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" IsCancel="True" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextSecondaryBrush}" CornerRadius="6" Click="OnCancelClick"/>
+                <Button Content="Delete" Width="100" Height="32" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" IsDefault="True" Background="#B83838" Foreground="White" FontWeight="SemiBold" FontSize="12" CornerRadius="4" Click="OnDeleteClick"/>
+                <Button Content="Cancel" Width="100" Height="32" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" IsCancel="True" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextPrimaryBrush}" FontWeight="SemiBold" FontSize="12" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="1" CornerRadius="4" Click="OnCancelClick"/>
             </StackPanel>
         </Grid>
     </Border>

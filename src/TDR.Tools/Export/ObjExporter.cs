@@ -23,6 +23,7 @@ namespace TDR.Tools.Export
         private readonly bool _useGrouping;
         private readonly bool _includeMovableProps;
         private readonly bool _enableGroundSnap;
+        private readonly bool _convertTexturesToPng;
         private readonly string? _trackContext;
         private readonly Action<string>? _logger;
         private readonly HashSet<string>? _selectedHieFiles;
@@ -32,7 +33,7 @@ namespace TDR.Tools.Export
         // so meshes keep their position relative to each other — only the whole level shifts near origin.
         private Vector3? _localOrigin;
 
-        public ObjExporter(PakManager vfs, string exportDir, bool noMaterials, bool useLocalCoords, bool verbose = false, bool useGrouping = true, bool includeMovableProps = true, string? trackContext = null, Action<string>? logger = null, bool enableGroundSnap = false, IEnumerable<string>? selectedHieFiles = null)
+        public ObjExporter(PakManager vfs, string exportDir, bool noMaterials, bool useLocalCoords, bool verbose = false, bool useGrouping = true, bool includeMovableProps = true, string? trackContext = null, Action<string>? logger = null, bool enableGroundSnap = false, IEnumerable<string>? selectedHieFiles = null, bool convertTexturesToPng = true)
         {
             _vfs = vfs;
             _exportDir = exportDir;
@@ -44,6 +45,7 @@ namespace TDR.Tools.Export
             _trackContext = trackContext;
             _logger = logger;
             _enableGroundSnap = enableGroundSnap;
+            _convertTexturesToPng = convertTexturesToPng;
             if (selectedHieFiles != null)
             {
                 _selectedHieFiles = new HashSet<string>(selectedHieFiles, StringComparer.OrdinalIgnoreCase);
@@ -1488,22 +1490,28 @@ namespace TDR.Tools.Export
                 if (bestMatch != null)
                 {
                     string rawTexFileName = Path.GetFileName(bestMatch.Name);
-                    string texFileName = rawTexFileName;
-                    string targetPath = Path.Combine(Path.GetDirectoryName(mtlPath) ?? _exportDir, texFileName);
-
+                    string exportFolder = Path.GetDirectoryName(mtlPath) ?? _exportDir;
                     byte[]? data = _vfs.LoadFile(bestMatch);
+                    string savedTexName = rawTexFileName;
+
                     if (data != null)
                     {
-                        string md5 = GetMd5(data);
-                        if (_verbose)
-                            Log($"    [TEX MD5] Mat: '{t}' -> Archive: '{bestMatch.ArchivePath}' -> File: '{bestMatch.Name}' (MD5: {md5})");
-
-                        File.WriteAllBytes(targetPath, data);
-                        if (_verbose) Log($"    [TEX SAVE] Saved/Overwrote '{texFileName}' -> Archive: '{bestMatch.ArchivePath}' (MD5: {md5})");
+                        savedTexName = SaveTextureWithFormat(data, rawTexFileName, exportFolder);
+                        if (_verbose) Log($"    [TEX SAVE] Saved '{savedTexName}' -> Archive: '{bestMatch.ArchivePath}'");
                     }
 
-                    mtl.WriteLine($"map_Kd {texFileName}");
-                    mtl.WriteLine($"map_d {texFileName}");
+                    mtl.WriteLine($"map_Kd {savedTexName}");
+                    mtl.WriteLine($"map_d {savedTexName}");
+
+                    if (t.Contains("water", StringComparison.OrdinalIgnoreCase) || t.Contains("bump", StringComparison.OrdinalIgnoreCase))
+                    {
+                        byte[]? bumpBytes = _vfs.LoadFileContext("bumpfx_0000_128_128_8.tga", "WATER") ?? _vfs.LoadFile("bumpfx_0000_128_128_8.tga");
+                        if (bumpBytes != null)
+                        {
+                            string bumpName = SaveTextureWithFormat(bumpBytes, "water_bump_0000.tga", exportFolder);
+                            mtl.WriteLine($"map_Bump -bm 1.0 {bumpName}");
+                        }
+                    }
                 }
                 else
                 {
@@ -1525,22 +1533,54 @@ namespace TDR.Tools.Export
                         if (candBytes != null && candBytes.Length > 0)
                         {
                             string rawTexFileName = Path.GetFileName(cand);
-                            string texFileName = rawTexFileName;
-                            string targetPath = Path.Combine(Path.GetDirectoryName(mtlPath) ?? _exportDir, texFileName);
+                            string exportFolder = Path.GetDirectoryName(mtlPath) ?? _exportDir;
+                            string savedTexName = SaveTextureWithFormat(candBytes, rawTexFileName, exportFolder);
 
-                            if (!File.Exists(targetPath))
+                            mtl.WriteLine($"map_Kd {savedTexName}");
+                            mtl.WriteLine($"map_d {savedTexName}");
+
+                            if (t.Contains("water", StringComparison.OrdinalIgnoreCase) || t.Contains("bump", StringComparison.OrdinalIgnoreCase))
                             {
-                                File.WriteAllBytes(targetPath, candBytes);
-                                if (_verbose) Log($"    [TEX SAVE FALLBACK] Saved '{texFileName}' from VFS candidate '{cand}'");
+                                byte[]? bumpBytes = _vfs.LoadFileContext("bumpfx_0000_128_128_8.tga", "WATER") ?? _vfs.LoadFile("bumpfx_0000_128_128_8.tga");
+                                if (bumpBytes != null)
+                                {
+                                    string bumpName = SaveTextureWithFormat(bumpBytes, "water_bump_0000.tga", exportFolder);
+                                    mtl.WriteLine($"map_Bump -bm 1.0 {bumpName}");
+                                }
                             }
-
-                            mtl.WriteLine($"map_Kd {texFileName}");
-                            mtl.WriteLine($"map_d {texFileName}");
                             break;
                         }
                     }
                 }
             }
+        }
+
+        private string SaveTextureWithFormat(byte[] rawData, string originalFileName, string targetDir)
+        {
+            if (_convertTexturesToPng && originalFileName.EndsWith(".tga", StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    var bitmap = TgaDecoder.DecodeTga(rawData);
+                    if (bitmap != null)
+                    {
+                        string pngName = Path.ChangeExtension(originalFileName, ".png");
+                        string pngPath = Path.Combine(targetDir, pngName);
+#pragma warning disable CS0618
+                        bitmap.Save(pngPath);
+#pragma warning restore CS0618
+                        return pngName;
+                    }
+                }
+                catch
+                {
+                    // Fallback to raw TGA write on decode error
+                }
+            }
+
+            string rawPath = Path.Combine(targetDir, originalFileName);
+            File.WriteAllBytes(rawPath, rawData);
+            return originalFileName;
         }
 
         private static string GetMd5(byte[] data)

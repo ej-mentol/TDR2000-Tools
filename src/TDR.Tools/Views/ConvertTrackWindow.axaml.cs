@@ -46,5 +46,23 @@ namespace TDR.Tools.Views
                 vm.NotifyUserTreeToggled();
             }
         }
+
+        private async void OnBrowseOutputFolderClick(object? sender, RoutedEventArgs e)
+        {
+            var topLevel = TopLevel.GetTopLevel(this);
+            if (topLevel != null && DataContext is ConvertTrackModalViewModel vm)
+            {
+                var folders = await topLevel.StorageProvider.OpenFolderPickerAsync(new Avalonia.Platform.Storage.FolderPickerOpenOptions
+                {
+                    Title = "Select Track Export Folder",
+                    AllowMultiple = false
+                });
+
+                if (folders != null && folders.Count > 0)
+                {
+                    vm.OutputDirectory = folders[0].Path.LocalPath;
+                }
+            }
+        }
     }
 }

@@ -3,8 +3,8 @@
         xmlns:vm="clr-namespace:TDR.Tools.ViewModels"
         x:Class="TDR.Tools.Views.ConvertTrackWindow"
         x:DataType="vm:ConvertTrackModalViewModel"
-        Title="Export Track &amp; Mission Options"
-        Width="980" Height="680"
+        Title="{Binding TrackName, StringFormat='Export Track &amp; Map — {0}'}"
+        Width="1020" Height="680"
         WindowStartupLocation="CenterOwner"
         CanResize="True"
         RequestedThemeVariant="Dark"
@@ -12,29 +12,23 @@
         Foreground="{DynamicResource TextPrimaryBrush}">
 
     <Grid RowDefinitions="Auto,*,Auto">
-        <!-- TITLE HEADER BAR -->
-        <Border Grid.Row="0" Background="{DynamicResource BgPanelBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="0,0,0,1" Padding="24,14">
-            <StackPanel Spacing="4">
-                <TextBlock Text="Export Track &amp; Mission Geometry" FontSize="16" FontWeight="Bold" Foreground="{DynamicResource TextPrimaryBrush}"/>
-                <TextBlock Text="{Binding TrackName, StringFormat='Target Track / Level: {0}'}" FontSize="12" Foreground="{DynamicResource AccentBrush}" FontWeight="Medium"/>
+        <!-- TOP FULL-WIDTH OUTPUT DIRECTORY PATH BAR -->
+        <Border Grid.Row="0" Background="{DynamicResource BgPanelBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="0,0,0,1" Padding="20,12">
+            <StackPanel Spacing="6">
+                <TextBlock Text="{Binding TrackName, StringFormat='Export Destination Directory (Target output folder for level &quot;{0}&quot;):'}" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                <Grid ColumnDefinitions="*,Auto">
+                    <TextBox Grid.Column="0" Text="{Binding OutputDirectory}" Height="32" FontSize="12" Padding="10,6" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextPrimaryBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" CornerRadius="4"/>
+                    <Button Grid.Column="1" Content="Browse..." Click="OnBrowseOutputFolderClick" Height="32" Margin="8,0,0,0" Padding="14,0" VerticalContentAlignment="Center" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextPrimaryBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="1" CornerRadius="4"/>
+                </Grid>
             </StackPanel>
         </Border>
 
         <!-- 2-COLUMN MAIN WORKSPACE -->
-        <Grid Grid.Row="1" ColumnDefinitions="400,16,*" Margin="24,16">
+        <Grid Grid.Row="1" ColumnDefinitions="420,16,*" Margin="20,16">
             
-            <!-- LEFT COLUMN: SETTINGS & FORMAT CONTROLS (Wrapped in ScrollViewer with right margin) -->
-            <ScrollViewer Grid.Column="0" Padding="0,0,10,0">
+            <!-- LEFT COLUMN: SETTINGS & FORMAT CONTROLS -->
+            <ScrollViewer Grid.Column="0" Padding="0,0,8,0">
                 <StackPanel Spacing="14">
-
-                    <!-- Output Directory Path -->
-                    <StackPanel Spacing="6">
-                        <TextBlock Text="Output Directory Path:" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource TextSecondaryBrush}"/>
-                        <TextBox Text="{Binding OutputDirectory}" Height="32" FontSize="12" Padding="8,6" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextPrimaryBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}"/>
-                    </StackPanel>
-
-
-
                     <!-- Formats & Geometry Controls Card -->
                     <Border Background="{DynamicResource BgPanelBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="1" CornerRadius="6" Padding="14">
                         <StackPanel Spacing="10">
@@ -42,9 +36,13 @@
 
                             <CheckBox IsChecked="{Binding ExportObj}" Content="Export Combined 3D Geometry (.OBJ / .MTL)" FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}" ToolTip.Tip="Generates a single unified 3D scene (.OBJ) with all track geometry baked into world coordinates."/>
                             
-                            <CheckBox IsChecked="{Binding IncludeMovableProps}" IsEnabled="{Binding ExportObj}" Content="Bake Props, Signs &amp; Checkpoints into .OBJ" FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}" Margin="20,0,0,0" ToolTip.Tip="Bakes 3D models for arrows, signs, checkpoints, and dynamic mission props directly into world positions."/>
+                            <CheckBox IsChecked="{Binding IncludeMovableProps}" IsEnabled="{Binding ExportObj}" Content="Bake Props, Signs &amp; Checkpoints into .OBJ / glTF" FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}" Margin="20,0,0,0" ToolTip.Tip="Bakes 3D models for arrows, signs, checkpoints, and dynamic mission props directly into world positions."/>
 
                             <CheckBox IsChecked="{Binding ExportGltf}" Content="Export Modern 3D Scene (.GLTF / .GLB)" FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}" ToolTip.Tip="Generates a modern glTF 2.0 scene (.GLTF / .GLB) with native object nodes for Blender, Unity, Unreal Engine &amp; Godot."/>
+
+                            <CheckBox IsChecked="{Binding ExportPngTextures}" Content="Convert Textures to PNG (.png)" FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}" ToolTip.Tip="Decodes legacy TGA textures to modern .PNG format with full alpha transparency support."/>
+
+                            <CheckBox IsChecked="{Binding AutoUnpackInnerPaks}" IsEnabled="{Binding HasInnerPakFiles}" Content="Also unpack inner .PAK archives before export" FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}" ToolTip.Tip="{Binding InnerPakStatusTooltip}"/>
 
                             <CheckBox IsChecked="{Binding ExportSceneJson}" Content="Export Scene Manifest (.JSON)" FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}" ToolTip.Tip="Generates a scene.json manifest containing world positions, rotations, and hierarchy references."/>
 
@@ -57,6 +55,8 @@
                             <CheckBox IsChecked="{Binding EnableGroundSnap}" Content="Raycast Ground Snap Props to Surface" FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}" ToolTip.Tip="Raycasts movable objects down onto terrain collision geometry using Möller–Trumbore raycasting."/>
 
                             <CheckBox IsChecked="{Binding VerboseLog}" Content="Verbose Pipeline Logging" FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}" ToolTip.Tip="Logs detailed VFS hits and pipeline processing stages in session log."/>
+
+                            <CheckBox IsChecked="{Binding DebugMode}" Content="Debug mode — timing metrics in session log" FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}" ToolTip.Tip="Writes timing information (VFS index, tree build, track discovery) to the session log."/>
                         </StackPanel>
                     </Border>
                 </StackPanel>

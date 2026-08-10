@@ -18,11 +18,12 @@ namespace TDR.Tools.Export
         private readonly string _exportDir;
         private readonly bool _useLocalCoords;
         private readonly bool _verbose;
+        private readonly bool _convertTexturesToPng;
         private readonly string? _trackContext;
         private readonly Action<string>? _logger;
         private readonly Dictionary<string, MSHSContainer> _meshCache = new(StringComparer.OrdinalIgnoreCase);
 
-        public GltfExporter(PakManager vfs, string exportDir, bool useLocalCoords = false, bool verbose = false, string? trackContext = null, Action<string>? logger = null)
+        public GltfExporter(PakManager vfs, string exportDir, bool useLocalCoords = false, bool verbose = false, string? trackContext = null, Action<string>? logger = null, bool convertTexturesToPng = true)
         {
             _vfs = vfs;
             _exportDir = exportDir;
@@ -30,6 +31,7 @@ namespace TDR.Tools.Export
             _verbose = verbose;
             _trackContext = trackContext;
             _logger = logger;
+            _convertTexturesToPng = convertTexturesToPng;
         }
 
         private void Log(string msg) => _logger?.Invoke(msg);
@@ -606,7 +608,7 @@ namespace TDR.Tools.Export
             string outTexPath = Path.Combine(_exportDir, outTexName);
             if (!File.Exists(outTexPath)) File.WriteAllBytes(outTexPath, data);
 
-            if (outTexName.EndsWith(".tga", StringComparison.OrdinalIgnoreCase))
+            if (_convertTexturesToPng && outTexName.EndsWith(".tga", StringComparison.OrdinalIgnoreCase))
             {
                 string pngName = Path.ChangeExtension(outTexName, ".png");
                 string pngPath = Path.Combine(_exportDir, pngName);

@@ -10,6 +10,7 @@ namespace TDR.Tools.Export
     public record TrackExportOptions(
         bool ExportObj = true,
         bool ExportGltf = false,
+        bool ExportPngTextures = true,
         bool IncludeMovableProps = true,
         bool ExportSceneJson = false,
         bool NoMaterials = false,
@@ -63,6 +64,13 @@ namespace TDR.Tools.Export
         {
             if (string.IsNullOrWhiteSpace(trackName)) return false;
 
+            // Fallback: If no format option selected, default to ExportObj = true
+            if (!options.ExportObj && !options.ExportGltf && !options.ExportSceneJson && !options.DumpAll)
+            {
+                log?.Invoke("[!] No format selected. Defaulting to ExportObj = true.");
+                options = options with { ExportObj = true };
+            }
+
             log?.Invoke($"[+] Starting Track Export Pipeline for '{trackName}' (Variant: {variantSuffix ?? "Base"}) → '{outputDir}'");
             Directory.CreateDirectory(outputDir);
 
@@ -89,7 +97,8 @@ namespace TDR.Tools.Export
                         cleanName,
                         log,
                         options.EnableGroundSnap,
-                        options.SelectedHieFiles
+                        options.SelectedHieFiles,
+                        options.ExportPngTextures
                     );
 
                     string outputObjPath = Path.Combine(outputDir, variantTrackName + ".obj");
@@ -112,7 +121,7 @@ namespace TDR.Tools.Export
 
                 if (descriptorData != null && descriptorData.Length > 0)
                 {
-                    var gltfExporter = new GltfExporter(vfs, outputDir, options.UseLocalCoords, options.Verbose, cleanName, log);
+                    var gltfExporter = new GltfExporter(vfs, outputDir, options.UseLocalCoords, options.Verbose, cleanName, log, options.ExportPngTextures);
                     string outputGltfPath = Path.Combine(outputDir, variantTrackName + ".gltf");
                     log?.Invoke($"[►] Exporting Modern glTF 2.0 Scene: '{variantTrackName}.gltf'");
                     gltfExporter.ExportLevelToGltf(descriptorData, variantTrackName, outputGltfPath, options.IncludeMovableProps, progressCallback);

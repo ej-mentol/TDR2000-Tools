@@ -36,7 +36,10 @@ namespace TDR.Tools
             {
                 Avalonia.Threading.Dispatcher.UIThread.Post(() =>
                 {
-                    LogScrollViewer?.ScrollToEnd();
+                    if (_vm.LogLines.Count > 0)
+                    {
+                        LogListBox?.ScrollIntoView(_vm.LogLines.Count - 1);
+                    }
                 });
             };
         }
@@ -440,28 +443,49 @@ namespace TDR.Tools
 
                     if (action == "Ask")
                     {
-                        var dialog = new Views.PakDragDropActionWindow(node.Name);
-                        var userChoice = await dialog.ShowDialog<Views.PakUserAction>(this);
+                        bool isFolder = node.IsDirectory;
+                        bool containsPakFiles = false;
 
-                        if (userChoice == Views.PakUserAction.Extract)
+                        if (isFolder && !string.IsNullOrEmpty(node.AbsolutePath) && Directory.Exists(node.AbsolutePath))
                         {
-                            if (dialog.RememberChoice)
-                            {
-                                settings.PakDragAction = "Extract";
-                                settings.RememberPakDragAction = true;
-                                settings.Save();
-                            }
-                            _vm.ExtractNodeToDestination(node, createSubfolderForPak: true, flatFiles: false);
+                            containsPakFiles = Directory.GetFiles(node.AbsolutePath, "*.pak", SearchOption.AllDirectories).Length > 0;
                         }
-                        else if (userChoice == Views.PakUserAction.Convert)
+                        else if (!isFolder && node.Name.EndsWith(".pak", StringComparison.OrdinalIgnoreCase))
                         {
-                            if (dialog.RememberChoice)
-                            {
-                                settings.PakDragAction = "Convert";
-                                settings.RememberPakDragAction = true;
-                                settings.Save();
-                            }
+                            containsPakFiles = true;
+                        }
+
+                        // If folder has NO .pak files at all, bypass prompt and open ConvertTrackWindow directly
+                        if (isFolder && !containsPakFiles)
+                        {
                             await _vm.OpenConvertModalForTrackAsync(node);
+                        }
+                        else
+                        {
+                            var dialog = new Views.PakDragDropActionWindow(node.Name, isFolder, containsPakFiles);
+                            var userChoice = await dialog.ShowDialog<Views.PakUserAction>(this);
+
+                            if (userChoice == Views.PakUserAction.Extract)
+                            {
+                                if (dialog.RememberChoice)
+                                {
+                                    settings.PakDragAction = "Extract";
+                                    settings.RememberPakDragAction = true;
+                                    settings.Save();
+                                }
+                                _vm.ExtractNodeToDestination(node, createSubfolderForPak: true, flatFiles: false);
+                            }
+                            else if (userChoice == Views.PakUserAction.Convert)
+                            {
+                                settings.AutoUnpackInnerPaks = dialog.UnpackInnerPaks;
+                                if (dialog.RememberChoice)
+                                {
+                                    settings.PakDragAction = "Convert";
+                                    settings.RememberPakDragAction = true;
+                                }
+                                settings.Save();
+                                await _vm.OpenConvertModalForTrackAsync(node);
+                            }
                         }
                     }
                     else if (action == "Extract")
@@ -499,9 +523,12 @@ namespace TDR.Tools
             var contextMenu = new ContextMenu();
             string label = nodes.Count == 1 ? $"'{nodes[0].Name}'" : $"{nodes.Count} items";
 
+            bool containsPaks = nodes.Any(n => n.Name.EndsWith(".pak", StringComparison.OrdinalIgnoreCase));
+            string verb = containsPaks ? "Unpack" : "Copy";
+
             var extractToSubfolderItem = new MenuItem
             {
-                Header = $"📂 Extract {label} (Subfolders for Archives)"
+                Header = containsPaks ? $"📦 Unpack {label} (Subfolders for Archives)" : $"📂 Copy {label} to Destination"
             };
             extractToSubfolderItem.Click += (s, e) =>
             {
@@ -511,7 +538,7 @@ namespace TDR.Tools
 
             var extractFlatItem = new MenuItem
             {
-                Header = $"📄 Extract {label} Flat Here"
+                Header = containsPaks ? $"📄 Unpack {label} Flat Here" : $"📄 Copy {label} Flat Here"
             };
             extractFlatItem.Click += (s, e) =>
             {
@@ -842,6 +869,14 @@ namespace TDR.Tools
             {
                 node.IsExpanded = !node.IsExpanded;
             }
+            else
+            {
+                string ext = Path.GetExtension(node.Name).ToLowerInvariant();
+                if (ext == ".wav" || ext == ".snd")
+                {
+                    _vm.Preview.ToggleAudioPlay();
+                }
+            }
         }
 
         private async void OnTrackBadgeDoubleTapped(object? sender, Avalonia.Input.TappedEventArgs e)
@@ -1087,5 +1122,56 @@ namespace TDR.Tools
         private void OnSortSizeClick(object? sender, RoutedEventArgs e) => _vm.SortSourceFlatList("Size");
         private void OnSortTypeClick(object? sender, RoutedEventArgs e) => _vm.SortSourceFlatList("Type");
         private void OnSortSourceClick(object? sender, RoutedEventArgs e) => _vm.SortSourceFlatList("Source");
+
+        private void OnClearLogClick(object? sender, RoutedEventArgs e)
+        {
+            _vm.LogLines.Clear();
+        }
+
+        private async void OnCopySelectedLogLinesClick(object? sender, RoutedEventArgs e)
+        {
+            if (LogListBox?.SelectedItems == null || LogListBox.SelectedItems.Count == 0) return;
+            var lines = LogListBox.SelectedItems.OfType<string>();
+            string text = string.Join(Environment.NewLine, lines);
+            var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+            if (clipboard != null)
+            {
+                await clipboard.SetTextAsync(text);
+            }
+        }
+
+        private async void OnCopyAllLogLinesClick(object? sender, RoutedEventArgs e)
+        {
+            if (_vm.LogLines.Count == 0) return;
+            string text = string.Join(Environment.NewLine, _vm.LogLines);
+            var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+            if (clipboard != null)
+            {
+                await clipboard.SetTextAsync(text);
+            }
+        }
+
+        private void OnLogListBoxKeyDown(object? sender, KeyEventArgs e)
+        {
+            if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.C)
+            {
+                OnCopySelectedLogLinesClick(sender, e);
+            }
+        }
+
+        private void OnToggleAudioPlayClick(object? sender, RoutedEventArgs e)
+        {
+            _vm.Preview.ToggleAudioPlay();
+        }
+
+        private void OnToggleAudioLoopClick(object? sender, RoutedEventArgs e)
+        {
+            _vm.Preview.ToggleAudioLoop();
+        }
+
+        private void OnToggleAudioMuteClick(object? sender, RoutedEventArgs e)
+        {
+            _vm.Preview.ToggleAudioMute();
+        }
     }
 }
