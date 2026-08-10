@@ -21,9 +21,10 @@ namespace TDR.Tools.Export
         private readonly bool _convertTexturesToPng;
         private readonly string? _trackContext;
         private readonly Action<string>? _logger;
+        private readonly HashSet<string>? _selectedHieFiles;
         private readonly Dictionary<string, MSHSContainer> _meshCache = new(StringComparer.OrdinalIgnoreCase);
 
-        public GltfExporter(PakManager vfs, string exportDir, bool useLocalCoords = false, bool verbose = false, string? trackContext = null, Action<string>? logger = null, bool convertTexturesToPng = true)
+        public GltfExporter(PakManager vfs, string exportDir, bool useLocalCoords = false, bool verbose = false, string? trackContext = null, Action<string>? logger = null, bool convertTexturesToPng = true, IEnumerable<string>? selectedHieFiles = null)
         {
             _vfs = vfs;
             _exportDir = exportDir;
@@ -32,6 +33,28 @@ namespace TDR.Tools.Export
             _trackContext = trackContext;
             _logger = logger;
             _convertTexturesToPng = convertTexturesToPng;
+            if (selectedHieFiles != null)
+            {
+                _selectedHieFiles = new HashSet<string>(selectedHieFiles, StringComparer.OrdinalIgnoreCase);
+            }
+        }
+
+        private bool IsHieSelected(string hiePath)
+        {
+            if (_selectedHieFiles == null || _selectedHieFiles.Count == 0) return true;
+
+            string normFull = hiePath.Replace('\\', '/').ToLowerInvariant();
+            string normFileName = Path.GetFileName(hiePath).ToLowerInvariant();
+
+            return _selectedHieFiles.Any(sel =>
+            {
+                string normSel = sel.Replace('\\', '/').ToLowerInvariant();
+                string selFileName = Path.GetFileName(sel).ToLowerInvariant();
+
+                return normFull.EndsWith(normSel, StringComparison.OrdinalIgnoreCase) ||
+                       normSel.EndsWith(normFull, StringComparison.OrdinalIgnoreCase) ||
+                       normFileName.Equals(selFileName, StringComparison.OrdinalIgnoreCase);
+            });
         }
 
         private void Log(string msg) => _logger?.Invoke(msg);
@@ -98,6 +121,8 @@ namespace TDR.Tools.Export
             for (int i = 0; i < totalHies; i++)
             {
                 string hieName = assets.HieFiles[i];
+                if (!IsHieSelected(hieName)) continue;
+
                 int pct = (int)((float)(i + 1) / (totalHies + 1) * 80.0f);
                 progressCallback?.Invoke(pct, $"Processing glTF mesh ({i + 1}/{totalHies}): {hieName}");
 
@@ -156,6 +181,7 @@ namespace TDR.Tools.Export
 
                         string hieName = parts[0].Trim('"');
                         if (!hieName.EndsWith(".hie", StringComparison.OrdinalIgnoreCase)) hieName += ".hie";
+                        if (!IsHieSelected(hieName)) continue;
 
                         if (!float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float px) ||
                             !float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float py) ||
@@ -278,6 +304,7 @@ namespace TDR.Tools.Export
                 {
                     pupIndex++;
                     string iconHieName = ResolvePowerupIconHie(lastTypeId, lastCommentName);
+                    if (!IsHieSelected(iconHieName)) continue;
                     string cleanComment = lastCommentName.Replace(' ', '_').Replace('!', '_').Replace('.', '_');
                     string instanceId = $"Powerup_{pupIndex:D3}_{cleanComment}";
 

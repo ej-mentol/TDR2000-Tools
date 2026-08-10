@@ -1933,12 +1933,13 @@ namespace TDR.Tools.ViewModels
             var options = new TrackExportOptions(
                 ExportObj: vm.ExportObj,
                 ExportGltf: vm.ExportGltf,
+                ExportPngTextures: vm.ExportPngTextures,
                 IncludeMovableProps: vm.IncludeMovableProps,
                 ExportSceneJson: vm.ExportSceneJson,
                 NoMaterials: false,
                 UseLocalCoords: vm.UseLocalCoords,
                 UseGrouping: vm.UseGrouping,
-                DumpAll: isAllVariants,
+                DumpAll: vm.DumpAll,
                 Verbose: vm.VerboseLog,
                 EnableGroundSnap: vm.EnableGroundSnap,
                 SelectedHieFiles: vm.GetSelectedHiePaths()

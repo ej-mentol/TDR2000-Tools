@@ -6,7 +6,7 @@
 > It contains experimental code choices, unpolished UI elements, work-in-progress features, and known bugs.  
 > Mechanics and outputs are unstable and subject to frequent changes.
 
-Desktop toolkit and C# library for inspecting, extracting, and converting **Carmageddon: TDR 2000** game files.
+Desktop toolkit and C# library for inspecting, extracting, and converting **Carmageddon: TDR 2000 PAK files**.
 
 ---
 
