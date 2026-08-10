@@ -108,7 +108,13 @@ namespace TDR.Tools.Export
                 if (hie.Root != null)
                 {
                     Matrix4x4 startMatrix = assets.HieInitialTransforms.TryGetValue(hieName, out var initMat) ? initMat : Matrix4x4.Identity;
-                    int layerNodeIdx = AddHieNodeToGltf(hie.Root, startMatrix, hie, gltf, archivePath, bw, GetOrAddMaterial, meshMap);
+                    Vector3? localOrigin = null;
+                    if (_useLocalCoords && Matrix4x4.Decompose(hie.Root.Transform * startMatrix, out _, out _, out Vector3 rootPos))
+                    {
+                        localOrigin = rootPos;
+                    }
+
+                    int layerNodeIdx = AddHieNodeToGltf(hie.Root, startMatrix, hie, gltf, archivePath, bw, GetOrAddMaterial, meshMap, localOrigin);
                     if (layerNodeIdx >= 0)
                         rootNode.Children.Add(layerNodeIdx);
                 }
@@ -374,7 +380,8 @@ namespace TDR.Tools.Export
             string? archivePath,
             BinaryWriter bw,
             Func<string, string?, int> getMaterial,
-            Dictionary<string, int> meshMap)
+            Dictionary<string, int> meshMap,
+            Vector3? localOrigin = null)
         {
             if (node == null) return -1;
             Matrix4x4 worldMatrix = node.Transform * parentMatrix;
@@ -384,6 +391,10 @@ namespace TDR.Tools.Export
 
             if (Matrix4x4.Decompose(worldMatrix, out Vector3 scale, out Quaternion rot, out Vector3 trans))
             {
+                if (_useLocalCoords && localOrigin.HasValue && node == hie.Root)
+                {
+                    trans -= localOrigin.Value;
+                }
                 gNode.Translation = new[] { trans.X, trans.Y, trans.Z };
                 gNode.Rotation = new[] { rot.X, rot.Y, rot.Z, rot.W };
                 gNode.Scale = new[] { scale.X, scale.Y, scale.Z };
@@ -404,14 +415,14 @@ namespace TDR.Tools.Export
             if (node.Child >= 0 && node.Child < hie.Nodes.Count)
             {
                 var childNode = hie.Nodes[node.Child];
-                int childIdx = AddHieNodeToGltf(childNode, worldMatrix, hie, gltf, archivePath, bw, getMaterial, meshMap);
+                int childIdx = AddHieNodeToGltf(childNode, worldMatrix, hie, gltf, archivePath, bw, getMaterial, meshMap, localOrigin);
                 if (childIdx >= 0) gNode.Children.Add(childIdx);
             }
 
             if (node.Sibling >= 0 && node.Sibling < hie.Nodes.Count)
             {
                 var siblingNode = hie.Nodes[node.Sibling];
-                AddHieNodeToGltf(siblingNode, parentMatrix, hie, gltf, archivePath, bw, getMaterial, meshMap);
+                AddHieNodeToGltf(siblingNode, parentMatrix, hie, gltf, archivePath, bw, getMaterial, meshMap, localOrigin);
             }
 
             return nodeIdx;

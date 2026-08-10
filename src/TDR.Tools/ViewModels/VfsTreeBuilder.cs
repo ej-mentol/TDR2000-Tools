@@ -151,31 +151,11 @@ namespace TDR.Tools.ViewModels
 
                     if (!isSystemAsset)
                     {
-                        bool isTrackNode = (node.IsDirectory || node.IsArchive) &&
+                        bool isTrackNode = node.IsDirectory &&
                                            TrackDiscovery.IsWeakTrackCandidate($"{node.VirtualPath}/{baseName}.txt") &&
                                            (isTrackValidator == null || isTrackValidator($"{node.VirtualPath}/{baseName}.txt"));
 
-                        if (!isTrackNode && node.IsArchive)
-                        {
-                            string normArchivePath = (node.AbsolutePath ?? node.VirtualPath ?? "").Replace('\\', '/');
-                            string archiveFileName = Path.GetFileName(normArchivePath);
 
-                            isTrackNode = vfs.GetFiles().Any(f =>
-                                !string.IsNullOrEmpty(f.ArchivePath) &&
-                                (f.ArchivePath.Replace('\\', '/').Equals(normArchivePath, StringComparison.OrdinalIgnoreCase) ||
-                                 Path.GetFileName(f.ArchivePath).Equals(archiveFileName, StringComparison.OrdinalIgnoreCase)) &&
-                                TrackDiscovery.IsWeakTrackCandidate(f.Name) &&
-                                (isTrackValidator == null || isTrackValidator(f.Name)));
-
-                            if (!isTrackNode && !string.IsNullOrEmpty(archiveFileName))
-                            {
-                                string lowerArchive = archiveFileName.ToLowerInvariant();
-                                if (!lowerArchive.Equals("carma.pak", StringComparison.OrdinalIgnoreCase) && !lowerArchive.Equals("system.pak", StringComparison.OrdinalIgnoreCase))
-                                {
-                                    isTrackNode = lowerArchive.Contains("race") || lowerArchive.Contains("mission") || lowerArchive.Contains("track");
-                                }
-                            }
-                        }
 
                         if (!isTrackNode && node.IsDirectory)
                         {

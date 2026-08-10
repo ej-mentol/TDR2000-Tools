@@ -82,13 +82,14 @@ namespace TDR.Tools.Export
                         vfs,
                         outputDir,
                         options.NoMaterials,
-                        false, // OBJ combined level export always remains stable in world space (matching tdr2obj)
+                        options.UseLocalCoords,
                         options.Verbose,
                         options.UseGrouping,
                         options.IncludeMovableProps,
                         cleanName,
                         log,
-                        options.EnableGroundSnap
+                        options.EnableGroundSnap,
+                        options.SelectedHieFiles
                     );
 
                     string outputObjPath = Path.Combine(outputDir, variantTrackName + ".obj");

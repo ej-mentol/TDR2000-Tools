@@ -9,6 +9,23 @@ namespace TDR.Tools.Services
 {
     public static class TrackDiscoveryService
     {
+        public static bool IsGameAssetsDirectory(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path)) return false;
+
+            bool hasCarmaPak = File.Exists(Path.Combine(path, "CARMA.pak")) ||
+                               File.Exists(Path.Combine(path, "carma.pak")) ||
+                               File.Exists(Path.Combine(path, "Assets", "CARMA.pak")) ||
+                               File.Exists(Path.Combine(path, "assets", "carma.pak"));
+
+            bool hasRacesTxt = File.Exists(Path.Combine(path, "races.txt")) ||
+                               File.Exists(Path.Combine(path, "RACES.TXT")) ||
+                               File.Exists(Path.Combine(path, "Assets", "races.txt")) ||
+                               File.Exists(Path.Combine(path, "assets", "races.txt"));
+
+            return hasCarmaPak || hasRacesTxt;
+        }
+
         public static string ResolveAssetsRootPath(string inputPath)
         {
             if (string.IsNullOrWhiteSpace(inputPath)) inputPath = Directory.GetCurrentDirectory();
@@ -16,6 +33,19 @@ namespace TDR.Tools.Services
             string fullPath = Path.GetFullPath(inputPath);
             if (File.Exists(fullPath))
                 fullPath = Path.GetDirectoryName(fullPath) ?? fullPath;
+
+            // 1. If fullPath has an 'Assets' subfolder containing CARMA.pak/races.txt, return that Assets subfolder
+            string subAssets = Path.Combine(fullPath, "Assets");
+            if (Directory.Exists(subAssets) && IsGameAssetsDirectory(subAssets))
+            {
+                return subAssets;
+            }
+
+            // 2. If fullPath itself is the confirmed game assets directory containing CARMA.pak/races.txt
+            if (IsGameAssetsDirectory(fullPath))
+            {
+                return fullPath;
+            }
 
             var dirInfo = new DirectoryInfo(fullPath);
             if (dirInfo.Name.Equals("tracks", StringComparison.OrdinalIgnoreCase))
@@ -33,12 +63,17 @@ namespace TDR.Tools.Services
 
             bool hasRaces = rawVariants.Any(v => v.Contains("race", StringComparison.OrdinalIgnoreCase));
             bool hasMissions = rawVariants.Any(v => v.Contains("mission", StringComparison.OrdinalIgnoreCase));
+            bool hasAnyVariants = rawVariants.Count > 0;
 
-            var variants = new List<string>
+            var variants = new List<string>();
+
+            // Only add aggregate options if child variants (Race/Mission) actually exist for this track
+            if (hasAnyVariants)
             {
-                "All supported resources",
-                $"Base Track Only ({cleanBase})"
-            };
+                variants.Add("All supported resources");
+            }
+
+            variants.Add($"Base Track Only ({cleanBase})");
 
             if (hasRaces)
             {

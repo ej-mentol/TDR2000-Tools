@@ -25,13 +25,14 @@ namespace TDR.Tools.Export
         private readonly bool _enableGroundSnap;
         private readonly string? _trackContext;
         private readonly Action<string>? _logger;
+        private readonly HashSet<string>? _selectedHieFiles;
         private readonly Dictionary<string, MSHSContainer> _meshCache = new(StringComparer.OrdinalIgnoreCase);
         // Captured once per export (from the first mesh node encountered) when UseLocalCoords is on.
         // All subsequent mesh translations are offset by this value instead of being zeroed outright,
         // so meshes keep their position relative to each other — only the whole level shifts near origin.
         private Vector3? _localOrigin;
 
-        public ObjExporter(PakManager vfs, string exportDir, bool noMaterials, bool useLocalCoords, bool verbose = false, bool useGrouping = true, bool includeMovableProps = true, string? trackContext = null, Action<string>? logger = null, bool enableGroundSnap = false)
+        public ObjExporter(PakManager vfs, string exportDir, bool noMaterials, bool useLocalCoords, bool verbose = false, bool useGrouping = true, bool includeMovableProps = true, string? trackContext = null, Action<string>? logger = null, bool enableGroundSnap = false, IEnumerable<string>? selectedHieFiles = null)
         {
             _vfs = vfs;
             _exportDir = exportDir;
@@ -43,6 +44,28 @@ namespace TDR.Tools.Export
             _trackContext = trackContext;
             _logger = logger;
             _enableGroundSnap = enableGroundSnap;
+            if (selectedHieFiles != null)
+            {
+                _selectedHieFiles = new HashSet<string>(selectedHieFiles, StringComparer.OrdinalIgnoreCase);
+            }
+        }
+
+        private bool IsHieSelected(string hiePath)
+        {
+            if (_selectedHieFiles == null || _selectedHieFiles.Count == 0) return true;
+
+            string normFull = hiePath.Replace('\\', '/').ToLowerInvariant();
+            string normFileName = Path.GetFileName(hiePath).ToLowerInvariant();
+
+            return _selectedHieFiles.Any(sel =>
+            {
+                string normSel = sel.Replace('\\', '/').ToLowerInvariant();
+                string selFileName = Path.GetFileName(sel).ToLowerInvariant();
+
+                return normFull.EndsWith(normSel, StringComparison.OrdinalIgnoreCase) ||
+                       normSel.EndsWith(normFull, StringComparison.OrdinalIgnoreCase) ||
+                       normFileName.Equals(selFileName, StringComparison.OrdinalIgnoreCase);
+            });
         }
 
         private void Log(string message)
@@ -144,11 +167,14 @@ namespace TDR.Tools.Export
                     if (!assets.HieFiles.Contains(entry, StringComparer.OrdinalIgnoreCase))
                         assets.HieFiles.Add(entry);
 
-                    assets.HieInstances.Add(new HieInstanceInfo
+                    if (coordStart >= 1)
                     {
-                        HieName = entry,
-                        Transform = worldTransform
-                    });
+                        assets.HieInstances.Add(new HieInstanceInfo
+                        {
+                            HieName = entry,
+                            Transform = worldTransform
+                        });
+                    }
                 }
                 else if (entry.EndsWith(".txt", StringComparison.OrdinalIgnoreCase) && visitedDescriptors.Add(entry))
                 {
@@ -203,11 +229,19 @@ namespace TDR.Tools.Export
                     pendingWaterMesh = secondToken;
                 }
 
-                // Stage 3: MOVABLE_OBJECTS → placement descriptor .txt (not a static mesh)
+                // Stage 3: MOVABLE_OBJECTS & PEDESTRIAN_PLACEMENT → placement descriptor .txt
                 if (firstToken.Equals("MOVABLE_OBJECTS", StringComparison.OrdinalIgnoreCase))
                 {
                     if (!string.IsNullOrWhiteSpace(secondToken) && !result.MovableDescriptors.Contains(secondToken, StringComparer.OrdinalIgnoreCase))
                         result.MovableDescriptors.Add(secondToken);
+                    continue;
+                }
+
+                if (firstToken.Equals("PEDS_DESCRIPTOR", StringComparison.OrdinalIgnoreCase) ||
+                    firstToken.Equals("PEDESTRIAN_PLACEMENT", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!string.IsNullOrWhiteSpace(secondToken) && !result.PedestrianDescriptors.Contains(secondToken, StringComparer.OrdinalIgnoreCase))
+                        result.PedestrianDescriptors.Add(secondToken);
                     continue;
                 }
 
@@ -271,7 +305,7 @@ namespace TDR.Tools.Export
                             string normArchive = (file.ArchivePath ?? "").ToLowerInvariant().Replace("_", "");
                             if (fn.Contains(cleanTrackKey) || normArchive.Contains(cleanTrackKey))
                             {
-                                if (!result.HieFiles.Contains(file.Name, StringComparer.OrdinalIgnoreCase))
+                                if (IsHieSelected(file.Name) && !result.HieFiles.Contains(file.Name, StringComparer.OrdinalIgnoreCase))
                                 {
                                     result.HieFiles.Add(file.Name);
                                 }
@@ -327,6 +361,8 @@ namespace TDR.Tools.Export
                     for (int i = 0; i < totalInst; i++)
                     {
                         var inst = assets.HieInstances[i];
+                        if (!IsHieSelected(inst.HieName)) continue;
+
                         int pct = (int)((float)(i + 1) / (totalInst + assets.HieFiles.Count + 1) * 70.0f);
                         progressCallback?.Invoke(pct, $"Baking OBJ mesh ({i + 1}/{totalInst}): {inst.HieName}");
 
@@ -348,7 +384,7 @@ namespace TDR.Tools.Export
                 for (int i = 0; i < totalHies; i++)
                 {
                     string hieName = assets.HieFiles[i];
-                    if (processedHies.Contains(hieName)) continue;
+                    if (processedHies.Contains(hieName) || !IsHieSelected(hieName)) continue;
 
                     int pct = (int)(70.0f + (float)(i + 1) / (totalHies + 1) * 20.0f);
                     progressCallback?.Invoke(pct, $"Baking OBJ mesh layer ({i + 1}/{totalHies}): {hieName}");
@@ -445,6 +481,24 @@ namespace TDR.Tools.Export
                             AppendPowerupsToWriter(pupData, w, textures, ref v, ref vt, ref vn, (path) => _vfs.LoadFileContext(path, _trackContext ?? cleanTrackName));
                         }
                     }
+
+                    // 4. Bake Pedestrian Placement Descriptors into the combined scene
+                    var pedDescs = new List<string>(assets.PedestrianDescriptors);
+                    string defaultPed = $"{cleanTrackName}_Ped_Placement.txt";
+                    if (!pedDescs.Contains(defaultPed, StringComparer.OrdinalIgnoreCase) && _vfs.FileExists(defaultPed))
+                    {
+                        pedDescs.Add(defaultPed);
+                    }
+
+                    foreach (string pedDesc in pedDescs)
+                    {
+                        byte[]? pedData = _vfs.LoadFileContext(pedDesc, _trackContext ?? cleanTrackName);
+                        if (pedData != null)
+                        {
+                            if (_verbose) Log($"[+] Baking Pedestrian Placement descriptor '{pedDesc}' into combined scene...");
+                            AppendPedestriansToWriter(pedData, w, textures, ref v, ref vt, ref vn, (path) => _vfs.LoadFileContext(path, _trackContext ?? cleanTrackName));
+                        }
+                    }
                 }
             }
 
@@ -474,6 +528,11 @@ namespace TDR.Tools.Export
 
         private void AppendHieToWriter(byte[] hieBytes, string hieName, StreamWriter w, Dictionary<string, string?> textures, ref int v, ref int vt, ref int vn, string? sourceArchivePath, Matrix4x4? initialTransform = null)
         {
+            if (_useLocalCoords)
+            {
+                _localOrigin = null; // Reset local origin per-HIE hierarchy so each .hie calculates its own root origin
+            }
+
             var hie = TDRHierarchy.Load(hieBytes, hieName);
             if (hie.Root == null && hie.Meshes.Count == 0) return;
 
@@ -486,7 +545,8 @@ namespace TDR.Tools.Export
 
             if (hie.Root != null)
             {
-                ProcessNode(hie.Root, startMatrix, "Default", hie, textures, w, ref v, ref vt, ref vn, sourceArchivePath);
+                string defaultTex = "Default";
+                ProcessNode(hie.Root, startMatrix, ref defaultTex, hie, textures, w, ref v, ref vt, ref vn, sourceArchivePath);
             }
             else if (hie.Meshes.Count > 0)
             {
@@ -551,7 +611,8 @@ namespace TDR.Tools.Export
                 if (hie.Root != null)
                 {
                     if (_verbose) Log($"      [HIE Tree] Traversing node hierarchy from Root...");
-                    ProcessNode(hie.Root, Matrix4x4.Identity, "Default", hie, textures, w, ref v, ref vt, ref vn, sourceArchivePath);
+                    string defaultTex = "Default";
+                    ProcessNode(hie.Root, Matrix4x4.Identity, ref defaultTex, hie, textures, w, ref v, ref vt, ref vn, sourceArchivePath);
                 }
                 else if (hie.Meshes.Count > 0)
                 {
@@ -675,7 +736,8 @@ namespace TDR.Tools.Export
                     var hie = TDRHierarchy.Load(hieData, hieName);
                     if (hie.Root != null)
                     {
-                        ProcessNode(hie.Root, worldMatrix, "Default", hie, textures, w, ref v, ref vt, ref vn, movableArchive);
+                        string defaultTex = "Default";
+                        ProcessNode(hie.Root, worldMatrix, ref defaultTex, hie, textures, w, ref v, ref vt, ref vn, movableArchive);
                     }
                 }
                 catch { }
@@ -736,7 +798,8 @@ namespace TDR.Tools.Export
                             var hie = TDRHierarchy.Load(hieData, iconHieName);
                             if (hie.Root != null)
                             {
-                                ProcessNode(hie.Root, worldMatrix, "Default", hie, textures, w, ref v, ref vt, ref vn, movableArchive);
+                                string defaultTex = "Default";
+                                ProcessNode(hie.Root, worldMatrix, ref defaultTex, hie, textures, w, ref v, ref vt, ref vn, movableArchive);
                             }
                         }
                         catch { }
@@ -907,7 +970,8 @@ namespace TDR.Tools.Export
                         }
                         if (hie.Root != null)
                         {
-                            ProcessNode(hie.Root, worldMatrix, "Default", hie, textures, w, ref v, ref vt, ref vn, movableArchive);
+                            string defaultTex = "Default";
+                        ProcessNode(hie.Root, worldMatrix, ref defaultTex, hie, textures, w, ref v, ref vt, ref vn, movableArchive);
                         }
                         else if (hie.Meshes.Count > 0)
                         {
@@ -1035,7 +1099,8 @@ namespace TDR.Tools.Export
                             string? archivePath = _vfs.GetArchivePath(hieName);
                             if (hie.Root != null)
                             {
-                                ProcessNode(hie.Root, worldMatrix, "Default", hie, textures, w, ref v, ref vt, ref vn, archivePath);
+                                string defaultTex = "Default";
+                                ProcessNode(hie.Root, worldMatrix, ref defaultTex, hie, textures, w, ref v, ref vt, ref vn, archivePath);
                                 exportedMesh = true;
                             }
                         }
@@ -1095,7 +1160,53 @@ namespace TDR.Tools.Export
             Log($"  [+] Pedestrians -> {Path.GetFileName(objPath)}");
         }
 
-        private void ProcessNode(TDRNode node, Matrix4x4 parentMatrix, string currentTexture, TDRHierarchy hie, Dictionary<string, string?> textureSet, StreamWriter w, ref int v, ref int vt, ref int vn, string? archivePath = null)
+        private void AppendPedestriansToWriter(byte[] pedData, StreamWriter w, Dictionary<string, string?> textures, ref int v, ref int vt, ref int vn, Func<string, byte[]?> loader)
+        {
+            string text = Encoding.ASCII.GetString(pedData);
+            string[] lines = text.Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
+
+            int pedIdx = 0;
+            foreach (string rawLine in lines)
+            {
+                string clean = rawLine.Contains("//") ? rawLine[..rawLine.IndexOf("//")].Trim() : rawLine.Trim();
+                if (string.IsNullOrWhiteSpace(clean)) continue;
+
+                string[] parts = clean.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length >= 3 &&
+                    float.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float px) &&
+                    float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float py) &&
+                    float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float pz))
+                {
+                    pedIdx++;
+                    string pedHieName = "pedestrian_placeholder.hie";
+                    Matrix4x4 worldMatrix = Matrix4x4.CreateTranslation(px, py, pz);
+
+                    if (_useGrouping)
+                    {
+                        w.WriteLine($"o Pedestrian_{pedIdx:D3}");
+                        w.WriteLine($"# WorldPos: {F(px)} {F(py)} {F(pz)}");
+                    }
+
+                    byte[]? hieData = loader(pedHieName);
+                    if (hieData != null)
+                    {
+                        string? pedArchive = _vfs.GetArchivePath(pedHieName);
+                        try
+                        {
+                            var hie = TDRHierarchy.Load(hieData, pedHieName);
+                            if (hie.Root != null)
+                            {
+                                string currentTex = "Default";
+                                ProcessNode(hie.Root, worldMatrix, ref currentTex, hie, textures, w, ref v, ref vt, ref vn, pedArchive);
+                            }
+                        }
+                        catch { }
+                    }
+                }
+            }
+        }
+
+        private void ProcessNode(TDRNode node, Matrix4x4 parentMatrix, ref string currentTexture, TDRHierarchy hie, Dictionary<string, string?> textureSet, StreamWriter w, ref int v, ref int vt, ref int vn, string? archivePath = null)
         {
             if (node == null) return;
 
@@ -1177,7 +1288,7 @@ namespace TDR.Tools.Export
 
             foreach (var child in node.Children)
             {
-                ProcessNode(child, worldMatrix, currentTexture, hie, textureSet, w, ref v, ref vt, ref vn, archivePath);
+                ProcessNode(child, worldMatrix, ref currentTexture, hie, textureSet, w, ref v, ref vt, ref vn, archivePath);
             }
         }
 

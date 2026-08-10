@@ -838,11 +838,7 @@ namespace TDR.Tools
                 return;
             }
 
-            if (node.IsTrack)
-            {
-                await _vm.OpenConvertModalForTrackAsync();
-            }
-            else if (node.IsDirectory || node.IsArchive)
+            if (node.IsDirectory || node.IsArchive)
             {
                 node.IsExpanded = !node.IsExpanded;
             }

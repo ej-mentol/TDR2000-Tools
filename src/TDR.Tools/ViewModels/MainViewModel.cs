@@ -338,11 +338,33 @@ namespace TDR.Tools.ViewModels
             Directory.CreateDirectory(initialDest);
             SetDestinationDirectory(initialDest);
 
-            // Auto-initialize Source to last saved path or current working directory
+            // Auto-initialize Source: check if last saved path is a valid TDR2000 game assets directory
             string currentDir = Directory.GetCurrentDirectory();
-            string initialSource = (!string.IsNullOrEmpty(settings.LastSourceDirectory) && (Directory.Exists(settings.LastSourceDirectory) || File.Exists(settings.LastSourceDirectory)))
-                ? settings.LastSourceDirectory
-                : currentDir;
+            string initialSource = currentDir;
+
+            if (!string.IsNullOrEmpty(settings.LastSourceDirectory))
+            {
+                if (TrackDiscoveryService.IsGameAssetsDirectory(settings.LastSourceDirectory))
+                {
+                    initialSource = settings.LastSourceDirectory;
+                }
+                else
+                {
+                    // Purge stale/invalid project source paths from settings.json
+                    settings.LastSourceDirectory = string.Empty;
+                    try { settings.Save(); } catch { }
+                }
+            }
+
+            if (initialSource == currentDir)
+            {
+                string resolvedCurrent = TrackDiscoveryService.ResolveAssetsRootPath(currentDir);
+                if (TrackDiscoveryService.IsGameAssetsDirectory(resolvedCurrent))
+                {
+                    initialSource = resolvedCurrent;
+                }
+            }
+
             _ = IndexDirectory(initialSource);
             LogSession("--------------------------------------------------");
         }
@@ -403,9 +425,12 @@ namespace TDR.Tools.ViewModels
 
             try
             {
-                var s = AppSettings.Load();
-                s.LastSourceDirectory = rootPath;
-                s.Save();
+                if (TrackDiscoveryService.IsGameAssetsDirectory(rootPath))
+                {
+                    var s = AppSettings.Load();
+                    s.LastSourceDirectory = rootPath;
+                    s.Save();
+                }
             }
             catch { }
 
@@ -1987,39 +2012,81 @@ namespace TDR.Tools.ViewModels
                     .ToList();
             }
 
-            var folderGroups = new Dictionary<string, HieNodeViewModel>(StringComparer.OrdinalIgnoreCase);
+            // 1st tier: Layer Root nodes (e.g. Hollowood, Hollowood_Race1, Hollowood_Mission1)
+            var layerRootNodes = new Dictionary<string, HieNodeViewModel>(StringComparer.OrdinalIgnoreCase);
 
             foreach (var file in matchingFiles)
             {
                 string path = file.Name.Replace('\\', '/');
-                string rawDir = Path.GetDirectoryName(path)?.Replace('\\', '/') ?? cleanName;
-                if (string.IsNullOrEmpty(rawDir)) rawDir = cleanName;
+                string fileName = Path.GetFileName(path);
+                string fLower = fileName.ToLowerInvariant();
+                string pathLower = path.ToLowerInvariant();
+                string archiveLower = (file.ArchivePath ?? "").Replace('\\', '/').ToLowerInvariant();
 
-                // Clean display label: remove redundant "tracks/" or "assets/tracks/" prefixes
-                string displayDir = rawDir;
-                if (displayDir.StartsWith("tracks/", StringComparison.OrdinalIgnoreCase))
-                    displayDir = displayDir.Substring("tracks/".Length);
-                else if (displayDir.StartsWith("assets/tracks/", StringComparison.OrdinalIgnoreCase))
-                    displayDir = displayDir.Substring("assets/tracks/".Length);
+                // 1. Determine physical layer root (Hollowood, Hollowood_Race1, Hollowood_Mission1, etc.)
+                string layerRootKey = cleanName;
+                if (fLower.Contains("race1") || pathLower.Contains("race1") || archiveLower.Contains("race1"))
+                    layerRootKey = $"{cleanName}_Race1";
+                else if (fLower.Contains("race2") || pathLower.Contains("race2") || archiveLower.Contains("race2"))
+                    layerRootKey = $"{cleanName}_Race2";
+                else if (fLower.Contains("race3") || pathLower.Contains("race3") || archiveLower.Contains("race3"))
+                    layerRootKey = $"{cleanName}_Race3";
+                else if (fLower.Contains("mission1") || pathLower.Contains("mission1") || archiveLower.Contains("mission1"))
+                    layerRootKey = $"{cleanName}_Mission1";
+                else if (fLower.Contains("mission2") || pathLower.Contains("mission2") || archiveLower.Contains("mission2"))
+                    layerRootKey = $"{cleanName}_Mission2";
 
-                if (string.IsNullOrEmpty(displayDir)) displayDir = cleanName;
-
-                if (!folderGroups.TryGetValue(rawDir, out var parentNode))
+                if (!layerRootNodes.TryGetValue(layerRootKey, out var layerRootNode))
                 {
-                    parentNode = new HieNodeViewModel
+                    layerRootNode = new HieNodeViewModel
                     {
-                        Name = displayDir,
-                        VirtualPath = rawDir,
+                        Name = layerRootKey,
+                        VirtualPath = layerRootKey,
                         IsDirectory = true,
                         IsSelected = true,
-                        NodeType = "VariantGroup",
+                        NodeType = "TrackLayerRoot",
                         OnSelectionChangedCallback = () => modalVm.NotifyUserTreeToggled()
                     };
-                    folderGroups[rawDir] = parentNode;
-                    modalVm.HieTreeNodes.Add(parentNode);
+                    layerRootNodes[layerRootKey] = layerRootNode;
+                    modalVm.HieTreeNodes.Add(layerRootNode);
                 }
 
-                string fileName = Path.GetFileName(path);
+                // 2. Determine physical VFS subfolder inside this layer
+                string rawDir = Path.GetDirectoryName(path)?.Replace('\\', '/') ?? "";
+                string displaySubfolder = rawDir;
+
+                if (displaySubfolder.StartsWith("tracks/", StringComparison.OrdinalIgnoreCase))
+                    displaySubfolder = displaySubfolder.Substring("tracks/".Length);
+                else if (displaySubfolder.StartsWith("assets/tracks/", StringComparison.OrdinalIgnoreCase))
+                    displaySubfolder = displaySubfolder.Substring("assets/tracks/".Length);
+
+                // Strip root layer prefix if subfolder repeats track name (e.g. Hollowood/Level Convsoft -> Level Convsoft)
+                if (displaySubfolder.StartsWith(cleanName + "/", StringComparison.OrdinalIgnoreCase))
+                    displaySubfolder = displaySubfolder.Substring(cleanName.Length + 1);
+
+                HieNodeViewModel parentFolderNode = layerRootNode;
+
+                if (!string.IsNullOrWhiteSpace(displaySubfolder) && !displaySubfolder.Equals(cleanName, StringComparison.OrdinalIgnoreCase))
+                {
+                    string folderKey = $"{layerRootKey}/{displaySubfolder}";
+                    var existingSub = layerRootNode.Children.FirstOrDefault(c => c.VirtualPath.Equals(folderKey, StringComparison.OrdinalIgnoreCase));
+                    if (existingSub == null)
+                    {
+                        existingSub = new HieNodeViewModel
+                        {
+                            Name = displaySubfolder,
+                            VirtualPath = folderKey,
+                            IsDirectory = true,
+                            IsSelected = true,
+                            NodeType = "VfsSubfolder",
+                            Parent = layerRootNode,
+                            OnSelectionChangedCallback = () => modalVm.NotifyUserTreeToggled()
+                        };
+                        layerRootNode.Children.Add(existingSub);
+                    }
+                    parentFolderNode = existingSub;
+                }
+
                 bool isBlacklistedDefault = fileName.Contains("skybox", StringComparison.OrdinalIgnoreCase) ||
                                             fileName.Contains("billboard", StringComparison.OrdinalIgnoreCase) ||
                                             fileName.Contains("campaths", StringComparison.OrdinalIgnoreCase) ||
@@ -2035,10 +2102,10 @@ namespace TDR.Tools.ViewModels
                     IsDirectory = false,
                     IsSelected = !isBlacklistedDefault,
                     NodeType = "MeshFile",
-                    Parent = parentNode,
+                    Parent = parentFolderNode,
                     OnSelectionChangedCallback = () => modalVm.NotifyUserTreeToggled()
                 };
-                parentNode.Children.Add(fileNode);
+                parentFolderNode.Children.Add(fileNode);
             }
         }
     }
