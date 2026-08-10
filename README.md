@@ -16,10 +16,11 @@ Desktop toolkit and C# library for inspecting, extracting, and converting **Carm
 
 ### Key Capabilities
 - **Virtual File System (VFS):** Reads and writes TDR2000 Trie-indexed `.DIR` directories and `.PAK` containers with XOR keying and `zIG` zlib compression.
-- **Texture Decoding:** Renders and extracts 32-bit RGBA (`_32`), 24-bit RGB (`_24`), and 8-bit paletted (`_8` with `.pal` color lookup) TGA images. Automatically parses `.tx` descriptor headers.
+- **Texture & Material Decoding:** Renders 32-bit RGBA (`_32`), 24-bit RGB (`_24`), and 8-bit paletted TGA images. Supports `.png` conversion with alpha channel and `map_Bump` relief maps for water and terrain shaders.
+- **Audio Inspection & Playback:** In-memory WAV/SND header decoding (Sample Rate, Bits/Channels, Duration) with real-time playback timer, discrete progress bar, mute controls, and seamless **Looping (🔁)** for motor/ambient sounds.
 - **Track & Geometry Parsing:** Resolves 3D hierarchy models (`.hie`), binary mesh containers (`.mshs`), movables placements (`MoveableDescriptor.txt`), powerup icons (`.pup`), and pedestrian placements (`PEDS_DESCRIPTOR`).
 - **3D Level Export:** Generates combined Wavefront `.OBJ` (with `.mtl` material libraries), `.gltf` 2.0 scenes, and structured `scene.json` manifests.
-- **Variant & Layer Support:** Supports Base Track Only, specific Race/Mission variants, or All Variants combined export modes, validated against `CARMA.pak` game root markers.
+- **Variant & Layer Support:** Supports Base Track Only, specific Race/Mission variants, or All Variants combined export modes with auto-unpacking for inner `.PAK` archives.
 
 ---
 
@@ -29,17 +30,18 @@ The application features a dual-panel desktop workspace:
 
 1. **Left Panel (VFS & File System Explorer):**
    - Tree View (`TreeView`), Flat Details Table (`ListBox`), or Grid Cards View (`WrapPanel`).
-   - Virtual directory navigation for packed archives (`.pak`/`.dir`) and loose disk folders.
+   - Toolbar navigation buttons (Back `‹`, Forward `›`, Up `↑`) with dynamic `IsEnabled` history states and custom vector icons.
    - Quick search and filtering across indexed virtual files.
 
 2. **Right Panel (Preview & Inspector):**
    - **Image Preview:** View TGA textures and paletted graphics.
+   - **Audio Inspector Drawer:** Interactive WAV audio player with real-time ticking time counter (`0:00 / MM:SS`), progress bar, Mute toggle, and Infinite Loop mode for engine/ambient sounds. Double-click any audio file in VFS tree to play instantly.
    - **Metadata Inspector:** View raw file properties, compression details, mesh node counts, and archive locations.
-   - **Log Console:** Session logging for VFS operations, extractions, and export status.
+   - **Log Console:** Resizable session log console with draggable vertical splitter, multi-line text selection (`Ctrl+C` copy), right-click context menu, and a dedicated **Clear Log** button.
 
 3. **Track Conversion Modal:**
    - Triggered by double-clicking a Track Badge or choosing **Export Track to OBJ / glTF...** in the context menu.
-   - **Left Panel (Format & Geometry Controls):** Scrollable configuration panel containing format flags (`.OBJ`, `.GLTF 2.0`, `scene.json`), coordinate modes (`Local Coordinates`, `Raycast GroundSnap`), and grouping options. Settings automatically persist across sessions in `settings.json`.
+   - **Left Panel (Format & Geometry Controls):** Scrollable configuration panel containing format flags (`.OBJ`, `.GLTF 2.0`, `scene.json`), texture PNG conversion, `Also unpack inner .PAK archives before export` option, coordinate modes (`Local Coordinates`, `Raycast GroundSnap`), and grouping options. Settings automatically persist across sessions in `settings.json`.
    - **Right Panel (Presets & Resource Tree):** Top Preset selector (`All supported resources`, `Base Track Only`, `All Races`, `All Missions`, or `Custom Selection`) synchronized with a 2-tier checkable `TreeView` of physical track layer roots (`Hollowood`, `Hollowood_Race1`, `Hollowood_Mission1`) and VFS subfolders (`Level Convsoft`, `Level Breakable`, `Sky Sphere`). Cascading check states allow toggling entire race layers or individual `.hie` meshes in a single click. Non-renderable camera path and cutscene script files (`campaths`, `intpaths`, `zoomin`, `lookat`) are un-checked by default.
 
 ---
@@ -98,6 +100,7 @@ On Windows, you can also run `rebuild_release.bat` to clean previous build outpu
 | **Level Descriptor** | `.txt` | Level asset keywords and placement descriptors | Fully Supported |
 | **Powerup Descriptor** | `.pup` | 3D item placement coordinates and Type IDs | Fully Supported |
 | **Volume Collision** | `.h` / `.scol` | Environment & checkpoint bounding volumes | Read / Export Supported |
+| **Audio Sample** | `.wav` / `.snd` | PCM audio samples, engine revs, and ambient sounds | In-Memory Playback & Seamless Loop (🔁) |
 
 ---
 
