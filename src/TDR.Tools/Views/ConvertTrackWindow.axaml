@@ -32,7 +32,7 @@
                     <StackPanel Spacing="10">
                         <TextBlock Text="Export Formats &amp; Controls:" FontSize="12" FontWeight="Bold" Foreground="{DynamicResource AccentBrush}"/>
 
-                        <CheckBox IsChecked="{Binding ExportObj}" Content="Export Combined 3D Geometry (.OBJ / .MTL)" FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}" ToolTip.Tip="Generates a single unified 3D scene (.OBJ) with all track geometry baked into world coordinates."/>
+                        <CheckBox IsChecked="{Binding ExportObj}" Content="Wavefront 3D Scene (.OBJ / .MTL)" FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}" ToolTip.Tip="Generates a Wavefront 3D scene (.OBJ / .MTL) with track geometry baked into world coordinates."/>
                         
                         <CheckBox IsChecked="{Binding IncludeMovableProps}" IsEnabled="{Binding ExportObj}" Content="Bake Props, Signs &amp; Checkpoints into .OBJ / glTF" FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}" Margin="20,0,0,0" ToolTip.Tip="Bakes 3D models for arrows, signs, checkpoints, and dynamic mission props directly into world positions."/>
 
