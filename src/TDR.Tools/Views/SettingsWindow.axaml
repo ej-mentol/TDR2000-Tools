@@ -64,7 +64,6 @@
                         <CheckBox x:Name="ExportObjCheckBox" Content="Export Combined 3D Geometry (.OBJ / .MTL)" Foreground="{DynamicResource TextPrimaryBrush}"/>
                         <CheckBox x:Name="ExportGltfCheckBox" Content="Export Modern 3D Scene (.GLTF / .GLB)" Foreground="{DynamicResource TextPrimaryBrush}"/>
                         <CheckBox x:Name="ExportPngTexturesCheckBox" Content="Convert Textures to PNG (.png)" Foreground="{DynamicResource TextPrimaryBrush}"/>
-                        <CheckBox x:Name="AutoUnpackInnerPaksCheckBox" Content="Also unpack inner .PAK archives before export" Foreground="{DynamicResource TextPrimaryBrush}"/>
                         <CheckBox x:Name="IncludeMovablePropsCheckBox" Content="Bake Props, Signs &amp; Checkpoints into .OBJ / glTF" Foreground="{DynamicResource TextPrimaryBrush}" Margin="20,0,0,0"/>
                         <CheckBox x:Name="ExportSceneJsonCheckBox" Content="Export Engine Scene Manifesto (.JSON)" Foreground="{DynamicResource TextPrimaryBrush}"/>
                         <CheckBox x:Name="UseZeroOriginForJsonAssetsCheckBox" Content="Center Extracted Prefabs at Local Origin (0,0,0)" Foreground="{DynamicResource TextPrimaryBrush}" Margin="20,0,0,0"/>

@@ -436,7 +436,8 @@ namespace TDR.Tools
             {
                 if (node.Name == "..") continue;
 
-                if (node.IsTrack)
+                bool isPakFile = !node.IsDirectory && node.Name.EndsWith(".pak", StringComparison.OrdinalIgnoreCase);
+                if (node.IsTrack || node.IsArchive || isPakFile)
                 {
                     var settings = Services.AppSettings.Load();
                     string action = settings.RememberPakDragAction ? settings.PakDragAction : "Ask";
@@ -473,11 +474,10 @@ namespace TDR.Tools
                                     settings.RememberPakDragAction = true;
                                     settings.Save();
                                 }
-                                _vm.ExtractNodeToDestination(node, createSubfolderForPak: true, flatFiles: false);
+                                _vm.ExtractNodeToDestination(node, createSubfolderForPak: dialog.CreateSubfolder, flatFiles: dialog.FlatFiles);
                             }
                             else if (userChoice == Views.PakUserAction.Convert)
                             {
-                                settings.AutoUnpackInnerPaks = dialog.UnpackInnerPaks;
                                 if (dialog.RememberChoice)
                                 {
                                     settings.PakDragAction = "Convert";
@@ -496,10 +496,6 @@ namespace TDR.Tools
                     {
                         await _vm.OpenConvertModalForTrackAsync(node);
                     }
-                }
-                else if (node.IsArchive)
-                {
-                    _vm.ExtractNodeToDestination(node, createSubfolderForPak: true, flatFiles: false);
                 }
                 else
                 {

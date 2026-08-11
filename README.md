@@ -20,7 +20,7 @@ Desktop toolkit and C# library for inspecting, extracting, and converting **Carm
 - **Audio Inspection & Playback:** In-memory WAV/SND header decoding (Sample Rate, Bits/Channels, Duration) with real-time playback timer, discrete progress bar, mute controls, and seamless **Looping (🔁)** for motor/ambient sounds.
 - **Track & Geometry Parsing:** Resolves 3D hierarchy models (`.hie`), binary mesh containers (`.mshs`), movables placements (`MoveableDescriptor.txt`), powerup icons (`.pup`), and pedestrian placements (`PEDS_DESCRIPTOR`).
 - **3D Level Export:** Generates combined Wavefront `.OBJ` (with `.mtl` material libraries), `.gltf` 2.0 scenes, and structured `scene.json` manifests.
-- **Variant & Layer Support:** Supports Base Track Only, specific Race/Mission variants, or All Variants combined export modes with auto-unpacking for inner `.PAK` archives.
+- **Variant & Layer Support:** Supports Base Track Only, specific Race/Mission variants, or All Variants combined export modes.
 
 ---
 
@@ -41,7 +41,7 @@ The application features a dual-panel desktop workspace:
 
 3. **Track Conversion Modal:**
    - Triggered by double-clicking a Track Badge or choosing **Export Track to OBJ / glTF...** in the context menu.
-   - **Left Panel (Format & Geometry Controls):** Scrollable configuration panel containing format flags (`.OBJ`, `.GLTF 2.0`, `scene.json`), texture PNG conversion, `Also unpack inner .PAK archives before export` option, coordinate modes (`Local Coordinates`, `Raycast GroundSnap`), and grouping options. Settings automatically persist across sessions in `settings.json`.
+   - **Left Panel (Format & Geometry Controls):** Scrollable configuration panel containing format flags (`.OBJ`, `.GLTF 2.0`, `scene.json`), texture PNG conversion (`.png`), coordinate modes (`Local Coordinates`, `Raycast GroundSnap`), and grouping options. Settings automatically persist across sessions in `settings.json`.
    - **Right Panel (Presets & Resource Tree):** Top Preset selector (`All supported resources`, `Base Track Only`, `All Races`, `All Missions`, or `Custom Selection`) synchronized with a 2-tier checkable `TreeView` of physical track layer roots (`Hollowood`, `Hollowood_Race1`, `Hollowood_Mission1`) and VFS subfolders (`Level Convsoft`, `Level Breakable`, `Sky Sphere`). Cascading check states allow toggling entire race layers or individual `.hie` meshes in a single click. Non-renderable camera path and cutscene script files (`campaths`, `intpaths`, `zoomin`, `lookat`) are un-checked by default.
 
 ---

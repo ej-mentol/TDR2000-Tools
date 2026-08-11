@@ -1870,16 +1870,6 @@ namespace TDR.Tools.ViewModels
             string? variantSuffix = GetVariantSuffix(initialVariant, trackName);
             string? resolvedNow = TrackExportPipeline.ResolveTrackDescriptor(_vfs, trackName, variantSuffix);
 
-            bool hasPaks = false;
-            if (targetNode.IsDirectory && !string.IsNullOrEmpty(targetNode.AbsolutePath) && Directory.Exists(targetNode.AbsolutePath))
-            {
-                hasPaks = Directory.GetFiles(targetNode.AbsolutePath, "*.pak", SearchOption.AllDirectories).Length > 0;
-            }
-            else
-            {
-                hasPaks = _vfs.GetFiles().Any(f => f.Name.EndsWith(".pak", StringComparison.OrdinalIgnoreCase));
-            }
-
             var modalVm = new ConvertTrackModalViewModel
             {
                 TrackName = trackName,
@@ -1887,8 +1877,7 @@ namespace TDR.Tools.ViewModels
                 ResolvedDescriptorPath = resolvedNow ?? string.Empty,
                 OutputDirectory = Path.Combine(_destinationRootPath, trackName),
                 AvailableVariants = variants,
-                SelectedVariant = initialVariant,
-                HasInnerPakFiles = hasPaks
+                SelectedVariant = initialVariant
             };
 
             PopulateHieTreeForModal(modalVm, trackName);

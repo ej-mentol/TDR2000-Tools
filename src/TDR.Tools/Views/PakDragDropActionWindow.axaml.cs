@@ -12,8 +12,9 @@ namespace TDR.Tools.Views
 
     public partial class PakDragDropActionWindow : Window
     {
+        public bool CreateSubfolder { get; private set; } = true;
+        public bool FlatFiles { get; private set; } = false;
         public bool RememberChoice => RememberChoiceCheckBox.IsChecked == true;
-        public bool UnpackInnerPaks { get; private set; } = true;
         public PakUserAction SelectedAction { get; private set; } = PakUserAction.Cancel;
 
         public PakDragDropActionWindow()
@@ -28,32 +29,28 @@ namespace TDR.Tools.Views
                 : $"Selected archive: '{itemName}'";
 
             FileOpsText.Text = isFolder ? "File Ops" : "Unpack Ops";
-            UnpackInnerPaks = containsPakFiles;
         }
 
         private void OnCopyAndUnpackClick(object? sender, RoutedEventArgs e)
         {
-            UnpackInnerPaks = true;
+            CreateSubfolder = true;
+            FlatFiles = false;
             SelectedAction = PakUserAction.Extract;
             Close(PakUserAction.Extract);
         }
 
         private void OnCopyOnlyClick(object? sender, RoutedEventArgs e)
         {
-            UnpackInnerPaks = false;
+            CreateSubfolder = false;
+            FlatFiles = true;
             SelectedAction = PakUserAction.Extract;
             Close(PakUserAction.Extract);
         }
 
         private void OnUnpackOnlyClick(object? sender, RoutedEventArgs e)
         {
-            UnpackInnerPaks = true;
-            SelectedAction = PakUserAction.Extract;
-            Close(PakUserAction.Extract);
-        }
-
-        private void OnExtractClick(object? sender, RoutedEventArgs e)
-        {
+            CreateSubfolder = true;
+            FlatFiles = false;
             SelectedAction = PakUserAction.Extract;
             Close(PakUserAction.Extract);
         }

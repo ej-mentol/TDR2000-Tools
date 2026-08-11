@@ -97,8 +97,6 @@ namespace TDR.Tools.ViewModels
         private bool _exportObj = true;
         private bool _exportGltf = true;
         private bool _exportPngTextures = true;
-        private bool _autoUnpackInnerPaks = true;
-        private bool _hasInnerPakFiles = false;
         private bool _includeMovableProps = true;
         private bool _exportSceneJson = true;
         private bool _useZeroOriginForJsonAssets = true;
@@ -107,7 +105,6 @@ namespace TDR.Tools.ViewModels
         private bool _enableGroundSnap = false;
         private bool _dumpAll = false;
         private bool _verboseLog = false;
-        private bool _debugMode = false;
         private string _searchHieQuery = string.Empty;
         private string _selectedVariant = PresetAllSupported;
         private bool _isUpdatingFromPreset = false;
@@ -162,22 +159,6 @@ namespace TDR.Tools.ViewModels
             set { _exportPngTextures = value; OnPropertyChanged(); }
         }
 
-        public bool HasInnerPakFiles
-        {
-            get => _hasInnerPakFiles;
-            set { _hasInnerPakFiles = value; OnPropertyChanged(); OnPropertyChanged(nameof(InnerPakStatusTooltip)); }
-        }
-
-        public bool AutoUnpackInnerPaks
-        {
-            get => _autoUnpackInnerPaks;
-            set { _autoUnpackInnerPaks = value; OnPropertyChanged(); }
-        }
-
-        public string InnerPakStatusTooltip => HasInnerPakFiles
-            ? "Track folder contains nested .PAK archives — check this to automatically unpack them before 3D export."
-            : "No nested .PAK archives found in this track folder.";
-
         public bool IncludeMovableProps
         {
             get => _includeMovableProps;
@@ -226,12 +207,6 @@ namespace TDR.Tools.ViewModels
             set { _verboseLog = value; OnPropertyChanged(); }
         }
 
-        public bool DebugMode
-        {
-            get => _debugMode;
-            set { _debugMode = value; OnPropertyChanged(); }
-        }
-
         public string SearchHieQuery
         {
             get => _searchHieQuery;
@@ -266,7 +241,6 @@ namespace TDR.Tools.ViewModels
             ExportObj = settings.ExportObj;
             ExportGltf = settings.ExportGltf;
             ExportPngTextures = settings.ExportPngTextures;
-            AutoUnpackInnerPaks = settings.AutoUnpackInnerPaks;
             IncludeMovableProps = settings.IncludeMovableProps;
             ExportSceneJson = settings.ExportSceneJson;
             UseZeroOriginForJsonAssets = settings.UseZeroOriginForJsonAssets;
@@ -275,7 +249,6 @@ namespace TDR.Tools.ViewModels
             EnableGroundSnap = settings.EnableGroundSnap;
             DumpAll = settings.DumpAll;
             VerboseLog = settings.VerboseLog;
-            DebugMode = settings.DebugMode;
         }
 
         public void NotifyUserTreeToggled()
@@ -441,7 +414,6 @@ namespace TDR.Tools.ViewModels
             settings.ExportObj = ExportObj;
             settings.ExportGltf = ExportGltf;
             settings.ExportPngTextures = ExportPngTextures;
-            settings.AutoUnpackInnerPaks = AutoUnpackInnerPaks;
             settings.IncludeMovableProps = IncludeMovableProps;
             settings.ExportSceneJson = ExportSceneJson;
             settings.UseZeroOriginForJsonAssets = UseZeroOriginForJsonAssets;
@@ -450,7 +422,6 @@ namespace TDR.Tools.ViewModels
             settings.EnableGroundSnap = EnableGroundSnap;
             settings.DumpAll = DumpAll;
             settings.VerboseLog = VerboseLog;
-            settings.DebugMode = DebugMode;
             settings.Save();
 
             RequestStartExport?.Invoke(this);
