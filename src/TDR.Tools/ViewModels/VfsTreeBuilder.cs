@@ -91,7 +91,7 @@ namespace TDR.Tools.ViewModels
 
                     if (isPak)
                     {
-                        long pakSize = (!string.IsNullOrEmpty(f.ArchivePath) && File.Exists(f.ArchivePath)) ? new FileInfo(f.ArchivePath).Length : f.Size;
+                        long pakSize = File.Exists(f.ArchivePath) ? new FileInfo(f.ArchivePath).Length : f.Size;
                         newNode = new FileNodeViewModel
                         {
                             Name = part,
@@ -534,7 +534,7 @@ namespace TDR.Tools.ViewModels
                 string lowerDir = name.ToLowerInvariant();
                 if (!lowerDir.Equals("tracks") && !lowerDir.Equals("assets") && !lowerDir.Equals("bin") && !lowerDir.Equals("obj") && !lowerDir.Equals("src"))
                 {
-                    if (lowerDir.Contains("race") || lowerDir.Contains("mission"))
+                    if ((isTrackValidator != null && isTrackValidator(virtualPath)) || lowerDir.Contains("race") || lowerDir.Contains("mission"))
                     {
                         node.IsTrack = true;
                         node.NodeType = FileNodeType.TrackDescriptor;
@@ -570,10 +570,10 @@ namespace TDR.Tools.ViewModels
                 string fileName = Path.GetFileName(cleanName);
                 if (string.IsNullOrEmpty(fileName)) continue;
 
-                if (queryActive && !cleanName.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) && !f.ArchivePath.Contains(searchQuery, StringComparison.OrdinalIgnoreCase))
+                string arcName = !string.IsNullOrEmpty(f.ArchivePath) ? Path.GetFileName(f.ArchivePath) : "Loose";
+                if (queryActive && !cleanName.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) && !arcName.Contains(searchQuery, StringComparison.OrdinalIgnoreCase))
                     continue;
 
-                string arcName = !string.IsNullOrEmpty(f.ArchivePath) ? Path.GetFileName(f.ArchivePath) : "Loose";
                 var node = CreateNode(fileName, cleanName, f.ArchivePath, f.IsLooseFile, f.Size, isTrackValidator ?? (_ => false));
                 node.SourceArchiveName = arcName;
                 targetNodes.Add(node);

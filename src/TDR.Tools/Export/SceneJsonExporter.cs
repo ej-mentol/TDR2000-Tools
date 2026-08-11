@@ -479,9 +479,9 @@ if json_files:
 
                 if (float.TryParse(tokens[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float x) &&
                     float.TryParse(tokens[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float y) &&
-                    float.TryParse(tokens[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float z))
+                    float.TryParse(tokens[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float z) &&
+                    float.TryParse(tokens[3], NumberStyles.Float, CultureInfo.InvariantCulture, out float radius))
                 {
-                    float radius = tokens.Length >= 4 ? float.Parse(tokens[3], CultureInfo.InvariantCulture) : 10.0f;
                     lights.Add(new SceneLight
                     {
                         Id = $"light_{idx:D3}",
@@ -727,7 +727,7 @@ if json_files:
                 .Where(f => f.Name.EndsWith(".txt", StringComparison.OrdinalIgnoreCase))
                 .Where(f => {
                     string fn = Path.GetFileNameWithoutExtension(f.Name).ToLowerInvariant();
-                    if (fn == tName || fn.Contains("descriptor") || fn.Contains("script") || fn.Contains("collision")) return false;
+                    if (fn == tName || fn.Contains("script") || fn.Contains("collision")) return false;
                     return fn.StartsWith(tName + "_race") || fn.StartsWith(tName + "_mission") || fn.StartsWith(tName + "_mp");
                 })
                 .Select(f => Path.GetFileNameWithoutExtension(f.Name))

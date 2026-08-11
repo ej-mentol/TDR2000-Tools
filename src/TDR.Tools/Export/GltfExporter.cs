@@ -142,8 +142,7 @@ namespace TDR.Tools.Export
                     }
 
                     int layerNodeIdx = AddHieNodeToGltf(hie.Root, startMatrix, hie, gltf, archivePath, bw, GetOrAddMaterial, meshMap, localOrigin);
-                    if (layerNodeIdx >= 0)
-                        rootNode.Children.Add(layerNodeIdx);
+                    rootNode.Children.Add(layerNodeIdx);
                 }
             }
 
@@ -628,7 +627,7 @@ namespace TDR.Tools.Export
             var match = vfsFiles.FirstOrDefault(f => Path.GetFileNameWithoutExtension(f.Name).Equals(texName, StringComparison.OrdinalIgnoreCase));
             if (match == null) return null;
 
-            byte[]? data = _vfs.LoadFile(match);
+            byte[]? data = (!string.IsNullOrEmpty(archivePath) ? _vfs.LoadFileContext(match.Name, archivePath) : null) ?? _vfs.LoadFile(match);
             if (data == null) return null;
 
             string outTexName = Path.GetFileName(match.Name);

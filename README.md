@@ -59,9 +59,8 @@ The application features a dual-panel desktop workspace:
 │   ├── EXPORT_FORMAT.md      # Detailed format & keyword specification contract
 │   └── TDR2000_Tools_Architecture.md # Technical architecture & decompilation notes
 ├── tests/                    # Unit & format verification test project
-├── clean.bat                 # Helper script to clean build artifacts (bin/obj)
-└── rebuild_release.bat       # Helper script to clean and perform a Release build
-```
+├── clean_source.bat          # Helper script to clean all build artifacts & temp files for archiving
+└── rebuild_release.bat       # Helper script to build & publish Release Single-File binary
 
 ---
 
@@ -84,7 +83,7 @@ dotnet build TDR2000Tools.slnx -c Release
 dotnet run --project src/TDR.Tools/TDR.Tools.csproj
 ```
 
-On Windows, you can also run `rebuild_release.bat` to clean previous build outputs and compile a Release build.
+On Windows, you can also run `rebuild_release.bat` to clean previous build outputs, publish a Single-File Release executable to `.\publish\Release\`, and strip debug symbol files. To completely clean the repository before creating a ZIP archive, run `clean_source.bat`.
 
 ---
 

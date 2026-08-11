@@ -261,11 +261,7 @@ namespace TDR.Tools
                 targetPakNode = _vm.SelectedSourceNode;
             }
 
-            if (targetPakNode == null)
-            {
-                targetPakNode = await _vm.CreateNewPakArchiveAsync(null);
-            }
-
+            targetPakNode ??= await _vm.CreateNewPakArchiveAsync(null);
             if (targetPakNode == null) return;
 
             // Process dragged VFS nodes (from either Source or Destination tree)
@@ -312,14 +308,7 @@ namespace TDR.Tools
 
         private void OnDestinationDragOver(object? sender, DragEventArgs e)
         {
-            if (_draggedNode != null || _vm.SelectedSourceNode != null)
-            {
-                e.DragEffects = DragDropEffects.Copy;
-            }
-            else
-            {
-                e.DragEffects = DragDropEffects.None;
-            }
+            OnSourceDragOver(sender, e);
         }
 
         private async void OnPackFolderToPakClick(object? sender, RoutedEventArgs e)
@@ -722,6 +711,7 @@ namespace TDR.Tools
                 }
                 else if (e.Key == Key.Escape)
                 {
+                    node.EditName = node.Name;
                     node.IsEditing = false;
                     e.Handled = true;
                     if (_lastFocusedPanel == "Destination") DestinationGrid?.Focus();

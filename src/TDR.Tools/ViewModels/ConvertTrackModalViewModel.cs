@@ -290,7 +290,7 @@ namespace TDR.Tools.ViewModels
 
             bool isBlacklisted = nLower.Contains("skybox") || nLower.Contains("billboard") ||
                                  nLower.Contains("campaths") || nLower.Contains("intpaths") ||
-                                 nLower.Contains("zoomin") || nLower.Contains("lookat") || nLower.Contains("look");
+                                 nLower.Contains("zoomin") || nLower.Contains("look");
 
             bool shouldSelect = false;
 

@@ -248,7 +248,7 @@ namespace TDR.Tools.Export
                 }
 
                 // Stage 1: Direct .hie or .txt (for BASE_CONSOFT, LEVEL_MESH, STATIC_MESH, etc.)
-                if (DirectHieKeywords.Contains(firstToken, StringComparer.OrdinalIgnoreCase))
+                if (!string.IsNullOrWhiteSpace(secondToken) && DirectHieKeywords.Contains(firstToken, StringComparer.OrdinalIgnoreCase))
                 {
                     if (secondToken.EndsWith(".hie", StringComparison.OrdinalIgnoreCase))
                     {
@@ -267,7 +267,7 @@ namespace TDR.Tools.Export
                 }
 
                 // Stage 2: Sub-descriptor keywords → always .txt, parsed without keyword filter
-                if (SubDescriptorKeywords.Contains(firstToken, StringComparer.OrdinalIgnoreCase))
+                if (!string.IsNullOrWhiteSpace(secondToken) && SubDescriptorKeywords.Contains(firstToken, StringComparer.OrdinalIgnoreCase))
                 {
                     if (secondToken.EndsWith(".txt", StringComparison.OrdinalIgnoreCase) && visitedDescriptors.Add(secondToken))
                     {
@@ -428,7 +428,7 @@ namespace TDR.Tools.Export
 
                         foreach (string hieName in snapHies)
                         {
-                            if (hieName.Contains("skysphere", StringComparison.OrdinalIgnoreCase) || hieName.Contains("sky", StringComparison.OrdinalIgnoreCase))
+                            if (hieName.Contains("sky", StringComparison.OrdinalIgnoreCase))
                                 continue;
 
                             byte[]? hieBytes = _vfs.LoadFileContext(hieName, _trackContext ?? levelName);
@@ -1042,10 +1042,13 @@ namespace TDR.Tools.Export
                     }
                 }
 
-                WriteMtlFile(mtlPath, textures);
-                if (File.Exists(objPath)) File.Delete(objPath);
-                File.Move(tempObj, objPath);
-                Log($"  [+] Movables -> {Path.GetFileName(objPath)}");
+                if (v > 1)
+                {
+                    WriteMtlFile(mtlPath, textures);
+                    if (File.Exists(objPath)) File.Delete(objPath);
+                    File.Move(tempObj, objPath);
+                    Log($"  [+] Movables -> {Path.GetFileName(objPath)}");
+                }
             }
             finally
             {
@@ -1053,7 +1056,7 @@ namespace TDR.Tools.Export
                 {
                     try { File.Delete(tempObj); } catch { }
                 }
-            }e(objPath)}");
+            }
         }
 
         public void ExportPedestriansToObj(string pedPlacementPath, string? pedDescPath, Func<string, byte[]?> loader)
@@ -1193,10 +1196,13 @@ namespace TDR.Tools.Export
                     }
                 }
 
-                WriteMtlFile(mtlPath, textures);
-                if (File.Exists(objPath)) File.Delete(objPath);
-                File.Move(tempObj, objPath);
-                Log($"  [+] Pedestrians -> {Path.GetFileName(objPath)}");
+                if (v > 1)
+                {
+                    WriteMtlFile(mtlPath, textures);
+                    if (File.Exists(objPath)) File.Delete(objPath);
+                    File.Move(tempObj, objPath);
+                    Log($"  [+] Pedestrians -> {Path.GetFileName(objPath)}");
+                }
             }
             finally
             {

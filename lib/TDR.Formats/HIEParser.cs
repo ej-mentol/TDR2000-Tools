@@ -294,9 +294,12 @@ namespace TDR.PakLib.Formats
             return result;
         }
 
-        private static void BuildTree(TDRNode parent, int index, List<TDRNode> nodes)
+        private static void BuildTree(TDRNode parent, int index, List<TDRNode> nodes, HashSet<int>? visiting = null)
         {
+            visiting ??= new HashSet<int>();
             if (index < 0 || index >= nodes.Count) return;
+            if (!visiting.Add(index)) return;
+
             TDRNode current = nodes[index];
 
             if (current.Child >= 0 && current.Child < nodes.Count)
@@ -304,7 +307,7 @@ namespace TDR.PakLib.Formats
                 TDRNode childNode = nodes[current.Child];
                 childNode.Parent = current;
                 current.Children.Add(childNode);
-                BuildTree(current, current.Child, nodes);
+                BuildTree(current, current.Child, nodes, visiting);
             }
 
             if (current.Sibling >= 0 && current.Sibling < nodes.Count)
@@ -312,8 +315,10 @@ namespace TDR.PakLib.Formats
                 TDRNode siblingNode = nodes[current.Sibling];
                 siblingNode.Parent = parent;
                 parent.Children.Add(siblingNode);
-                BuildTree(parent, current.Sibling, nodes);
+                BuildTree(parent, current.Sibling, nodes, visiting);
             }
+
+            visiting.Remove(index);
         }
     }
 }

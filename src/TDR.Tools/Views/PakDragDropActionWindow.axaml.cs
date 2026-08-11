@@ -17,6 +17,8 @@ namespace TDR.Tools.Views
         public bool RememberChoice => RememberChoiceCheckBox.IsChecked == true;
         public PakUserAction SelectedAction { get; private set; } = PakUserAction.Cancel;
 
+        public bool ContainsPakFiles { get; private set; } = true;
+
         public PakDragDropActionWindow()
         {
             InitializeComponent();
@@ -24,6 +26,7 @@ namespace TDR.Tools.Views
 
         public PakDragDropActionWindow(string itemName, bool isFolder = false, bool containsPakFiles = true) : this()
         {
+            ContainsPakFiles = containsPakFiles;
             TargetPakTextBlock.Text = isFolder
                 ? $"Selected folder: '{itemName}'"
                 : $"Selected archive: '{itemName}'";
@@ -49,10 +52,7 @@ namespace TDR.Tools.Views
 
         private void OnUnpackOnlyClick(object? sender, RoutedEventArgs e)
         {
-            CreateSubfolder = true;
-            FlatFiles = false;
-            SelectedAction = PakUserAction.Extract;
-            Close(PakUserAction.Extract);
+            OnCopyAndUnpackClick(sender, e);
         }
 
         private void OnConvertClick(object? sender, RoutedEventArgs e)

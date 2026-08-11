@@ -282,9 +282,13 @@ namespace TDR.Tools.ViewModels
             get => _selectedSourceNode;
             set
             {
-                if (SetField(ref _selectedSourceNode, value) && value != null)
+                if (SetField(ref _selectedSourceNode, value))
                 {
-                    Preview.UpdatePreviewNode(value);
+                    ClearEditingStateExcept(value);
+                    if (value != null)
+                    {
+                        Preview.UpdatePreviewNode(value);
+                    }
                 }
             }
         }
@@ -294,9 +298,13 @@ namespace TDR.Tools.ViewModels
             get => _selectedDestinationNode;
             set
             {
-                if (SetField(ref _selectedDestinationNode, value) && value != null)
+                if (SetField(ref _selectedDestinationNode, value))
                 {
-                    Preview.UpdatePreviewNode(value);
+                    ClearEditingStateExcept(value);
+                    if (value != null)
+                    {
+                        Preview.UpdatePreviewNode(value);
+                    }
                 }
             }
         }
@@ -985,7 +993,7 @@ namespace TDR.Tools.ViewModels
             _suppressWatcherEvents = true;
             try
             {
-                ExtractNodeIntoFolder(node, targetDir, flatFiles, createSubfolderForPak);
+                ExtractNodeIntoFolder(node, targetDir, flatFiles);
             }
             finally
             {
@@ -994,7 +1002,7 @@ namespace TDR.Tools.ViewModels
             }
         }
 
-        private void ExtractNodeIntoFolder(FileNodeViewModel node, string targetDir, bool flatFiles, bool createdSubfolder)
+        private void ExtractNodeIntoFolder(FileNodeViewModel node, string targetDir, bool flatFiles)
         {
             if (node.IsDirectory || node.IsArchive)
             {
@@ -1166,7 +1174,7 @@ namespace TDR.Tools.ViewModels
                     }
                 }
 
-                string? parentPath = targets.Count > 0 ? (Path.GetDirectoryName(targets[0].VirtualPath)?.Replace('\\', '/') ?? "") : null;
+                string? parentPath = Path.GetDirectoryName(targets[0].VirtualPath)?.Replace('\\', '/') ?? "";
                 SelectedSourceNodes.Clear();
                 SelectedSourceNode = null;
                 await IndexDirectory(_sourceRootPath);
@@ -1310,7 +1318,7 @@ namespace TDR.Tools.ViewModels
             }
             finally
             {
-                string? parentPath = targets.Count > 0 ? (Path.GetDirectoryName(targets[0].VirtualPath)?.Replace('\\', '/') ?? "") : null;
+                string? parentPath = Path.GetDirectoryName(targets[0].VirtualPath)?.Replace('\\', '/') ?? "";
                 SelectedDestinationNodes.Clear();
                 SelectedDestinationNode = null;
                 RefreshDestinationTree();
@@ -1611,9 +1619,46 @@ namespace TDR.Tools.ViewModels
             return null;
         }
 
+        public void ClearEditingStateExcept(FileNodeViewModel? keepNode = null)
+        {
+            void ClearCollection(IEnumerable<FileNodeViewModel> nodes)
+            {
+                foreach (var n in nodes)
+                {
+                    if (n != keepNode && n.IsEditing)
+                    {
+                        string newName = n.EditName;
+                        n.IsEditing = false;
+                        if (!string.IsNullOrWhiteSpace(newName) && newName != n.Name)
+                        {
+                            RenameNode(n, newName);
+                        }
+                        else
+                        {
+                            n.EditName = n.Name;
+                        }
+                    }
+                    if (n.Children.Count > 0)
+                    {
+                        ClearCollection(n.Children);
+                    }
+                }
+            }
+
+            ClearCollection(SourceNodes);
+            ClearCollection(DestinationNodes);
+            ClearCollection(FlatSourceNodes);
+        }
+
         public void RenameNode(FileNodeViewModel node, string newName)
         {
-            if (node == null || string.IsNullOrWhiteSpace(newName) || newName == node.Name) return;
+            if (node == null) return;
+            node.IsEditing = false;
+            if (string.IsNullOrWhiteSpace(newName) || newName == node.Name)
+            {
+                node.EditName = node.Name;
+                return;
+            }
 
             bool isDestNode = IsNodeInCollection(node, DestinationNodes);
             string defaultRoot = isDestNode ? _destinationRootPath : _sourceRootPath;
@@ -2112,7 +2157,6 @@ namespace TDR.Tools.ViewModels
                                             fileName.Contains("campaths", StringComparison.OrdinalIgnoreCase) ||
                                             fileName.Contains("intpaths", StringComparison.OrdinalIgnoreCase) ||
                                             fileName.Contains("zoomin", StringComparison.OrdinalIgnoreCase) ||
-                                            fileName.Contains("lookat", StringComparison.OrdinalIgnoreCase) ||
                                             fileName.Contains("look", StringComparison.OrdinalIgnoreCase);
 
                 var fileNode = new HieNodeViewModel
