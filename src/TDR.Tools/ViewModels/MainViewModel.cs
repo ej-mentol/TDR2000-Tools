@@ -2056,9 +2056,11 @@ namespace TDR.Tools.ViewModels
 
                 if (!layerRootNodes.TryGetValue(layerRootKey, out var layerRootNode))
                 {
+                    string displayLayerName = FormatLayerDisplayName(layerRootKey, cleanName);
+
                     layerRootNode = new HieNodeViewModel
                     {
-                        Name = layerRootKey,
+                        Name = displayLayerName,
                         VirtualPath = layerRootKey,
                         IsDirectory = true,
                         IsSelected = true,
@@ -2125,6 +2127,20 @@ namespace TDR.Tools.ViewModels
                 };
                 parentFolderNode.Children.Add(fileNode);
             }
+        }
+
+        private static string FormatLayerDisplayName(string layerKey, string cleanName)
+        {
+            if (layerKey.Equals(cleanName, StringComparison.OrdinalIgnoreCase))
+                return $"{cleanName} (Base Track)";
+
+            if (layerKey.StartsWith(cleanName + "_", StringComparison.OrdinalIgnoreCase))
+            {
+                string suffix = layerKey.Substring(cleanName.Length + 1);
+                return $"{cleanName} ({suffix})";
+            }
+
+            return layerKey.Replace('_', ' ');
         }
     }
 }

@@ -29,7 +29,7 @@
 
                         <StackPanel Spacing="4" Margin="0,4,0,0">
                             <TextBlock Text="Default Drag &amp; Drop PAK Action:" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"/>
-                            <ComboBox x:Name="PakDragActionComboBox" HorizontalAlignment="Stretch" Background="{DynamicResource BgInputBrush}">
+                            <ComboBox x:Name="PakDragActionComboBox" HorizontalAlignment="Stretch" Height="32" Padding="10,0" VerticalContentAlignment="Center" FontSize="12" Background="{DynamicResource BgInputBrush}">
                                 <ComboBoxItem Content="Ask every time (Show prompt)"/>
                                 <ComboBoxItem Content="Always Unpack raw archives"/>
                                 <ComboBoxItem Content="Always open Convert Track dialog"/>
@@ -45,7 +45,7 @@
                         <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
                                    Text="Controls how the tool finds track descriptors inside loaded PAK archives."/>
                         <StackPanel Spacing="4">
-                            <ComboBox x:Name="TrackDiscoveryModeComboBox" HorizontalAlignment="Stretch" Background="{DynamicResource BgInputBrush}">
+                            <ComboBox x:Name="TrackDiscoveryModeComboBox" HorizontalAlignment="Stretch" Height="32" Padding="10,0" VerticalContentAlignment="Center" FontSize="12" Background="{DynamicResource BgInputBrush}">
                                 <ComboBoxItem Content="Auto — races.txt first, heuristic fallback" Tag="Auto"/>
                                 <ComboBoxItem Content="Strict — races.txt only (CARMA.pak/races.txt)" Tag="RacesOnly"/>
                                 <ComboBoxItem Content="Heuristic — full .txt scan (legacy, slow)" Tag="Heuristic"/>

@@ -17,7 +17,7 @@
             <StackPanel Spacing="6">
                 <TextBlock Text="{Binding TrackName, StringFormat='Export Destination Directory (Target output folder for level &quot;{0}&quot;):'}" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource TextSecondaryBrush}"/>
                 <Grid ColumnDefinitions="*,Auto">
-                    <TextBox Grid.Column="0" Text="{Binding OutputDirectory}" Height="32" FontSize="12" Padding="10,6" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextPrimaryBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" CornerRadius="4"/>
+                    <TextBox Grid.Column="0" Text="{Binding OutputDirectory}" Height="32" FontSize="12" Padding="10,0" VerticalContentAlignment="Center" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextPrimaryBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" CornerRadius="4"/>
                     <Button Grid.Column="1" Content="Browse..." Click="OnBrowseOutputFolderClick" Height="32" Margin="8,0,0,0" Padding="14,0" VerticalContentAlignment="Center" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextPrimaryBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="1" CornerRadius="4"/>
                 </Grid>
             </StackPanel>
@@ -61,15 +61,15 @@
                 <Border Grid.Row="0" Background="{DynamicResource BgPanelBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="1" CornerRadius="6" Padding="12" Margin="0,0,0,10">
                     <StackPanel Spacing="6">
                         <TextBlock Text="Preset / Layer Filter:" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource TextSecondaryBrush}"/>
-                        <ComboBox ItemsSource="{Binding AvailableVariants}" SelectedItem="{Binding SelectedVariant}" HorizontalAlignment="Stretch" Height="32" FontSize="12" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextPrimaryBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}"/>
+                        <ComboBox ItemsSource="{Binding AvailableVariants}" SelectedItem="{Binding SelectedVariant}" HorizontalAlignment="Stretch" Height="32" FontSize="12" Padding="10,0" VerticalContentAlignment="Center" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextPrimaryBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}"/>
                     </StackPanel>
                 </Border>
 
                 <!-- Search & Action Toolbar -->
                 <Grid Grid.Row="1" ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,8">
-                    <TextBox Grid.Column="0" Text="{Binding SearchHieQuery, Mode=TwoWay}" Height="30" PlaceholderText="Filter supported track resources..." FontSize="11" Padding="8,4" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextPrimaryBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" Margin="0,0,8,0"/>
-                    <Button Grid.Column="1" Content="Select All" Click="OnSelectAllClick" Height="30" FontSize="11" Padding="10,0" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextPrimaryBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" Margin="0,0,4,0"/>
-                    <Button Grid.Column="2" Content="Deselect All" Click="OnDeselectAllClick" Height="30" FontSize="11" Padding="10,0" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextPrimaryBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}"/>
+                    <TextBox Grid.Column="0" Text="{Binding SearchHieQuery, Mode=TwoWay}" Height="30" PlaceholderText="Filter supported track resources..." FontSize="11" Padding="8,0" VerticalContentAlignment="Center" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextPrimaryBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" Margin="0,0,8,0"/>
+                    <Button Grid.Column="1" Content="Select All" Click="OnSelectAllClick" Height="30" FontSize="11" Padding="10,0" VerticalContentAlignment="Center" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextPrimaryBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" Margin="0,0,4,0"/>
+                    <Button Grid.Column="2" Content="Deselect All" Click="OnDeselectAllClick" Height="30" FontSize="11" Padding="10,0" VerticalContentAlignment="Center" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextPrimaryBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}"/>
                 </Grid>
 
                 <!-- Full-Height Supported Resources Hierarchy Tree Card -->
@@ -77,7 +77,7 @@
                     <TreeView ItemsSource="{Binding HieTreeNodes}" Background="Transparent">
                         <TreeView.DataTemplates>
                             <TreeDataTemplate DataType="vm:HieNodeViewModel" ItemsSource="{Binding Children}">
-                                <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay}" IsVisible="{Binding IsVisible}" Content="{Binding Name}" FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}"/>
+                                <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay}" IsVisible="{Binding IsVisible}" Content="{Binding Name}" Padding="8,0,0,0" FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}"/>
                             </TreeDataTemplate>
                         </TreeView.DataTemplates>
                         <TreeView.Styles>
@@ -85,6 +85,10 @@
                                 <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}"/>
                                 <Setter Property="MinHeight" Value="26"/>
                                 <Setter Property="Padding" Value="2"/>
+                                <Setter Property="Margin" Value="0,1,0,1"/>
+                            </Style>
+                            <Style Selector="TreeView > TreeViewItem">
+                                <Setter Property="Margin" Value="0,6,0,2"/>
                             </Style>
                         </TreeView.Styles>
                     </TreeView>

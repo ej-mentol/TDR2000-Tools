@@ -80,7 +80,7 @@
                                 </StackPanel>
                             </Button>
                             <!-- SEARCH FIELD -->
-                            <TextBox Grid.Column="2" Width="165" Height="28" VerticalAlignment="Center" VerticalContentAlignment="Center" PlaceholderText="Search source..." Text="{Binding SearchSourceQuery}" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextPrimaryBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" CornerRadius="6" FontSize="12" Padding="8,4" Margin="0,0,8,0"/>
+                            <TextBox Grid.Column="2" Width="165" Height="28" VerticalAlignment="Center" VerticalContentAlignment="Center" PlaceholderText="Search source..." Text="{Binding SearchSourceQuery}" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextPrimaryBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" CornerRadius="6" FontSize="12" Padding="8,0" Margin="0,0,8,0"/>
                             <!-- SPEEDBUTTON VIEW MODE SWITCHER AT FAR RIGHT EDGE -->
                             <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
                                 <Button Width="26" Height="26" Background="{Binding SourceTreeModeBrush}" Foreground="{DynamicResource TextPrimaryBrush}" CornerRadius="6" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Click="OnSourceViewTreeClick" ToolTip.Tip="Tree View (Hierarchy)">
@@ -279,7 +279,7 @@
                                 </StackPanel>
                             </Button>
                             <!-- SEARCH FIELD -->
-                            <TextBox Grid.Column="2" Width="165" Height="28" VerticalAlignment="Center" VerticalContentAlignment="Center" PlaceholderText="Search output..." Text="{Binding SearchDestinationQuery}" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextPrimaryBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" CornerRadius="6" FontSize="12" Padding="8,4" Margin="0,0,8,0"/>
+                            <TextBox Grid.Column="2" Width="165" Height="28" VerticalAlignment="Center" VerticalContentAlignment="Center" PlaceholderText="Search output..." Text="{Binding SearchDestinationQuery}" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextPrimaryBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" CornerRadius="6" FontSize="12" Padding="8,0" Margin="0,0,8,0"/>
                             <!-- SPEEDBUTTON VIEW MODE SWITCHER AT FAR RIGHT EDGE -->
                             <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
                                 <Button Width="26" Height="26" Background="{DynamicResource AccentSubtleBrush}" Foreground="{DynamicResource AccentBrush}" CornerRadius="6" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ToolTip.Tip="Tree View">
