@@ -349,168 +349,185 @@ namespace TDR.Tools.Export
 
             int v = 1, vt = 1, vn = 1;
 
-            using (var w = new StreamWriter(tempObj, false, Encoding.ASCII))
+            try
             {
-                w.WriteLine($"# TDR2000 Combined Scene Export - {levelName}");
-                w.WriteLine($"mtllib {Path.GetFileName(mtlPath)}");
-
-                // 1. Export ALL HIE Mesh Hierarchies & Sub-descriptor Instances into the combined stream
-                var processedHies = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-                if (assets.HieInstances.Count > 0)
+                using (var w = new StreamWriter(tempObj, false, Encoding.ASCII))
                 {
-                    int totalInst = assets.HieInstances.Count;
-                    for (int i = 0; i < totalInst; i++)
+                    w.WriteLine($"# TDR2000 Combined Scene Export - {levelName}");
+                    w.WriteLine($"mtllib {Path.GetFileName(mtlPath)}");
+
+                    // 1. Export ALL HIE Mesh Hierarchies & Sub-descriptor Instances into the combined stream
+                    var processedHies = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                    if (assets.HieInstances.Count > 0)
                     {
-                        var inst = assets.HieInstances[i];
-                        if (!IsHieSelected(inst.HieName)) continue;
-
-                        int pct = (int)((float)(i + 1) / (totalInst + assets.HieFiles.Count + 1) * 70.0f);
-                        progressCallback?.Invoke(pct, $"Baking OBJ mesh ({i + 1}/{totalInst}): {inst.HieName}");
-
-                        byte[]? hieBytes = _vfs.LoadFileContext(inst.HieName, _trackContext ?? levelName);
-                        if (hieBytes != null && hieBytes.Length > 0)
+                        int totalInst = assets.HieInstances.Count;
+                        for (int i = 0; i < totalInst; i++)
                         {
-                            string? sourceArchivePath = _vfs.GetArchivePath(inst.HieName);
-                            if (_verbose) Log($"  [+] Baking HIE instance '{inst.HieName}' at position into combined scene...");
+                            var inst = assets.HieInstances[i];
+                            if (!IsHieSelected(inst.HieName)) continue;
 
-                            AppendHieToWriter(hieBytes, inst.HieName, w, textures, ref v, ref vt, ref vn, sourceArchivePath, inst.Transform);
-                            processedHies.Add(inst.HieName);
-                            if (!result.ResolvedHieFiles.Contains(inst.HieName, StringComparer.OrdinalIgnoreCase))
-                                result.ResolvedHieFiles.Add(inst.HieName);
+                            int pct = (int)((float)(i + 1) / (totalInst + assets.HieFiles.Count + 1) * 70.0f);
+                            progressCallback?.Invoke(pct, $"Baking OBJ mesh ({i + 1}/{totalInst}): {inst.HieName}");
+
+                            byte[]? hieBytes = _vfs.LoadFileContext(inst.HieName, _trackContext ?? levelName);
+                            if (hieBytes != null && hieBytes.Length > 0)
+                            {
+                                string? sourceArchivePath = _vfs.GetArchivePath(inst.HieName);
+                                if (_verbose) Log($"  [+] Baking HIE instance '{inst.HieName}' at position into combined scene...");
+
+                                AppendHieToWriter(hieBytes, inst.HieName, w, textures, ref v, ref vt, ref vn, sourceArchivePath, inst.Transform);
+                                processedHies.Add(inst.HieName);
+                                if (!result.ResolvedHieFiles.Contains(inst.HieName, StringComparer.OrdinalIgnoreCase))
+                                    result.ResolvedHieFiles.Add(inst.HieName);
+                            }
                         }
                     }
-                }
 
-                int totalHies = assets.HieFiles.Count;
-                for (int i = 0; i < totalHies; i++)
-                {
-                    string hieName = assets.HieFiles[i];
-                    if (processedHies.Contains(hieName) || !IsHieSelected(hieName)) continue;
-
-                    int pct = (int)(70.0f + (float)(i + 1) / (totalHies + 1) * 20.0f);
-                    progressCallback?.Invoke(pct, $"Baking OBJ mesh layer ({i + 1}/{totalHies}): {hieName}");
-
-                    byte[]? hieBytes = _vfs.LoadFileContext(hieName, _trackContext ?? levelName);
-                    if (hieBytes != null && hieBytes.Length > 0)
+                    int totalHies = assets.HieFiles.Count;
+                    for (int i = 0; i < totalHies; i++)
                     {
-                        string? sourceArchivePath = _vfs.GetArchivePath(hieName);
-                        if (_verbose) Log($"  [+] Baking HIE layer '{hieName}' into combined scene...");
+                        string hieName = assets.HieFiles[i];
+                        if (processedHies.Contains(hieName) || !IsHieSelected(hieName)) continue;
 
-                        Matrix4x4? initMat = assets.HieInitialTransforms.TryGetValue(hieName, out var im) ? im : null;
-                        AppendHieToWriter(hieBytes, hieName, w, textures, ref v, ref vt, ref vn, sourceArchivePath, initMat);
-                        result.ResolvedHieFiles.Add(hieName);
-                    }
-                    else if (_verbose)
-                    {
-                        Log($"    [!] Warning: HIE hierarchy '{hieName}' not found in VFS for level '{levelName}'.");
-                    }
-                }
-
-                string cleanTrackName = TrackDiscovery.GetBaseTrackName(levelName);
-
-                // 2. Bake Movable Objects into the combined stream (if enabled)
-                if (_includeMovableProps)
-                {
-                    var movDescs = new List<string>(assets.MovableDescriptors);
-                    string defaultMov = $"{cleanTrackName}_MoveableDescriptor.txt";
-                    if (movDescs.Count == 0 && _vfs.FileExists(defaultMov))
-                    {
-                        movDescs.Add(defaultMov);
-                    }
-
-                    // Extract base terrain triangles from both direct HIE files and sub-descriptor HIE instances
-                    var baseTriangles = new List<GroundSnapUtil.Triangle>();
-                    var snapHies = new HashSet<string>(assets.HieFiles, StringComparer.OrdinalIgnoreCase);
-                    foreach (var inst in assets.HieInstances) snapHies.Add(inst.HieName);
-
-                    foreach (string hieName in snapHies)
-                    {
-                        if (hieName.Contains("skysphere", StringComparison.OrdinalIgnoreCase) || hieName.Contains("sky", StringComparison.OrdinalIgnoreCase))
-                            continue;
+                        int pct = (int)(70.0f + (float)(i + 1) / (totalHies + 1) * 20.0f);
+                        progressCallback?.Invoke(pct, $"Baking OBJ mesh layer ({i + 1}/{totalHies}): {hieName}");
 
                         byte[]? hieBytes = _vfs.LoadFileContext(hieName, _trackContext ?? levelName);
                         if (hieBytes != null && hieBytes.Length > 0)
                         {
-                            var hie = TDRHierarchy.Load(hieBytes, hieName);
-                            var tris = GroundSnapUtil.ExtractBaseTriangles(hie, (path) => _vfs.LoadFileContext(path, _trackContext ?? levelName));
-                            if (tris.Count > 0) baseTriangles.AddRange(tris);
+                            string? sourceArchivePath = _vfs.GetArchivePath(hieName);
+                            if (_verbose) Log($"  [+] Baking HIE layer '{hieName}' into combined scene...");
+
+                            Matrix4x4? initMat = assets.HieInitialTransforms.TryGetValue(hieName, out var im) ? im : null;
+                            AppendHieToWriter(hieBytes, hieName, w, textures, ref v, ref vt, ref vn, sourceArchivePath, initMat);
+                            result.ResolvedHieFiles.Add(hieName);
+                        }
+                        else if (_verbose)
+                        {
+                            Log($"    [!] Warning: HIE hierarchy '{hieName}' not found in VFS for level '{levelName}'.");
                         }
                     }
 
-                    // 2. Bake Movable Objects descriptors into the combined scene (Cumulative Base + Variant)
-                    var allMovDescs = new List<string>(assets.MovableDescriptors);
-                    string defaultBaseMov = $"{cleanTrackName}_MoveableDescriptor.txt";
-                    if (_vfs.FileExists(defaultBaseMov) && !allMovDescs.Contains(defaultBaseMov, StringComparer.OrdinalIgnoreCase))
-                    {
-                        allMovDescs.Insert(0, defaultBaseMov);
-                    }
-                    string defaultVarMov = $"{levelName}_MoveableDescriptor.txt";
-                    if (_vfs.FileExists(defaultVarMov) && !allMovDescs.Contains(defaultVarMov, StringComparer.OrdinalIgnoreCase))
-                    {
-                        allMovDescs.Add(defaultVarMov);
-                    }
+                    string cleanTrackName = TrackDiscovery.GetBaseTrackName(levelName);
 
-                    foreach (string movDesc in allMovDescs)
+                    // 2. Bake Movable Objects into the combined stream (if enabled)
+                    if (_includeMovableProps)
                     {
-                        if (_verbose) Log($"[+] Baking Movable Objects descriptor '{movDesc}' into combined scene...");
-                        byte[]? movData = _vfs.LoadFileContext(movDesc, _trackContext ?? cleanTrackName);
-                        if (movData != null)
+                        var movDescs = new List<string>(assets.MovableDescriptors);
+                        string defaultMov = $"{cleanTrackName}_MoveableDescriptor.txt";
+                        if (movDescs.Count == 0 && _vfs.FileExists(defaultMov))
                         {
-                            AppendMovablesToWriter(movData, w, textures, ref v, ref vt, ref vn, (path) => _vfs.LoadFileContext(path, _trackContext ?? cleanTrackName), baseTriangles);
+                            movDescs.Add(defaultMov);
                         }
-                    }
 
-                    // 3. Bake ALL Powerup Files (.pup) into the combined scene (Base Track .pup + Variant .pup + Race1 .pup)
-                    var pupNames = new List<string>();
-                    string basePup = $"{cleanTrackName}.pup";
-                    if (_vfs.FileExists(basePup)) pupNames.Add(basePup);
+                        // Extract base terrain triangles from both direct HIE files and sub-descriptor HIE instances
+                        var baseTriangles = new List<GroundSnapUtil.Triangle>();
+                        var snapHies = new HashSet<string>(assets.HieFiles, StringComparer.OrdinalIgnoreCase);
+                        foreach (var inst in assets.HieInstances) snapHies.Add(inst.HieName);
 
-                    string varPup = $"{levelName}.pup";
-                    if (!varPup.Equals(basePup, StringComparison.OrdinalIgnoreCase) && _vfs.FileExists(varPup))
-                        pupNames.Add(varPup);
-
-                    string race1Pup = $"{cleanTrackName}_Race1.pup";
-                    if (!pupNames.Contains(race1Pup, StringComparer.OrdinalIgnoreCase) && _vfs.FileExists(race1Pup))
-                        pupNames.Add(race1Pup);
-
-                    foreach (string pName in pupNames)
-                    {
-                        byte[]? pupData = _vfs.LoadFileContext(pName, _trackContext ?? cleanTrackName);
-                        if (pupData != null)
+                        foreach (string hieName in snapHies)
                         {
-                            if (_verbose) Log($"[+] Baking Powerup Objects (.pup) '{pName}' into combined scene...");
-                            AppendPowerupsToWriter(pupData, w, textures, ref v, ref vt, ref vn, (path) => _vfs.LoadFileContext(path, _trackContext ?? cleanTrackName));
+                            if (hieName.Contains("skysphere", StringComparison.OrdinalIgnoreCase) || hieName.Contains("sky", StringComparison.OrdinalIgnoreCase))
+                                continue;
+
+                            byte[]? hieBytes = _vfs.LoadFileContext(hieName, _trackContext ?? levelName);
+                            if (hieBytes != null && hieBytes.Length > 0)
+                            {
+                                var hie = TDRHierarchy.Load(hieBytes, hieName);
+                                var tris = GroundSnapUtil.ExtractBaseTriangles(hie, (path) => _vfs.LoadFileContext(path, _trackContext ?? levelName));
+                                if (tris.Count > 0) baseTriangles.AddRange(tris);
+                            }
                         }
-                    }
 
-                    // 4. Bake Pedestrian Placement Descriptors into the combined scene
-                    var pedDescs = new List<string>(assets.PedestrianDescriptors);
-                    string defaultPed = $"{cleanTrackName}_Ped_Placement.txt";
-                    if (!pedDescs.Contains(defaultPed, StringComparer.OrdinalIgnoreCase) && _vfs.FileExists(defaultPed))
-                    {
-                        pedDescs.Add(defaultPed);
-                    }
-
-                    foreach (string pedDesc in pedDescs)
-                    {
-                        byte[]? pedData = _vfs.LoadFileContext(pedDesc, _trackContext ?? cleanTrackName);
-                        if (pedData != null)
+                        // 2. Bake Movable Objects descriptors into the combined scene (Cumulative Base + Variant)
+                        var allMovDescs = new List<string>(assets.MovableDescriptors);
+                        string defaultBaseMov = $"{cleanTrackName}_MoveableDescriptor.txt";
+                        if (_vfs.FileExists(defaultBaseMov) && !allMovDescs.Contains(defaultBaseMov, StringComparer.OrdinalIgnoreCase))
                         {
-                            if (_verbose) Log($"[+] Baking Pedestrian Placement descriptor '{pedDesc}' into combined scene...");
-                            AppendPedestriansToWriter(pedData, w, textures, ref v, ref vt, ref vn, (path) => _vfs.LoadFileContext(path, _trackContext ?? cleanTrackName));
+                            allMovDescs.Insert(0, defaultBaseMov);
+                        }
+                        string defaultVarMov = $"{levelName}_MoveableDescriptor.txt";
+                        if (_vfs.FileExists(defaultVarMov) && !allMovDescs.Contains(defaultVarMov, StringComparer.OrdinalIgnoreCase))
+                        {
+                            allMovDescs.Add(defaultVarMov);
+                        }
+
+                        foreach (string movDesc in allMovDescs)
+                        {
+                            if (_verbose) Log($"[+] Baking Movable Objects descriptor '{movDesc}' into combined scene...");
+                            byte[]? movData = _vfs.LoadFileContext(movDesc, _trackContext ?? cleanTrackName);
+                            if (movData != null)
+                            {
+                                AppendMovablesToWriter(movData, w, textures, ref v, ref vt, ref vn, (path) => _vfs.LoadFileContext(path, _trackContext ?? cleanTrackName), baseTriangles);
+                            }
+                        }
+
+                        // 3. Bake ALL Powerup Files (.pup) into the combined scene (Base Track .pup + Variant .pup + Race1 .pup)
+                        var pupNames = new List<string>();
+                        string basePup = $"{cleanTrackName}.pup";
+                        if (_vfs.FileExists(basePup)) pupNames.Add(basePup);
+
+                        string varPup = $"{levelName}.pup";
+                        if (!varPup.Equals(basePup, StringComparison.OrdinalIgnoreCase) && _vfs.FileExists(varPup))
+                            pupNames.Add(varPup);
+
+                        string race1Pup = $"{cleanTrackName}_Race1.pup";
+                        if (!pupNames.Contains(race1Pup, StringComparer.OrdinalIgnoreCase) && _vfs.FileExists(race1Pup))
+                            pupNames.Add(race1Pup);
+
+                        foreach (string pName in pupNames)
+                        {
+                            byte[]? pupData = _vfs.LoadFileContext(pName, _trackContext ?? cleanTrackName);
+                            if (pupData != null)
+                            {
+                                if (_verbose) Log($"[+] Baking Powerup Objects (.pup) '{pName}' into combined scene...");
+                                AppendPowerupsToWriter(pupData, w, textures, ref v, ref vt, ref vn, (path) => _vfs.LoadFileContext(path, _trackContext ?? cleanTrackName));
+                            }
+                        }
+
+                        // 4. Bake Pedestrian Placement Descriptors into the combined scene
+                        var pedDescs = new List<string>(assets.PedestrianDescriptors);
+                        string defaultPed = $"{cleanTrackName}_Ped_Placement.txt";
+                        if (!pedDescs.Contains(defaultPed, StringComparer.OrdinalIgnoreCase) && _vfs.FileExists(defaultPed))
+                        {
+                            pedDescs.Add(defaultPed);
+                        }
+
+                        foreach (string pedDesc in pedDescs)
+                        {
+                            byte[]? pedData = _vfs.LoadFileContext(pedDesc, _trackContext ?? cleanTrackName);
+                            if (pedData != null)
+                            {
+                                if (_verbose) Log($"[+] Baking Pedestrian Placement descriptor '{pedDesc}' into combined scene...");
+                                AppendPedestriansToWriter(pedData, w, textures, ref v, ref vt, ref vn, (path) => _vfs.LoadFileContext(path, _trackContext ?? cleanTrackName));
+                            }
                         }
                     }
                 }
+
+                if (v > 1)
+                {
+                    WriteMtlFile(mtlPath, textures);
+                    if (File.Exists(outputObjPath)) File.Delete(outputObjPath);
+                    File.Move(tempObj, outputObjPath);
+
+                    string fn = Path.GetFileName(outputObjPath);
+                    result.ProducedObjFiles.Add(fn);
+                    result.BaseMeshFileName = fn;
+                }
+                else
+                {
+                    if (_verbose) Log($"    [OBJ Export] Level '{levelName}' yielded 0 vertices — empty OBJ file skipped.");
+                }
             }
-
-            WriteMtlFile(mtlPath, textures);
-            if (File.Exists(outputObjPath)) File.Delete(outputObjPath);
-            File.Move(tempObj, outputObjPath);
-
-            string fn = Path.GetFileName(outputObjPath);
-            result.ProducedObjFiles.Add(fn);
-            result.BaseMeshFileName = fn;
+            finally
+            {
+                if (File.Exists(tempObj))
+                {
+                    try { File.Delete(tempObj); } catch { }
+                }
+            }
 
             string cleanTrack = TrackDiscovery.GetBaseTrackName(levelName);
             string waterCandidate = $"{cleanTrack}Water.obj";
@@ -603,74 +620,83 @@ namespace TDR.Tools.Export
 
             int v = 1, vt = 1, vn = 1;
 
-            using (var w = new StreamWriter(tempObj))
+            try
             {
-                w.WriteLine($"mtllib {Path.GetFileName(mtlPath)}");
-                if (_useGrouping)
+                using (var w = new StreamWriter(tempObj))
                 {
-                    w.WriteLine($"o {Path.GetFileNameWithoutExtension(hieName)}");
-                }
-                if (hie.Root != null)
-                {
-                    if (_verbose) Log($"      [HIE Tree] Traversing node hierarchy from Root...");
-                    string defaultTex = "Default";
-                    ProcessNode(hie.Root, Matrix4x4.Identity, ref defaultTex, hie, textures, w, ref v, ref vt, ref vn, sourceArchivePath);
-                }
-                else if (hie.Meshes.Count > 0)
-                {
-                    if (_verbose) Log($"      [HIE Direct] No root node tree — rendering {hie.Meshes.Count} direct mesh(es)...");
-                    string defaultTex = hie.Textures.Count > 0 ? hie.Textures[0].Trim('"') : "Default";
-                    foreach (var meshName in hie.Meshes)
+                    w.WriteLine($"mtllib {Path.GetFileName(mtlPath)}");
+                    if (_useGrouping)
                     {
-                        if (!_meshCache.TryGetValue(meshName, out var container))
+                        w.WriteLine($"o {Path.GetFileNameWithoutExtension(hieName)}");
+                    }
+                    if (hie.Root != null)
+                    {
+                        if (_verbose) Log($"      [HIE Tree] Traversing node hierarchy from Root...");
+                        string defaultTex = "Default";
+                        ProcessNode(hie.Root, Matrix4x4.Identity, ref defaultTex, hie, textures, w, ref v, ref vt, ref vn, sourceArchivePath);
+                    }
+                    else if (hie.Meshes.Count > 0)
+                    {
+                        if (_verbose) Log($"      [HIE Direct] No root node tree — rendering {hie.Meshes.Count} direct mesh(es)...");
+                        string defaultTex = hie.Textures.Count > 0 ? hie.Textures[0].Trim('"') : "Default";
+                        foreach (var meshName in hie.Meshes)
                         {
-                            byte[]? meshData = _vfs.LoadFileContext(meshName, _trackContext);
-                            if (meshData != null)
+                            if (!_meshCache.TryGetValue(meshName, out var container))
                             {
-                                container = MSHSContainer.Load(meshData, meshName);
-                                _meshCache[meshName] = container;
-                                if (_verbose)
+                                byte[]? meshData = _vfs.LoadFileContext(meshName, _trackContext);
+                                if (meshData != null)
                                 {
-                                    int totalV = container.Meshes.Sum(m => m.VertexCount > 0 ? m.VertexCount : m.Vertices.Count);
-                                    int totalF = container.Meshes.Sum(m => m.FaceCount);
-                                    Log($"        [MSHS Parser] Loaded '{meshName}': {container.Meshes.Count} submesh(es), {totalV} verts, {totalF} faces");
+                                    container = MSHSContainer.Load(meshData, meshName);
+                                    _meshCache[meshName] = container;
+                                    if (_verbose)
+                                    {
+                                        int totalV = container.Meshes.Sum(m => m.VertexCount > 0 ? m.VertexCount : m.Vertices.Count);
+                                        int totalF = container.Meshes.Sum(m => m.FaceCount);
+                                        Log($"        [MSHS Parser] Loaded '{meshName}': {container.Meshes.Count} submesh(es), {totalV} verts, {totalF} faces");
+                                    }
+                                }
+                                else if (_verbose)
+                                {
+                                    Log($"        [MSHS Parser] MISS: Could not locate '{meshName}' in VFS!");
                                 }
                             }
-                            else if (_verbose)
+
+                            if (container != null)
                             {
-                                Log($"        [MSHS Parser] MISS: Could not locate '{meshName}' in VFS!");
-                            }
-                        }
+                                w.WriteLine($"o {Path.GetFileNameWithoutExtension(meshName)}");
+                                for (int i = 0; i < container.Meshes.Count; i++)
+                                {
+                                    var subMesh = container.Meshes[i];
+                                    string subTex = (i < hie.Textures.Count) ? hie.Textures[i].Trim('"') : defaultTex;
 
-                        if (container != null)
-                        {
-                            w.WriteLine($"o {Path.GetFileNameWithoutExtension(meshName)}");
-                            for (int i = 0; i < container.Meshes.Count; i++)
-                            {
-                                var subMesh = container.Meshes[i];
-                                string subTex = (i < hie.Textures.Count) ? hie.Textures[i].Trim('"') : defaultTex;
+                                    w.WriteLine($"usemtl {subTex}");
+                                    textures.TryAdd(subTex, sourceArchivePath);
 
-                                w.WriteLine($"usemtl {subTex}");
-                                textures.TryAdd(subTex, sourceArchivePath);
-
-                                WriteSubMesh(subMesh, Matrix4x4.Identity, w, ref v, ref vt, ref vn);
+                                    WriteSubMesh(subMesh, Matrix4x4.Identity, w, ref v, ref vt, ref vn);
+                                }
                             }
                         }
                     }
                 }
-            }
 
-            if (v > 1)
-            {
-                WriteMtlFile(mtlPath, textures);
-                if (File.Exists(outputObjPath)) File.Delete(outputObjPath);
-                File.Move(tempObj, outputObjPath);
-                Log($"  [+] {Path.GetFileNameWithoutExtension(outputObjPath)} -> {v - 1} verts, {textures.Count} textures");
+                if (v > 1)
+                {
+                    WriteMtlFile(mtlPath, textures);
+                    if (File.Exists(outputObjPath)) File.Delete(outputObjPath);
+                    File.Move(tempObj, outputObjPath);
+                    Log($"  [+] {Path.GetFileNameWithoutExtension(outputObjPath)} -> {v - 1} verts, {textures.Count} textures");
+                }
+                else
+                {
+                    if (_verbose) Log($"    [OBJ Export] '{Path.GetFileName(outputObjPath)}' yielded 0 vertices — temp file cleaned");
+                }
             }
-            else
+            finally
             {
-                if (_verbose) Log($"    [OBJ Export] '{Path.GetFileName(outputObjPath)}' yielded 0 vertices — temp file cleaned");
-                if (File.Exists(tempObj)) File.Delete(tempObj);
+                if (File.Exists(tempObj))
+                {
+                    try { File.Delete(tempObj); } catch { }
+                }
             }
         }
 
@@ -901,124 +927,133 @@ namespace TDR.Tools.Export
             int v = 1, vt = 1, vn = 1;
             var textures = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
             var instanceCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-
-            using (var w = new StreamWriter(tempObj))
+            try
             {
-                w.WriteLine($"mtllib {Path.GetFileName(mtlPath)}");
-
-                foreach (string line in lines)
+                using (var w = new StreamWriter(tempObj))
                 {
-                    string clean = line.Contains("//") ? line[..line.IndexOf("//")].Trim() : line.Trim();
-                    if (string.IsNullOrWhiteSpace(clean)) continue;
+                    w.WriteLine($"mtllib {Path.GetFileName(mtlPath)}");
 
-                    string[] parts = clean.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
-                    if (parts.Length < 8) continue;
-
-                    if (_verbose) Log($"  [MOV] Line: {clean}");
-                    string hieName = parts[0].Trim('"');
-                    if (!hieName.EndsWith(".hie", StringComparison.OrdinalIgnoreCase))
-                        hieName += ".hie";
-
-                    float px = float.Parse(parts[1], CultureInfo.InvariantCulture);
-                    float py = float.Parse(parts[2], CultureInfo.InvariantCulture);
-                    float pz = float.Parse(parts[3], CultureInfo.InvariantCulture);
-                    float qx = float.Parse(parts[4], CultureInfo.InvariantCulture);
-                    float qy = float.Parse(parts[5], CultureInfo.InvariantCulture);
-                    float qz = float.Parse(parts[6], CultureInfo.InvariantCulture);
-                    float qw = float.Parse(parts[7], CultureInfo.InvariantCulture);
-
-                    Matrix4x4 rotation = Matrix4x4.CreateFromQuaternion(new Quaternion(qx, qy, qz, qw));
-                    Matrix4x4 worldMatrix = _useLocalCoords ? rotation : rotation with
+                    foreach (string line in lines)
                     {
-                        M41 = px, M42 = py, M43 = pz
-                    };
+                        string clean = line.Contains("//") ? line[..line.IndexOf("//")].Trim() : line.Trim();
+                        if (string.IsNullOrWhiteSpace(clean)) continue;
 
-                    string modelBaseName = Path.GetFileNameWithoutExtension(hieName);
-                    int instIdx = instanceCounts.GetValueOrDefault(modelBaseName, 0) + 1;
-                    instanceCounts[modelBaseName] = instIdx;
-                    string instanceId = $"{modelBaseName}_{instIdx:D3}";
+                        string[] parts = clean.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                        if (parts.Length < 8) continue;
 
-                    if (_useGrouping)
-                    {
-                        w.WriteLine($"o {instanceId}");
-                        w.WriteLine($"# Class: {hieName}");
-                        w.WriteLine($"# WorldPos: {F(px)} {F(py)} {F(pz)}");
-                        w.WriteLine($"# Quaternion: {F(qx)} {F(qy)} {F(qz)} {F(qw)}");
-                    }
-                    else if (_useLocalCoords)
-                    {
-                        w.WriteLine($"# WorldPos {F(px)} {F(py)} {F(pz)}");
-                    }
+                        if (_verbose) Log($"  [MOV] Line: {clean}");
+                        string hieName = parts[0].Trim('"');
+                        if (!hieName.EndsWith(".hie", StringComparison.OrdinalIgnoreCase))
+                            hieName += ".hie";
 
-                    if (_verbose) Log($"    [MOV] Requesting HIE: {hieName} (Instance: {instanceId})");
-                    byte[]? hieData = loader(hieName);
-                    if (hieData == null)
-                    {
-                        Log($"  [?] {hieName} (not found)");
-                        continue;
-                    }
-                    string? movableArchive = _vfs.GetArchivePath(hieName);
-                    if (_verbose) Log($"    [MOV] HIE loaded OK : {hieName} ({hieData.Length} bytes), archive: {movableArchive ?? "loose/unknown"}");
-                    try
-                    {
-                        var hie = TDRHierarchy.Load(hieData, hieName);
-                        if (_verbose)
+                        float px = float.Parse(parts[1], CultureInfo.InvariantCulture);
+                        float py = float.Parse(parts[2], CultureInfo.InvariantCulture);
+                        float pz = float.Parse(parts[3], CultureInfo.InvariantCulture);
+                        float qx = float.Parse(parts[4], CultureInfo.InvariantCulture);
+                        float qy = float.Parse(parts[5], CultureInfo.InvariantCulture);
+                        float qz = float.Parse(parts[6], CultureInfo.InvariantCulture);
+                        float qw = float.Parse(parts[7], CultureInfo.InvariantCulture);
+
+                        Matrix4x4 rotation = Matrix4x4.CreateFromQuaternion(new Quaternion(qx, qy, qz, qw));
+                        Matrix4x4 worldMatrix = _useLocalCoords ? rotation : rotation with
                         {
-                            Log($"      [HIE] Meshes={hie.Meshes.Count}  Nodes={hie.Nodes.Count}  Textures={hie.Textures.Count}  Matrices={hie.Matrices.Count}");
-                            foreach (var nd in hie.Nodes)
-                                Log($"      [NODE] Type={nd.Type}({(int)nd.Type})  Index={nd.Index}  Child={nd.Child}  Sib={nd.Sibling}");
-                            foreach (var mref in hie.Meshes)
-                                Log($"      [MESHREF] '{mref}'");
+                            M41 = px, M42 = py, M43 = pz
+                        };
+
+                        string modelBaseName = Path.GetFileNameWithoutExtension(hieName);
+                        int instIdx = instanceCounts.GetValueOrDefault(modelBaseName, 0) + 1;
+                        instanceCounts[modelBaseName] = instIdx;
+                        string instanceId = $"{modelBaseName}_{instIdx:D3}";
+
+                        if (_useGrouping)
+                        {
+                            w.WriteLine($"o {instanceId}");
+                            w.WriteLine($"# Class: {hieName}");
+                            w.WriteLine($"# WorldPos: {F(px)} {F(py)} {F(pz)}");
+                            w.WriteLine($"# Quaternion: {F(qx)} {F(qy)} {F(qz)} {F(qw)}");
                         }
-                        if (hie.Root != null)
+                        else if (_useLocalCoords)
                         {
-                            string defaultTex = "Default";
-                        ProcessNode(hie.Root, worldMatrix, ref defaultTex, hie, textures, w, ref v, ref vt, ref vn, movableArchive);
+                            w.WriteLine($"# WorldPos {F(px)} {F(py)} {F(pz)}");
                         }
-                        else if (hie.Meshes.Count > 0)
+
+                        if (_verbose) Log($"    [MOV] Requesting HIE: {hieName} (Instance: {instanceId})");
+                        byte[]? hieData = loader(hieName);
+                        if (hieData == null)
                         {
-                            string defaultTex = hie.Textures.Count > 0 ? hie.Textures[0].Trim('"') : "Default";
-                            int subMeshIdx = 1;
-                            foreach (var meshName in hie.Meshes)
+                            Log($"  [?] {hieName} (not found)");
+                            continue;
+                        }
+                        string? movableArchive = _vfs.GetArchivePath(hieName);
+                        if (_verbose) Log($"    [MOV] HIE loaded OK : {hieName} ({hieData.Length} bytes), archive: {movableArchive ?? "loose/unknown"}");
+                        try
+                        {
+                            var hie = TDRHierarchy.Load(hieData, hieName);
+                            if (_verbose)
                             {
-                                if (!_meshCache.TryGetValue(meshName, out var container))
+                                Log($"      [HIE] Meshes={hie.Meshes.Count}  Nodes={hie.Nodes.Count}  Textures={hie.Textures.Count}  Matrices={hie.Matrices.Count}");
+                                foreach (var nd in hie.Nodes)
+                                    Log($"      [NODE] Type={nd.Type}({(int)nd.Type})  Index={nd.Index}  Child={nd.Child}  Sib={nd.Sibling}");
+                                foreach (var mref in hie.Meshes)
+                                    Log($"      [MESHREF] '{mref}'");
+                            }
+                            if (hie.Root != null)
+                            {
+                                string defaultTex = "Default";
+                                ProcessNode(hie.Root, worldMatrix, ref defaultTex, hie, textures, w, ref v, ref vt, ref vn, movableArchive);
+                            }
+                            else if (hie.Meshes.Count > 0)
+                            {
+                                string defaultTex = hie.Textures.Count > 0 ? hie.Textures[0].Trim('"') : "Default";
+                                int subMeshIdx = 1;
+                                foreach (var meshName in hie.Meshes)
                                 {
-                                    byte[]? meshData = loader(meshName);
-                                    if (meshData != null)
+                                    if (!_meshCache.TryGetValue(meshName, out var container))
                                     {
-                                        container = MSHSContainer.Load(meshData, meshName);
-                                        _meshCache[meshName] = container;
+                                        byte[]? meshData = loader(meshName);
+                                        if (meshData != null)
+                                        {
+                                            container = MSHSContainer.Load(meshData, meshName);
+                                            _meshCache[meshName] = container;
+                                        }
                                     }
-                                }
 
-                                if (container != null)
-                                {
-                                    if (_useGrouping) w.WriteLine($"g Part_{subMeshIdx++}");
-                                    for (int i = 0; i < container.Meshes.Count; i++)
+                                    if (container != null)
                                     {
-                                        var subMesh = container.Meshes[i];
-                                        string subTex = (i < hie.Textures.Count) ? hie.Textures[i].Trim('"') : defaultTex;
+                                        if (_useGrouping) w.WriteLine($"g Part_{subMeshIdx++}");
+                                        for (int i = 0; i < container.Meshes.Count; i++)
+                                        {
+                                            var subMesh = container.Meshes[i];
+                                            string subTex = (i < hie.Textures.Count) ? hie.Textures[i].Trim('"') : defaultTex;
 
-                                        w.WriteLine($"usemtl {subTex}");
-                                        textures.TryAdd(subTex, movableArchive);
+                                            w.WriteLine($"usemtl {subTex}");
+                                            textures.TryAdd(subTex, movableArchive);
 
-                                        WriteSubMesh(subMesh, worldMatrix, w, ref v, ref vt, ref vn);
+                                            WriteSubMesh(subMesh, worldMatrix, w, ref v, ref vt, ref vn);
+                                        }
                                     }
                                 }
                             }
                         }
-                    }
-                    catch (Exception ex)
-                    {
-                        if (_verbose) Log($"  [!] Error parsing HIE '{hieName}': {ex.Message}");
+                        catch (Exception ex)
+                        {
+                            if (_verbose) Log($"  [!] Error parsing HIE '{hieName}': {ex.Message}");
+                        }
                     }
                 }
-            }
 
-            WriteMtlFile(mtlPath, textures);
-            if (File.Exists(objPath)) File.Delete(objPath);
-            File.Move(tempObj, objPath);
-            Log($"  [+] Movables -> {Path.GetFileName(objPath)}");
+                WriteMtlFile(mtlPath, textures);
+                if (File.Exists(objPath)) File.Delete(objPath);
+                File.Move(tempObj, objPath);
+                Log($"  [+] Movables -> {Path.GetFileName(objPath)}");
+            }
+            finally
+            {
+                if (File.Exists(tempObj))
+                {
+                    try { File.Delete(tempObj); } catch { }
+                }
+            }e(objPath)}");
         }
 
         public void ExportPedestriansToObj(string pedPlacementPath, string? pedDescPath, Func<string, byte[]?> loader)
@@ -1055,111 +1090,121 @@ namespace TDR.Tools.Export
             var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             int v = 1, vt = 1, vn = 1;
 
-            using (var w = new StreamWriter(tempObj, false, Encoding.ASCII))
+            try
             {
-                w.WriteLine($"# TDR2000 Pedestrians OBJ Export");
-                w.WriteLine($"mtllib {Path.GetFileName(mtlPath)}");
-
-                string[] lines = Encoding.ASCII.GetString(pedData).Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
-
-                foreach (string line in lines)
+                using (var w = new StreamWriter(tempObj, false, Encoding.ASCII))
                 {
-                    string clean = line.Contains("//") ? line[..line.IndexOf("//")].Trim() : line.Trim();
-                    if (string.IsNullOrWhiteSpace(clean)) continue;
+                    w.WriteLine($"# TDR2000 Pedestrians OBJ Export");
+                    w.WriteLine($"mtllib {Path.GetFileName(mtlPath)}");
 
-                    string[] parts = clean.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
-                    if (parts.Length < 7 || parts[0] != "1") continue;
+                    string[] lines = Encoding.ASCII.GetString(pedData).Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
 
-                    int classId = int.Parse(parts[1], CultureInfo.InvariantCulture);
-                    float px = float.Parse(parts[3], CultureInfo.InvariantCulture);
-                    float py = float.Parse(parts[4], CultureInfo.InvariantCulture);
-                    float pz = float.Parse(parts[5], CultureInfo.InvariantCulture);
-                    float heading = float.Parse(parts[6], CultureInfo.InvariantCulture);
-
-                    string className = classId >= 0 && classId < pedClasses.Count ? pedClasses[classId] : $"Pedestrian_Class_{classId}";
-                    int instIdx = counts.GetValueOrDefault(className, 0) + 1;
-                    counts[className] = instIdx;
-
-                    string instanceId = $"{className}_{instIdx:D3}";
-                    Matrix4x4 worldMatrix = Matrix4x4.CreateRotationY(heading * (float)(Math.PI / 180.0)) * Matrix4x4.CreateTranslation(px, py, pz);
-
-                    if (_useGrouping)
+                    foreach (string line in lines)
                     {
-                        w.WriteLine($"o {instanceId}");
-                        w.WriteLine($"# WorldPos: {F(px)} {F(py)} {F(pz)}");
-                        w.WriteLine($"# Heading: {F(heading)}");
-                    }
+                        string clean = line.Contains("//") ? line[..line.IndexOf("//")].Trim() : line.Trim();
+                        if (string.IsNullOrWhiteSpace(clean)) continue;
 
-                    bool exportedMesh = false;
-                    string hieName = $"{className}.hie";
-                    byte[]? hieData = loader(hieName);
-                    if (hieData != null)
-                    {
-                        try
+                        string[] parts = clean.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                        if (parts.Length < 7 || parts[0] != "1") continue;
+
+                        int classId = int.Parse(parts[1], CultureInfo.InvariantCulture);
+                        float px = float.Parse(parts[3], CultureInfo.InvariantCulture);
+                        float py = float.Parse(parts[4], CultureInfo.InvariantCulture);
+                        float pz = float.Parse(parts[5], CultureInfo.InvariantCulture);
+                        float heading = float.Parse(parts[6], CultureInfo.InvariantCulture);
+
+                        string className = classId >= 0 && classId < pedClasses.Count ? pedClasses[classId] : $"Pedestrian_Class_{classId}";
+                        int instIdx = counts.GetValueOrDefault(className, 0) + 1;
+                        counts[className] = instIdx;
+
+                        string instanceId = $"{className}_{instIdx:D3}";
+                        Matrix4x4 worldMatrix = Matrix4x4.CreateRotationY(heading * (float)(Math.PI / 180.0)) * Matrix4x4.CreateTranslation(px, py, pz);
+
+                        if (_useGrouping)
                         {
-                            var hie = TDRHierarchy.Load(hieData, hieName);
-                            string? archivePath = _vfs.GetArchivePath(hieName);
-                            if (hie.Root != null)
+                            w.WriteLine($"o {instanceId}");
+                            w.WriteLine($"# WorldPos: {F(px)} {F(py)} {F(pz)}");
+                            w.WriteLine($"# Heading: {F(heading)}");
+                        }
+
+                        bool exportedMesh = false;
+                        string hieName = $"{className}.hie";
+                        byte[]? hieData = loader(hieName);
+                        if (hieData != null)
+                        {
+                            try
                             {
-                                string defaultTex = "Default";
-                                ProcessNode(hie.Root, worldMatrix, ref defaultTex, hie, textures, w, ref v, ref vt, ref vn, archivePath);
-                                exportedMesh = true;
+                                var hie = TDRHierarchy.Load(hieData, hieName);
+                                string? archivePath = _vfs.GetArchivePath(hieName);
+                                if (hie.Root != null)
+                                {
+                                    string defaultTex = "Default";
+                                    ProcessNode(hie.Root, worldMatrix, ref defaultTex, hie, textures, w, ref v, ref vt, ref vn, archivePath);
+                                    exportedMesh = true;
+                                }
                             }
-                        }
-                        catch { }
-                    }
-
-                    if (!exportedMesh)
-                    {
-                        // Write 3D Standing Character Proxy Box (0.5m x 1.8m x 0.5m)
-                        float hw = 0.25f;
-                        float h = 1.80f;
-                        float hd = 0.25f;
-
-                        Vector3[] localBox = new[]
-                        {
-                            new Vector3(-hw, 0, -hd), new Vector3( hw, 0, -hd),
-                            new Vector3( hw, 0,  hd), new Vector3(-hw, 0,  hd),
-                            new Vector3(-hw, h, -hd), new Vector3( hw, h, -hd),
-                            new Vector3( hw, h,  hd), new Vector3(-hw, h,  hd)
-                        };
-
-                        w.WriteLine("usemtl PedestrianProxy");
-                        textures.TryAdd("PedestrianProxy", null);
-
-                        int startV = v;
-                        foreach (var lb in localBox)
-                        {
-                            Vector3 wv = Vector3.Transform(lb, worldMatrix);
-                            w.WriteLine($"v {F(wv.X)} {F(wv.Y)} {F(wv.Z)}");
-                            v++;
+                            catch { }
                         }
 
-                        w.WriteLine($"f {startV+0} {startV+1} {startV+5}");
-                        w.WriteLine($"f {startV+0} {startV+5} {startV+4}");
+                        if (!exportedMesh)
+                        {
+                            // Write 3D Standing Character Proxy Box (0.5m x 1.8m x 0.5m)
+                            float hw = 0.25f;
+                            float h = 1.80f;
+                            float hd = 0.25f;
 
-                        w.WriteLine($"f {startV+1} {startV+2} {startV+6}");
-                        w.WriteLine($"f {startV+1} {startV+6} {startV+5}");
+                            Vector3[] localBox = new[]
+                            {
+                                new Vector3(-hw, 0, -hd), new Vector3( hw, 0, -hd),
+                                new Vector3( hw, 0,  hd), new Vector3(-hw, 0,  hd),
+                                new Vector3(-hw, h, -hd), new Vector3( hw, h, -hd),
+                                new Vector3( hw, h,  hd), new Vector3(-hw, h,  hd)
+                            };
 
-                        w.WriteLine($"f {startV+2} {startV+3} {startV+7}");
-                        w.WriteLine($"f {startV+2} {startV+7} {startV+6}");
+                            w.WriteLine("usemtl PedestrianProxy");
+                            textures.TryAdd("PedestrianProxy", null);
 
-                        w.WriteLine($"f {startV+3} {startV+0} {startV+4}");
-                        w.WriteLine($"f {startV+3} {startV+4} {startV+7}");
+                            int startV = v;
+                            foreach (var lb in localBox)
+                            {
+                                Vector3 wv = Vector3.Transform(lb, worldMatrix);
+                                w.WriteLine($"v {F(wv.X)} {F(wv.Y)} {F(wv.Z)}");
+                                v++;
+                            }
 
-                        w.WriteLine($"f {startV+4} {startV+5} {startV+6}");
-                        w.WriteLine($"f {startV+4} {startV+6} {startV+7}");
+                            w.WriteLine($"f {startV+0} {startV+1} {startV+5}");
+                            w.WriteLine($"f {startV+0} {startV+5} {startV+4}");
 
-                        w.WriteLine($"f {startV+0} {startV+3} {startV+2}");
-                        w.WriteLine($"f {startV+0} {startV+2} {startV+1}");
+                            w.WriteLine($"f {startV+1} {startV+2} {startV+6}");
+                            w.WriteLine($"f {startV+1} {startV+6} {startV+5}");
+
+                            w.WriteLine($"f {startV+2} {startV+3} {startV+7}");
+                            w.WriteLine($"f {startV+2} {startV+7} {startV+6}");
+
+                            w.WriteLine($"f {startV+3} {startV+0} {startV+4}");
+                            w.WriteLine($"f {startV+3} {startV+4} {startV+7}");
+
+                            w.WriteLine($"f {startV+4} {startV+5} {startV+6}");
+                            w.WriteLine($"f {startV+4} {startV+6} {startV+7}");
+
+                            w.WriteLine($"f {startV+0} {startV+3} {startV+2}");
+                            w.WriteLine($"f {startV+0} {startV+2} {startV+1}");
+                        }
                     }
                 }
-            }
 
-            WriteMtlFile(mtlPath, textures);
-            if (File.Exists(objPath)) File.Delete(objPath);
-            File.Move(tempObj, objPath);
-            Log($"  [+] Pedestrians -> {Path.GetFileName(objPath)}");
+                WriteMtlFile(mtlPath, textures);
+                if (File.Exists(objPath)) File.Delete(objPath);
+                File.Move(tempObj, objPath);
+                Log($"  [+] Pedestrians -> {Path.GetFileName(objPath)}");
+            }
+            finally
+            {
+                if (File.Exists(tempObj))
+                {
+                    try { File.Delete(tempObj); } catch { }
+                }
+            }
         }
 
         private void AppendPedestriansToWriter(byte[] pedData, StreamWriter w, Dictionary<string, string?> textures, ref int v, ref int vt, ref int vn, Func<string, byte[]?> loader)
