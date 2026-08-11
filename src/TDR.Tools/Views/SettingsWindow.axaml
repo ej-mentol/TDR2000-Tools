@@ -62,7 +62,7 @@
                         <TextBlock Text="Default 3D Track Export Options" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource AccentBrush}"/>
 
                         <CheckBox x:Name="ExportObjCheckBox" Content="Export Combined 3D Geometry (.OBJ / .MTL)" Foreground="{DynamicResource TextPrimaryBrush}"/>
-                        <CheckBox x:Name="ExportGltfCheckBox" Content="Export Modern 3D Scene (.GLTF / .GLB)" Foreground="{DynamicResource TextPrimaryBrush}"/>
+                        <CheckBox x:Name="ExportGltfCheckBox" Content="Export glTF 2.0 Scene (.GLTF / .GLB)" Foreground="{DynamicResource TextPrimaryBrush}"/>
                         <CheckBox x:Name="ExportPngTexturesCheckBox" Content="Convert Textures to PNG (.png)" Foreground="{DynamicResource TextPrimaryBrush}"/>
                         <CheckBox x:Name="IncludeMovablePropsCheckBox" Content="Bake Props, Signs &amp; Checkpoints into .OBJ / glTF" Foreground="{DynamicResource TextPrimaryBrush}" Margin="20,0,0,0"/>
                         <CheckBox x:Name="ExportSceneJsonCheckBox" Content="Export Engine Scene Manifesto (.JSON)" Foreground="{DynamicResource TextPrimaryBrush}"/>
