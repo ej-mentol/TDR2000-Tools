@@ -77,7 +77,14 @@
                     <TreeView ItemsSource="{Binding HieTreeNodes}" Background="Transparent">
                         <TreeView.DataTemplates>
                             <TreeDataTemplate DataType="vm:HieNodeViewModel" ItemsSource="{Binding Children}">
-                                <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay}" IsVisible="{Binding IsVisible}" Content="{Binding Name}" Padding="8,0,0,0" FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}"/>
+                                <StackPanel Spacing="0">
+                                    <Border BorderBrush="{DynamicResource BorderSubtleBrush}"
+                                            BorderThickness="0,1,0,0"
+                                            Margin="-32,0,0,3"
+                                            IsVisible="{Binding ShowTopSeparator}"
+                                            Opacity="0.5"/>
+                                    <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay}" IsVisible="{Binding IsVisible}" Content="{Binding Name}" Padding="8,0,0,0" FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}"/>
+                                </StackPanel>
                             </TreeDataTemplate>
                         </TreeView.DataTemplates>
                         <TreeView.Styles>

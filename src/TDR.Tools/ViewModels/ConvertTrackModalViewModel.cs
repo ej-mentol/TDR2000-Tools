@@ -17,6 +17,7 @@ namespace TDR.Tools.ViewModels
         private bool _isVisible = true;
 
         public string Name { get; set; } = string.Empty;
+        public bool ShowTopSeparator { get; set; } = false;
         public string VirtualPath { get; set; } = string.Empty;
         public bool IsDirectory { get; set; }
         public string NodeType { get; set; } = "MeshFile";

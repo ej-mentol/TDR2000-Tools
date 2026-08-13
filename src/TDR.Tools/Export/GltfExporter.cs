@@ -109,6 +109,18 @@ namespace TDR.Tools.Export
                     gltf.Images.Add(new GltfImage { Uri = texFileName });
                     gltf.Textures.Add(new GltfTexture { Source = imgIdx });
                     mat.PbrMetallicRoughness.BaseColorTexture = new GltfTextureInfo { Index = imgIdx };
+
+                    // Set AlphaMode for materials with alpha textures (e.g. tree2b, foliage, glass)
+                    if (texFileName.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ||
+                        texName.Contains("tree", StringComparison.OrdinalIgnoreCase) ||
+                        texName.Contains("fence", StringComparison.OrdinalIgnoreCase) ||
+                        texName.Contains("glass", StringComparison.OrdinalIgnoreCase) ||
+                        texName.Contains("leaf", StringComparison.OrdinalIgnoreCase) ||
+                        texName.Contains("rail", StringComparison.OrdinalIgnoreCase))
+                    {
+                        mat.AlphaMode = "MASK";
+                        mat.AlphaCutoff = 0.5f;
+                    }
                 }
 
                 gltf.Materials.Add(mat);
@@ -409,9 +421,15 @@ namespace TDR.Tools.Export
             BinaryWriter bw,
             Func<string, string?, int> getMaterial,
             Dictionary<string, int> meshMap,
-            Vector3? localOrigin = null)
+            Vector3? localOrigin = null,
+            HashSet<TDRNode>? visited = null,
+            int depth = 0)
         {
-            if (node == null) return -1;
+            if (node == null || depth > 200) return -1;
+
+            visited ??= new HashSet<TDRNode>();
+            if (!visited.Add(node)) return -1;
+
             Matrix4x4 worldMatrix = node.Transform * parentMatrix;
 
             int nodeIdx = gltf.Nodes.Count;
@@ -443,14 +461,14 @@ namespace TDR.Tools.Export
             if (node.Child >= 0 && node.Child < hie.Nodes.Count)
             {
                 var childNode = hie.Nodes[node.Child];
-                int childIdx = AddHieNodeToGltf(childNode, worldMatrix, hie, gltf, archivePath, bw, getMaterial, meshMap, localOrigin);
+                int childIdx = AddHieNodeToGltf(childNode, worldMatrix, hie, gltf, archivePath, bw, getMaterial, meshMap, localOrigin, visited, depth + 1);
                 if (childIdx >= 0) gNode.Children.Add(childIdx);
             }
 
             if (node.Sibling >= 0 && node.Sibling < hie.Nodes.Count)
             {
                 var siblingNode = hie.Nodes[node.Sibling];
-                AddHieNodeToGltf(siblingNode, parentMatrix, hie, gltf, archivePath, bw, getMaterial, meshMap, localOrigin);
+                AddHieNodeToGltf(siblingNode, parentMatrix, hie, gltf, archivePath, bw, getMaterial, meshMap, localOrigin, visited, depth + 1);
             }
 
             return nodeIdx;
@@ -623,8 +641,8 @@ namespace TDR.Tools.Export
 
         private string? ResolveTextureFile(string texName, string? archivePath)
         {
-            var vfsFiles = _vfs.GetFiles();
-            var match = vfsFiles.FirstOrDefault(f => Path.GetFileNameWithoutExtension(f.Name).Equals(texName, StringComparison.OrdinalIgnoreCase));
+            var matchResult = TextureResolver.ResolveBestMatch(_vfs, texName, archivePath, _trackContext);
+            var match = matchResult?.File;
             if (match == null) return null;
 
             byte[]? data = (!string.IsNullOrEmpty(archivePath) ? _vfs.LoadFileContext(match.Name, archivePath) : null) ?? _vfs.LoadFile(match);
@@ -638,25 +656,7 @@ namespace TDR.Tools.Export
             {
                 string pngName = Path.ChangeExtension(outTexName, ".png");
                 string pngPath = Path.Combine(_exportDir, pngName);
-                if (!File.Exists(pngPath))
-                {
-                    try
-                    {
-                        var bmp = TgaDecoder.DecodeTga(data);
-                        if (bmp != null)
-                        {
-#pragma warning disable CS0618
-                            bmp.Save(pngPath);
-#pragma warning restore CS0618
-                            return pngName;
-                        }
-                    }
-                    catch
-                    {
-                        // Fallback to original tga if decode failed
-                    }
-                }
-                else
+                if (File.Exists(pngPath) || TgaDecoder.SaveTgaAsPng(data, pngPath))
                 {
                     return pngName;
                 }
@@ -776,6 +776,14 @@ namespace TDR.Tools.Export
 
         [JsonPropertyName("pbrMetallicRoughness")]
         public GltfPbr PbrMetallicRoughness { get; set; } = new();
+
+        [JsonPropertyName("alphaMode")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? AlphaMode { get; set; }
+
+        [JsonPropertyName("alphaCutoff")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public float? AlphaCutoff { get; set; }
     }
 
     public sealed class GltfPbr

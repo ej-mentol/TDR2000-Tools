@@ -174,6 +174,17 @@ namespace TDR.Tools
 
         private void OnSourceContextMenuOpening(object? sender, System.ComponentModel.CancelEventArgs e)
         {
+            var targetControl = sender as Control;
+            var hitNode = targetControl?.DataContext as FileNodeViewModel
+                       ?? (targetControl as Visual)?.GetVisualAncestors().OfType<TreeViewItem>().FirstOrDefault()?.DataContext as FileNodeViewModel
+                       ?? (_lastPressedArgs?.Source as Control)?.DataContext as FileNodeViewModel
+                       ?? ((_lastPressedArgs?.Source as Visual)?.GetVisualAncestors().OfType<TreeViewItem>().FirstOrDefault()?.DataContext as FileNodeViewModel);
+
+            if (hitNode != null)
+            {
+                _vm.SelectedSourceNode = hitNode;
+            }
+
             var node = _vm.SelectedSourceNode;
             if (node == null || node.Name == ".." || node.AbsolutePath == ".." || node.Name.StartsWith(".."))
             {
@@ -183,6 +194,17 @@ namespace TDR.Tools
 
         private void OnDestinationContextMenuOpening(object? sender, System.ComponentModel.CancelEventArgs e)
         {
+            var targetControl = sender as Control;
+            var hitNode = targetControl?.DataContext as FileNodeViewModel
+                       ?? (targetControl as Visual)?.GetVisualAncestors().OfType<TreeViewItem>().FirstOrDefault()?.DataContext as FileNodeViewModel
+                       ?? (_lastPressedArgs?.Source as Control)?.DataContext as FileNodeViewModel
+                       ?? ((_lastPressedArgs?.Source as Visual)?.GetVisualAncestors().OfType<TreeViewItem>().FirstOrDefault()?.DataContext as FileNodeViewModel);
+
+            if (hitNode != null)
+            {
+                _vm.SelectedDestinationNode = hitNode;
+            }
+
             var node = _vm.SelectedDestinationNode;
             if (node == null || node.Name == ".." || node.AbsolutePath == ".." || node.Name.StartsWith(".."))
             {
@@ -243,7 +265,8 @@ namespace TDR.Tools
 
         private void OnSourceDragOver(object? sender, DragEventArgs e)
         {
-            if (_draggedNode != null || _vm.SelectedSourceNode != null)
+            var targetPakNode = (e.Source as Control)?.DataContext as FileNodeViewModel;
+            if (targetPakNode != null && (targetPakNode.IsArchive || targetPakNode.IsVirtual))
             {
                 e.DragEffects = DragDropEffects.Copy;
             }
@@ -255,14 +278,13 @@ namespace TDR.Tools
 
         private async void OnSourceDrop(object? sender, DragEventArgs e)
         {
-            var targetPakNode = (e.Source as Control)?.DataContext as FileNodeViewModel ?? _vm.SelectedSourceNode;
+            var targetPakNode = (e.Source as Control)?.DataContext as FileNodeViewModel;
             if (targetPakNode == null || (!targetPakNode.IsArchive && !targetPakNode.IsVirtual))
             {
-                targetPakNode = _vm.SelectedSourceNode;
+                _draggedNode = null;
+                _isRightClickDrag = false;
+                return;
             }
-
-            targetPakNode ??= await _vm.CreateNewPakArchiveAsync(null);
-            if (targetPakNode == null) return;
 
             // Process dragged VFS nodes (from either Source or Destination tree)
             List<FileNodeViewModel>? vfsNodes = null;
@@ -308,7 +330,7 @@ namespace TDR.Tools
 
         private void OnDestinationDragOver(object? sender, DragEventArgs e)
         {
-            OnSourceDragOver(sender, e);
+            e.DragEffects = DragDropEffects.Copy;
         }
 
         private async void OnPackFolderToPakClick(object? sender, RoutedEventArgs e)
@@ -452,7 +474,7 @@ namespace TDR.Tools
                         }
                         else
                         {
-                            var dialog = new Views.PakDragDropActionWindow(node.Name, isFolder, containsPakFiles);
+                            var dialog = new Views.PakDragDropActionWindow(node.Name, isFolder, containsPakFiles, isTrack: node.IsTrack);
                             var userChoice = await dialog.ShowDialog<Views.PakUserAction>(this);
 
                             if (userChoice == Views.PakUserAction.Extract)
@@ -463,7 +485,7 @@ namespace TDR.Tools
                                     settings.RememberPakDragAction = true;
                                     settings.Save();
                                 }
-                                _vm.ExtractNodeToDestination(node, createSubfolderForPak: dialog.CreateSubfolder, flatFiles: dialog.FlatFiles);
+                                _vm.ExtractNodeToDestination(node, createSubfolderForPak: dialog.CreateSubfolder, flatFiles: dialog.FlatFiles, unpackOnly: dialog.UnpackOnly);
                             }
                             else if (userChoice == Views.PakUserAction.Convert)
                             {
@@ -874,21 +896,9 @@ namespace TDR.Tools
         private void OnDestinationTreeDoubleTapped(object? sender, Avalonia.Input.TappedEventArgs e)
         {
             var node = _vm.SelectedDestinationNode;
-            if (node == null) return;
-
-            if (node.Name == "..")
+            if (node != null)
             {
-                _vm.DestinationNavigateUp();
-                return;
-            }
-
-            if (node.IsDirectory)
-            {
-                node.IsExpanded = !node.IsExpanded;
-            }
-            else if (_vm.SelectedDestinationNode != null)
-            {
-                _vm.NavigateIntoDestinationNode(_vm.SelectedDestinationNode);
+                _vm.NavigateIntoDestinationNode(node);
             }
         }
 

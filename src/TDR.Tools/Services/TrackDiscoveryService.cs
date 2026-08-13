@@ -84,9 +84,20 @@ namespace TDR.Tools.Services
                 variants.Add("All Missions (Mission 1, Mission 2...)");
             }
 
+            static bool IsValidVariant(string name)
+            {
+                string l = name.ToLowerInvariant().Trim();
+                if (string.IsNullOrWhiteSpace(l)) return false;
+                return !l.Contains("script") && !l.Contains("collision") &&
+                       !l.Contains("moveable") && !l.Contains("strings") && !l.Contains("raceinfo") &&
+                       !l.Contains("sfxlist") && !l.Contains("palette") && !l.Contains("follower") &&
+                       !l.Contains("volume") && !l.Contains("placement") && !l.Contains("path") &&
+                       !l.Contains("occluder") && !l.Contains("background") && !l.Contains("dingable");
+            }
+
             foreach (var variant in rawVariants)
             {
-                if (!variants.Contains(variant, StringComparer.OrdinalIgnoreCase))
+                if (IsValidVariant(variant) && !variants.Contains(variant, StringComparer.OrdinalIgnoreCase))
                 {
                     variants.Add(variant);
                 }

@@ -329,7 +329,6 @@ namespace TDR.Tools.ViewModels
         public MainViewModel()
         {
             Preview = new PreviewViewModel(ReadAllBytesForNode, LogSession);
-            LogSession("Initialized TDR Tools UI session");
         }
 
         public void InitializeStartup()
@@ -448,21 +447,25 @@ namespace TDR.Tools.ViewModels
                 var freshVfs = new PakManager();
                 freshVfs.IndexDirectory(rootPath);
 
-                // Ensure parent POWERUPS directory / archive is indexed so powerups are available for any track
+                // Ensure parent shared directories / archives (MOVABLEOBJECTS, POWERUPS, SHARED, TEXTURES) are indexed
                 try
                 {
                     string? parentDir = Path.GetDirectoryName(rootPath);
                     if (!string.IsNullOrEmpty(parentDir) && Directory.Exists(parentDir))
                     {
-                        string powerupsPak = Path.Combine(parentDir, "POWERUPS", "POWERUPS.pak");
-                        string powerupsDir = Path.Combine(parentDir, "POWERUPS");
-                        if (File.Exists(powerupsPak)) freshVfs.IndexDirectory(powerupsPak);
-                        else if (Directory.Exists(powerupsDir)) freshVfs.IndexDirectory(powerupsDir);
+                        string[] sharedFolders = new[] { "MOVABLEOBJECTS", "POWERUPS", "SHARED", "TEXTURES" };
+                        foreach (string folder in sharedFolders)
+                        {
+                            string folderPak = Path.Combine(parentDir, folder, $"{folder}.pak");
+                            string folderDir = Path.Combine(parentDir, folder);
+                            if (File.Exists(folderPak)) freshVfs.IndexDirectory(folderPak);
+                            else if (Directory.Exists(folderDir)) freshVfs.IndexDirectory(folderDir);
+                        }
                     }
                 }
                 catch (Exception ex)
                 {
-                    LogSession($"[!] Warning during parent POWERUPS auto-indexing: {ex.Message}");
+                    LogSession($"[!] Warning during parent shared assets auto-indexing: {ex.Message}");
                 }
 
                 _vfs = freshVfs;
@@ -973,7 +976,7 @@ namespace TDR.Tools.ViewModels
             }
         }
 
-        public void ExtractNodeToDestination(FileNodeViewModel node, bool createSubfolderForPak = true, bool flatFiles = false)
+        public void ExtractNodeToDestination(FileNodeViewModel node, bool createSubfolderForPak = true, bool flatFiles = false, bool unpackOnly = false)
         {
             if (node == null) return;
 
@@ -993,7 +996,7 @@ namespace TDR.Tools.ViewModels
             _suppressWatcherEvents = true;
             try
             {
-                ExtractNodeIntoFolder(node, targetDir, flatFiles);
+                ExtractNodeIntoFolder(node, targetDir, flatFiles, unpackOnly);
             }
             finally
             {
@@ -1002,7 +1005,7 @@ namespace TDR.Tools.ViewModels
             }
         }
 
-        private void ExtractNodeIntoFolder(FileNodeViewModel node, string targetDir, bool flatFiles)
+        private void ExtractNodeIntoFolder(FileNodeViewModel node, string targetDir, bool flatFiles, bool unpackOnly = false)
         {
             if (node.IsDirectory || node.IsArchive)
             {
@@ -1014,6 +1017,7 @@ namespace TDR.Tools.ViewModels
                                  (f.ArchivePath.Equals(node.AbsolutePath, StringComparison.OrdinalIgnoreCase) ||
                                   f.ArchivePath.StartsWith(node.AbsolutePath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) ||
                                   f.ArchivePath.StartsWith(node.AbsolutePath + "/", StringComparison.OrdinalIgnoreCase))))
+                    .Where(f => !unpackOnly || (!f.IsLooseFile && !string.IsNullOrEmpty(f.ArchivePath)))
                     .ToList();
 
                 if (filesToExtract.Count == 0)
@@ -1954,94 +1958,113 @@ namespace TDR.Tools.ViewModels
 
         private async void ExecuteTrackExport(ConvertTrackModalViewModel vm)
         {
-            if (IsBusy)
-            {
-                LogSession("[!] An export/extract is already running — please wait for it to finish before starting another.");
-                return;
-            }
-
-            string allVariantsSentinel = ConvertTrackModalViewModel.PresetAllSupported;
-            bool isAllVariants = string.IsNullOrEmpty(vm.SelectedVariant) ||
-                                 vm.SelectedVariant.Equals(allVariantsSentinel, StringComparison.OrdinalIgnoreCase);
-
-            var options = new TrackExportOptions(
-                ExportObj: vm.ExportObj,
-                ExportGltf: vm.ExportGltf,
-                ExportPngTextures: vm.ExportPngTextures,
-                IncludeMovableProps: vm.IncludeMovableProps,
-                ExportSceneJson: vm.ExportSceneJson,
-                NoMaterials: false,
-                UseLocalCoords: vm.UseLocalCoords,
-                UseGrouping: vm.UseGrouping,
-                DumpAll: vm.DumpAll,
-                Verbose: vm.VerboseLog,
-                EnableGroundSnap: vm.EnableGroundSnap,
-                SelectedHieFiles: vm.GetSelectedHiePaths()
-            );
-
-            SetBusy(true, $"Exporting track '{vm.TrackName}'...");
-            ReportProgress(5, $"Starting export for '{vm.TrackName}'...");
-
-            _suppressWatcherEvents = true;
             try
             {
-                await Task.Run(() =>
+                if (IsBusy)
                 {
-                    List<string> targetVariants;
-                    string sel = vm.SelectedVariant ?? allVariantsSentinel;
+                    LogSession("[!] An export/extract is already running — please wait for it to finish before starting another.");
+                    return;
+                }
 
-                    if (sel.Equals(allVariantsSentinel, StringComparison.OrdinalIgnoreCase) || sel.StartsWith("All Variants", StringComparison.OrdinalIgnoreCase) || sel.Equals(ConvertTrackModalViewModel.PresetCustom, StringComparison.OrdinalIgnoreCase))
-                    {
-                        targetVariants = vm.AvailableVariants
-                            .Where(v => !v.StartsWith("All ", StringComparison.OrdinalIgnoreCase) && !v.StartsWith("Base Track", StringComparison.OrdinalIgnoreCase) && !v.Equals(ConvertTrackModalViewModel.PresetCustom, StringComparison.OrdinalIgnoreCase))
-                            .ToList();
-                        if (targetVariants.Count == 0) targetVariants.Add(vm.TrackName);
-                    }
-                    else if (sel.StartsWith("Base Track Only", StringComparison.OrdinalIgnoreCase))
-                    {
-                        targetVariants = new List<string> { vm.TrackName };
-                    }
-                    else if (sel.StartsWith("All Races", StringComparison.OrdinalIgnoreCase))
-                    {
-                        targetVariants = vm.AvailableVariants
-                            .Where(v => v.Contains("race", StringComparison.OrdinalIgnoreCase) || v.Equals(vm.TrackName, StringComparison.OrdinalIgnoreCase))
-                            .ToList();
-                    }
-                    else if (sel.StartsWith("All Missions", StringComparison.OrdinalIgnoreCase))
-                    {
-                        targetVariants = vm.AvailableVariants
-                            .Where(v => v.Contains("mission", StringComparison.OrdinalIgnoreCase) || v.Equals(vm.TrackName, StringComparison.OrdinalIgnoreCase))
-                            .ToList();
-                    }
-                    else
-                    {
-                        targetVariants = new List<string> { sel };
-                    }
+                string allVariantsSentinel = ConvertTrackModalViewModel.PresetAllSupported;
+                bool isAllVariants = string.IsNullOrEmpty(vm.SelectedVariant) ||
+                                     vm.SelectedVariant.Equals(allVariantsSentinel, StringComparison.OrdinalIgnoreCase);
 
-                    for (int i = 0; i < targetVariants.Count; i++)
-                    {
-                        var variant = targetVariants[i];
-                        double macroP = 10.0 + ((double)i / targetVariants.Count) * 80.0;
-                        ReportProgress(macroP, $"Exporting variant layer ({i + 1}/{targetVariants.Count}): {variant}");
+                var options = new TrackExportOptions(
+                    ExportObj: vm.ExportObj,
+                    ExportGltf: vm.ExportGltf,
+                    ExportPngTextures: vm.ExportPngTextures,
+                    IncludeMovableProps: vm.IncludeMovableProps,
+                    ExportSceneJson: vm.ExportSceneJson,
+                    NoMaterials: false,
+                    UseLocalCoords: vm.UseLocalCoords,
+                    UseGrouping: vm.UseGrouping,
+                    DumpAll: vm.DumpAll,
+                    Verbose: vm.VerboseLog,
+                    EnableGroundSnap: vm.EnableGroundSnap,
+                    SelectedHieFiles: vm.GetSelectedHiePaths()
+                );
 
-                        string? suffix = GetVariantSuffix(variant, vm.TrackName);
-                        TrackExportPipeline.ExportTrack(_vfs, vm.TrackName, suffix, vm.OutputDirectory, options, LogSession, (subPct, subMsg) =>
+                SetBusy(true, $"Exporting track '{vm.TrackName}'...");
+                ReportProgress(5, $"Starting export for '{vm.TrackName}'...");
+
+                _suppressWatcherEvents = true;
+                try
+                {
+                    await Task.Run(() =>
+                    {
+                        List<string> targetVariants;
+                        string sel = vm.SelectedVariant ?? allVariantsSentinel;
+
+                        if (sel.Equals(allVariantsSentinel, StringComparison.OrdinalIgnoreCase) || sel.StartsWith("All Variants", StringComparison.OrdinalIgnoreCase))
                         {
-                            ReportSubProgress(subPct, subMsg);
-                        });
-                    }
-                    ReportProgress(100, $"Completed export for '{vm.TrackName}'");
-                });
+                            targetVariants = vm.AvailableVariants
+                                .Where(v => !v.StartsWith("All ", StringComparison.OrdinalIgnoreCase) && !v.StartsWith("Base Track", StringComparison.OrdinalIgnoreCase) && !v.Equals(ConvertTrackModalViewModel.PresetCustom, StringComparison.OrdinalIgnoreCase))
+                                .ToList();
+                            if (targetVariants.Count == 0) targetVariants.Add(vm.TrackName);
+                        }
+                        else if (sel.StartsWith("Base Track Only", StringComparison.OrdinalIgnoreCase))
+                        {
+                            targetVariants = new List<string> { vm.TrackName };
+                        }
+                        else if (sel.StartsWith("All Races", StringComparison.OrdinalIgnoreCase))
+                        {
+                            targetVariants = vm.AvailableVariants
+                                .Where(v => v.Contains("race", StringComparison.OrdinalIgnoreCase) || v.Equals(vm.TrackName, StringComparison.OrdinalIgnoreCase))
+                                .ToList();
+                        }
+                        else if (sel.StartsWith("All Missions", StringComparison.OrdinalIgnoreCase))
+                        {
+                            targetVariants = vm.AvailableVariants
+                                .Where(v => v.Contains("mission", StringComparison.OrdinalIgnoreCase) || v.Equals(vm.TrackName, StringComparison.OrdinalIgnoreCase))
+                                .ToList();
+                        }
+                        else if (sel.Equals(ConvertTrackModalViewModel.PresetCustom, StringComparison.OrdinalIgnoreCase))
+                        {
+                            // Custom Selection: only export layer variants whose root node has at least
+                            // one selected HIE file. VirtualPath of layer root nodes matches the format
+                            // expected by GetVariantSuffix (e.g. "Hollowood", "Hollowood_Race1").
+                            targetVariants = vm.HieTreeNodes
+                                .Where(n => n.IsDirectory && n.IsSelected)
+                                .Select(n => n.VirtualPath)
+                                .ToList();
+                            if (targetVariants.Count == 0) targetVariants.Add(vm.TrackName);
+                        }
+                        else
+                        {
+                            targetVariants = new List<string> { sel };
+                        }
+
+                        for (int i = 0; i < targetVariants.Count; i++)
+                        {
+                            var variant = targetVariants[i];
+                            double macroP = 10.0 + ((double)i / targetVariants.Count) * 80.0;
+                            ReportProgress(macroP, $"Exporting variant layer ({i + 1}/{targetVariants.Count}): {variant}");
+
+                            string? suffix = GetVariantSuffix(variant, vm.TrackName);
+                            TrackExportPipeline.ExportTrack(_vfs, vm.TrackName, suffix, vm.OutputDirectory, options, LogSession, (subPct, subMsg) =>
+                            {
+                                ReportSubProgress(subPct, subMsg);
+                            });
+                        }
+                        ReportProgress(100, $"Completed export for '{vm.TrackName}'");
+                    });
+                }
+                catch (Exception ex)
+                {
+                    LogSession($"[ERROR] Track export failed: {ex.Message}");
+                    LogSession($"[TRACE] {ex}");
+                }
+                finally
+                {
+                    IsBusy = false;
+                    RefreshDestinationTree();
+                    _suppressWatcherEvents = false;
+                }
             }
             catch (Exception ex)
             {
-                LogSession($"[ERROR] Track export failed: {ex.Message}");
-            }
-            finally
-            {
-                IsBusy = false;
-                RefreshDestinationTree();
-                _suppressWatcherEvents = false;
+                LogSession($"[CRITICAL ERROR] Unhandled exception in ExecuteTrackExport: {ex}");
             }
         }
 
@@ -2109,6 +2132,7 @@ namespace TDR.Tools.ViewModels
                         VirtualPath = layerRootKey,
                         IsDirectory = true,
                         IsSelected = true,
+                        ShowTopSeparator = modalVm.HieTreeNodes.Count > 0,
                         NodeType = "TrackLayerRoot",
                         OnSelectionChangedCallback = () => modalVm.NotifyUserTreeToggled()
                     };

@@ -541,13 +541,16 @@ if json_files:
                 int instIdx = counts.GetValueOrDefault(modelBaseName, 0) + 1;
                 counts[modelBaseName] = instIdx;
 
-                float px = float.Parse(parts[1], CultureInfo.InvariantCulture);
-                float py = float.Parse(parts[2], CultureInfo.InvariantCulture);
-                float pz = float.Parse(parts[3], CultureInfo.InvariantCulture);
-                float qx = float.Parse(parts[4], CultureInfo.InvariantCulture);
-                float qy = float.Parse(parts[5], CultureInfo.InvariantCulture);
-                float qz = float.Parse(parts[6], CultureInfo.InvariantCulture);
-                float qw = float.Parse(parts[7], CultureInfo.InvariantCulture);
+                if (!float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float px) ||
+                    !float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float py) ||
+                    !float.TryParse(parts[3], NumberStyles.Float, CultureInfo.InvariantCulture, out float pz) ||
+                    !float.TryParse(parts[4], NumberStyles.Float, CultureInfo.InvariantCulture, out float qx) ||
+                    !float.TryParse(parts[5], NumberStyles.Float, CultureInfo.InvariantCulture, out float qy) ||
+                    !float.TryParse(parts[6], NumberStyles.Float, CultureInfo.InvariantCulture, out float qz) ||
+                    !float.TryParse(parts[7], NumberStyles.Float, CultureInfo.InvariantCulture, out float qw))
+                {
+                    continue;
+                }
 
                 entities.Add(new SceneEntity
                 {
@@ -590,11 +593,14 @@ if json_files:
 
                 if (parts[0] != "1") continue; // Skip disabled spawners
 
-                int classId = int.Parse(parts[1], CultureInfo.InvariantCulture);
-                float px = float.Parse(parts[3], CultureInfo.InvariantCulture);
-                float py = float.Parse(parts[4], CultureInfo.InvariantCulture);
-                float pz = float.Parse(parts[5], CultureInfo.InvariantCulture);
-                float heading = float.Parse(parts[6], CultureInfo.InvariantCulture);
+                if (!int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out int classId) ||
+                    !float.TryParse(parts[3], NumberStyles.Float, CultureInfo.InvariantCulture, out float px) ||
+                    !float.TryParse(parts[4], NumberStyles.Float, CultureInfo.InvariantCulture, out float py) ||
+                    !float.TryParse(parts[5], NumberStyles.Float, CultureInfo.InvariantCulture, out float pz) ||
+                    !float.TryParse(parts[6], NumberStyles.Float, CultureInfo.InvariantCulture, out float heading))
+                {
+                    continue;
+                }
 
                 string className = classId >= 0 && classId < pedClasses.Count ? pedClasses[classId] : $"Pedestrian_Class_{classId}";
                 int instIdx = counts.GetValueOrDefault(className, 0) + 1;

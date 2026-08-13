@@ -14,6 +14,7 @@ namespace TDR.Tools.Views
     {
         public bool CreateSubfolder { get; private set; } = true;
         public bool FlatFiles { get; private set; } = false;
+        public bool UnpackOnly { get; private set; } = false;
         public bool RememberChoice => RememberChoiceCheckBox.IsChecked == true;
         public PakUserAction SelectedAction { get; private set; } = PakUserAction.Cancel;
 
@@ -24,7 +25,7 @@ namespace TDR.Tools.Views
             InitializeComponent();
         }
 
-        public PakDragDropActionWindow(string itemName, bool isFolder = false, bool containsPakFiles = true) : this()
+        public PakDragDropActionWindow(string itemName, bool isFolder = false, bool containsPakFiles = true, bool isTrack = true) : this()
         {
             ContainsPakFiles = containsPakFiles;
             TargetPakTextBlock.Text = isFolder
@@ -32,12 +33,20 @@ namespace TDR.Tools.Views
                 : $"Selected archive: '{itemName}'";
 
             FileOpsText.Text = isFolder ? "File Ops" : "Unpack Ops";
+
+            if (!isTrack)
+            {
+                ConvertButton.IsEnabled = false;
+                ConvertButton.IsDefault = false;
+                ToolTip.SetTip(ConvertButton, "Selected archive/folder does not contain a valid 3D Track descriptor.");
+            }
         }
 
         private void OnCopyAndUnpackClick(object? sender, RoutedEventArgs e)
         {
             CreateSubfolder = true;
             FlatFiles = false;
+            UnpackOnly = false;
             SelectedAction = PakUserAction.Extract;
             Close(PakUserAction.Extract);
         }
@@ -46,13 +55,18 @@ namespace TDR.Tools.Views
         {
             CreateSubfolder = false;
             FlatFiles = true;
+            UnpackOnly = false;
             SelectedAction = PakUserAction.Extract;
             Close(PakUserAction.Extract);
         }
 
         private void OnUnpackOnlyClick(object? sender, RoutedEventArgs e)
         {
-            OnCopyAndUnpackClick(sender, e);
+            CreateSubfolder = true;
+            FlatFiles = false;
+            UnpackOnly = true;
+            SelectedAction = PakUserAction.Extract;
+            Close(PakUserAction.Extract);
         }
 
         private void OnConvertClick(object? sender, RoutedEventArgs e)

@@ -26,11 +26,11 @@ namespace TDR.Tools
             // If no arguments or explicitly --gui, launch Avalonia GUI
             if (args.Length == 0 || args.Contains("--gui", StringComparer.OrdinalIgnoreCase))
             {
-                // Cross-platform single instance guard for GUI mode (works on Linux, macOS, and Windows)
-                using var mutex = new System.Threading.Mutex(true, @"Global\TDR2000_Tools_GUI_Instance", out bool createdNew);
+                // Single instance guard for GUI mode
+                using var mutex = new System.Threading.Mutex(true, @"Local\TDR2000_Tools_GUI_Instance", out bool createdNew);
                 if (!createdNew)
                 {
-                    Console.WriteLine("[!] TDR Tools GUI instance is already running.");
+                    Console.WriteLine("[!] TDR Tools GUI instance is already running in background.");
                     return;
                 }
 
@@ -67,6 +67,23 @@ namespace TDR.Tools
 
                 Console.WriteLine(statusMessage);
                 VFS.IndexDirectory(assetsRoot);
+
+                try
+                {
+                    string? parentDir = Path.GetDirectoryName(assetsRoot);
+                    if (!string.IsNullOrEmpty(parentDir) && Directory.Exists(parentDir))
+                    {
+                        string[] sharedFolders = new[] { "MOVABLEOBJECTS", "POWERUPS", "SHARED", "TEXTURES" };
+                        foreach (string folder in sharedFolders)
+                        {
+                            string folderPak = Path.Combine(parentDir, folder, $"{folder}.pak");
+                            string folderDir = Path.Combine(parentDir, folder);
+                            if (File.Exists(folderPak)) VFS.IndexDirectory(folderPak);
+                            else if (Directory.Exists(folderDir)) VFS.IndexDirectory(folderDir);
+                        }
+                    }
+                }
+                catch { }
 
                 string? exportArg = GetArgumentValue(args, "-o", "--output");
                 if (!string.IsNullOrEmpty(exportArg)) ExportDir = exportArg;

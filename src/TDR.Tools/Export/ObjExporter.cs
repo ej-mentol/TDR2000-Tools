@@ -78,7 +78,9 @@ namespace TDR.Tools.Export
         // Keywords that point directly to a .hie or a .txt sub-descriptor (Stage 1 in EXPORT_FORMAT.md)
         private static readonly string[] DirectHieKeywords = new[]
         {
-            "SKY_SPHERE", "WATER_MESH", "HARDSHADOW_HIE", "BASE_CONSOFT", "CONSOFT",
+            "SKY_SPHERE", "SKY_BOX", "SKY_DOME", "SKY_MESH", "SKY", "SKYDOME", "SKYBOX",
+            "BACKGROUND_MESH", "BACKGROUND_HIE", "BACKGROUND_SPHERE", "BACKGROUND_DOME", "BACKGROUND_BOX", "BACKGROUND_TEXTURE", "BACKGROUND",
+            "WATER_MESH", "HARDSHADOW_HIE", "BASE_CONSOFT", "CONSOFT",
             "LEVEL_MESH", "STATIC_MESH", "OCCLUDER_MESH", "TRACK_SELECT_MESH", "SPLASH_SCREEN_MESH"
         };
 
@@ -547,10 +549,9 @@ namespace TDR.Tools.Export
 
         private void AppendHieToWriter(byte[] hieBytes, string hieName, StreamWriter w, Dictionary<string, string?> textures, ref int v, ref int vt, ref int vn, string? sourceArchivePath, Matrix4x4? initialTransform = null)
         {
-            if (_useLocalCoords)
-            {
-                _localOrigin = null; // Reset local origin per-HIE hierarchy so each .hie calculates its own root origin
-            }
+            // _localOrigin is intentionally NOT reset here: ExportLevelToObj sets it to null once
+            // at the start of the whole export so a single global origin is shared across all HIE
+            // layers, movables, and powerups, keeping everything positioned relative to each other.
 
             var hie = TDRHierarchy.Load(hieBytes, hieName);
             if (hie.Root == null && hie.Meshes.Count == 0) return;
@@ -765,6 +766,8 @@ namespace TDR.Tools.Export
                     if (hie.Root != null)
                     {
                         string defaultTex = "Default";
+                        // _localOrigin is NOT reset per movable: the global origin from ExportLevelToObj
+                        // keeps movables positioned correctly relative to the terrain.
                         ProcessNode(hie.Root, worldMatrix, ref defaultTex, hie, textures, w, ref v, ref vt, ref vn, movableArchive);
                     }
                 }
@@ -827,6 +830,7 @@ namespace TDR.Tools.Export
                             if (hie.Root != null)
                             {
                                 string defaultTex = "Default";
+                                // _localOrigin is NOT reset per powerup: global origin from ExportLevelToObj.
                                 ProcessNode(hie.Root, worldMatrix, ref defaultTex, hie, textures, w, ref v, ref vt, ref vn, movableArchive);
                             }
                         }
@@ -946,13 +950,16 @@ namespace TDR.Tools.Export
                         if (!hieName.EndsWith(".hie", StringComparison.OrdinalIgnoreCase))
                             hieName += ".hie";
 
-                        float px = float.Parse(parts[1], CultureInfo.InvariantCulture);
-                        float py = float.Parse(parts[2], CultureInfo.InvariantCulture);
-                        float pz = float.Parse(parts[3], CultureInfo.InvariantCulture);
-                        float qx = float.Parse(parts[4], CultureInfo.InvariantCulture);
-                        float qy = float.Parse(parts[5], CultureInfo.InvariantCulture);
-                        float qz = float.Parse(parts[6], CultureInfo.InvariantCulture);
-                        float qw = float.Parse(parts[7], CultureInfo.InvariantCulture);
+                        if (!float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float px) ||
+                            !float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float py) ||
+                            !float.TryParse(parts[3], NumberStyles.Float, CultureInfo.InvariantCulture, out float pz) ||
+                            !float.TryParse(parts[4], NumberStyles.Float, CultureInfo.InvariantCulture, out float qx) ||
+                            !float.TryParse(parts[5], NumberStyles.Float, CultureInfo.InvariantCulture, out float qy) ||
+                            !float.TryParse(parts[6], NumberStyles.Float, CultureInfo.InvariantCulture, out float qz) ||
+                            !float.TryParse(parts[7], NumberStyles.Float, CultureInfo.InvariantCulture, out float qw))
+                        {
+                            continue;
+                        }
 
                         Matrix4x4 rotation = Matrix4x4.CreateFromQuaternion(new Quaternion(qx, qy, qz, qw));
                         Matrix4x4 worldMatrix = _useLocalCoords ? rotation : rotation with
@@ -1110,11 +1117,14 @@ namespace TDR.Tools.Export
                         string[] parts = clean.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
                         if (parts.Length < 7 || parts[0] != "1") continue;
 
-                        int classId = int.Parse(parts[1], CultureInfo.InvariantCulture);
-                        float px = float.Parse(parts[3], CultureInfo.InvariantCulture);
-                        float py = float.Parse(parts[4], CultureInfo.InvariantCulture);
-                        float pz = float.Parse(parts[5], CultureInfo.InvariantCulture);
-                        float heading = float.Parse(parts[6], CultureInfo.InvariantCulture);
+                        if (!int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out int classId) ||
+                            !float.TryParse(parts[3], NumberStyles.Float, CultureInfo.InvariantCulture, out float px) ||
+                            !float.TryParse(parts[4], NumberStyles.Float, CultureInfo.InvariantCulture, out float py) ||
+                            !float.TryParse(parts[5], NumberStyles.Float, CultureInfo.InvariantCulture, out float pz) ||
+                            !float.TryParse(parts[6], NumberStyles.Float, CultureInfo.InvariantCulture, out float heading))
+                        {
+                            continue;
+                        }
 
                         string className = classId >= 0 && classId < pedClasses.Count ? pedClasses[classId] : $"Pedestrian_Class_{classId}";
                         int instIdx = counts.GetValueOrDefault(className, 0) + 1;
@@ -1259,9 +1269,24 @@ namespace TDR.Tools.Export
             }
         }
 
-        private void ProcessNode(TDRNode node, Matrix4x4 parentMatrix, ref string currentTexture, TDRHierarchy hie, Dictionary<string, string?> textureSet, StreamWriter w, ref int v, ref int vt, ref int vn, string? archivePath = null)
+        private void ProcessNode(
+            TDRNode node,
+            Matrix4x4 parentMatrix,
+            ref string currentTexture,
+            TDRHierarchy hie,
+            Dictionary<string, string?> textureSet,
+            StreamWriter w,
+            ref int v,
+            ref int vt,
+            ref int vn,
+            string? archivePath = null,
+            HashSet<TDRNode>? visited = null,
+            int depth = 0)
         {
-            if (node == null) return;
+            if (node == null || depth > 200) return;
+
+            visited ??= new HashSet<TDRNode>();
+            if (!visited.Add(node)) return;
 
             Matrix4x4 worldMatrix = node.Transform * parentMatrix;
 
@@ -1341,7 +1366,7 @@ namespace TDR.Tools.Export
 
             foreach (var child in node.Children)
             {
-                ProcessNode(child, worldMatrix, ref currentTexture, hie, textureSet, w, ref v, ref vt, ref vn, archivePath);
+                ProcessNode(child, worldMatrix, ref currentTexture, hie, textureSet, w, ref v, ref vt, ref vn, archivePath, visited, depth + 1);
             }
         }
 
@@ -1355,6 +1380,7 @@ namespace TDR.Tools.Export
                         for (int i = 0; i < 3; i++)
                         {
                             var vert = face.Vertices[i];
+                            if (vert.PositionIndex < 0 || vert.PositionIndex >= mesh.Positions.Count) continue;
                             Vector3 pos  = Vector3.Transform(mesh.Positions[vert.PositionIndex], transform);
                             Vector3 norm = Vector3.TransformNormal(vert.Normal, transform);
 
@@ -1415,122 +1441,17 @@ namespace TDR.Tools.Export
             mtl.WriteLine("newmtl Default\nKd 0.8 0.8 0.8");
             if (_noMaterials) return;
 
-            static int GetTextureResolutionArea(string filename)
-            {
-                var match = Regex.Match(filename, @"_(\d+)x(\d+)_", RegexOptions.IgnoreCase);
-                if (match.Success && int.TryParse(match.Groups[1].Value, out int w) && int.TryParse(match.Groups[2].Value, out int h))
-                {
-                    return w * h;
-                }
-                return 0;
-            }
-
-
-
-            var vfsFiles = _vfs.GetFiles();
             foreach (var (t, archivePath) in textures)
             {
                 if (string.IsNullOrWhiteSpace(t) || t == "Default") continue;
                 mtl.WriteLine($"\nnewmtl {t}\nKd 1.0 1.0 1.0");
 
-                string cleanMat = t.Trim('"').Trim();
-
-                // nameMatch: texture filename matches HIE material/texture name (TIME -> TIME_256x256_32, timecorona -> timecorona_64x64_32, RepairCorona -> RepairCorona_64x64_32)
-                bool NameMatch(PakManager.IndexedFile f)
-                {
-                    if (!f.Name.EndsWith(".tga", StringComparison.OrdinalIgnoreCase) &&
-                        !f.Name.EndsWith(".png", StringComparison.OrdinalIgnoreCase))
-                        return false;
-
-                    string cleanPath = f.Name.Replace('\\', '/');
-                    string fileNameOnly = Path.GetFileNameWithoutExtension(cleanPath);
-
-                    // 1. Exact match
-                    if (fileNameOnly.Equals(cleanMat, StringComparison.OrdinalIgnoreCase))
-                        return true;
-
-                    // 2. Resolution/bitdepth suffix match (e.g. TIME_256x256_32, RepairCorona_64x64_32, timecorona_64x64_32)
-                    if (fileNameOnly.StartsWith(cleanMat + "_", StringComparison.OrdinalIgnoreCase))
-                    {
-                        string suffix = fileNameOnly[(cleanMat.Length + 1)..];
-                        if (Regex.IsMatch(suffix, @"^(\d+x\d+|\d+)(_\d+)?$", RegexOptions.IgnoreCase))
-                            return true;
-                    }
-
-                    // 3. Known exact TDR texture aliases
-                    if (cleanMat.Equals("span", StringComparison.OrdinalIgnoreCase) || cleanMat.Equals("spanner", StringComparison.OrdinalIgnoreCase))
-                    {
-                        if (fileNameOnly.StartsWith("new_spanner", StringComparison.OrdinalIgnoreCase) || fileNameOnly.StartsWith("span", StringComparison.OrdinalIgnoreCase)) return true;
-                    }
-                    if (cleanMat.Equals("eng", StringComparison.OrdinalIgnoreCase) || cleanMat.Equals("engine", StringComparison.OrdinalIgnoreCase))
-                    {
-                        if (fileNameOnly.StartsWith("new_engine", StringComparison.OrdinalIgnoreCase) || fileNameOnly.StartsWith("eng", StringComparison.OrdinalIgnoreCase)) return true;
-                    }
-                    if (cleanMat.Equals("helm", StringComparison.OrdinalIgnoreCase) || cleanMat.Equals("helmet", StringComparison.OrdinalIgnoreCase))
-                    {
-                        if (fileNameOnly.StartsWith("new_helmet", StringComparison.OrdinalIgnoreCase) || fileNameOnly.StartsWith("helm", StringComparison.OrdinalIgnoreCase)) return true;
-                    }
-                    if (cleanMat.Equals("wad", StringComparison.OrdinalIgnoreCase) || cleanMat.Equals("wadocash", StringComparison.OrdinalIgnoreCase))
-                    {
-                        if (fileNameOnly.StartsWith("new_wadocash", StringComparison.OrdinalIgnoreCase) || fileNameOnly.StartsWith("wad", StringComparison.OrdinalIgnoreCase)) return true;
-                    }
-                    if (cleanMat.Equals("ped", StringComparison.OrdinalIgnoreCase) || cleanMat.Equals("pedsign", StringComparison.OrdinalIgnoreCase))
-                    {
-                        if (fileNameOnly.StartsWith("new_pedsign", StringComparison.OrdinalIgnoreCase) || fileNameOnly.StartsWith("ped", StringComparison.OrdinalIgnoreCase)) return true;
-                    }
-
-                    return false;
-                }
-
-                // 1A. Exact same PAK file as the .hie model
-                PakManager.IndexedFile? matchTier1A = (!string.IsNullOrEmpty(archivePath)
-                    ? vfsFiles.Where(f => NameMatch(f) &&
-                          f.ArchivePath.Equals(archivePath, StringComparison.OrdinalIgnoreCase))
-                          .OrderByDescending(f => GetTextureResolutionArea(f.Name))
-                          .ThenByDescending(f => f.Name.Contains("_32"))
-                          .ThenByDescending(f => f.Name.Contains("_24"))
-                          .FirstOrDefault()
-                    : null);
-
-                // 1B. Same PAK directory / folder
-                string? ctxDir = archivePath != null ? Path.GetDirectoryName(archivePath) : null;
-                string mainTrack = (_trackContext ?? "").ToLowerInvariant();
-
-                PakManager.IndexedFile? matchTier1B = matchTier1A ?? (ctxDir != null
-                    ? vfsFiles.Where(f => NameMatch(f) &&
-                          Path.GetDirectoryName(f.ArchivePath)
-                              ?.Equals(ctxDir, StringComparison.OrdinalIgnoreCase) == true)
-                          .OrderByDescending(f => GetTextureResolutionArea(f.Name))
-                          .ThenByDescending(f => f.Name.Contains("_32"))
-                          .ThenByDescending(f => f.Name.Contains("_24"))
-                          .FirstOrDefault()
-                    : null);
-
-                PakManager.IndexedFile? matchTier2 = matchTier1B ?? (!string.IsNullOrEmpty(mainTrack)
-                    ? vfsFiles.Where(f => NameMatch(f) &&
-                          ((f.ArchivePath ?? "").ToLowerInvariant().Replace("_", "").Contains(mainTrack.Replace("_", "")) ||
-                           f.Name.ToLowerInvariant().Replace("_", "").Contains(mainTrack.Replace("_", ""))))
-                          .OrderByDescending(f => GetTextureResolutionArea(f.Name))
-                          .ThenByDescending(f => f.Name.Contains("_32"))
-                          .ThenByDescending(f => f.Name.Contains("_24"))
-                          .FirstOrDefault()
-                    : null);
-
-                PakManager.IndexedFile? matchTier3 = matchTier2 ?? vfsFiles.Where(f => NameMatch(f) && !(f.ArchivePath ?? "").Replace('\\', '/').ToLowerInvariant().Contains("tracks/"))
-                      .OrderByDescending(f => GetTextureResolutionArea(f.Name))
-                      .ThenByDescending(f => f.Name.Contains("_32"))
-                      .ThenByDescending(f => f.Name.Contains("_24"))
-                      .FirstOrDefault();
-
-                PakManager.IndexedFile? bestMatch = matchTier3;
+                var resolveResult = TextureResolver.ResolveBestMatch(_vfs, t, archivePath, _trackContext);
+                PakManager.IndexedFile? bestMatch = resolveResult?.File;
+                string tierName = resolveResult?.TierName ?? "NOT FOUND";
 
                 if (_verbose)
                 {
-                    string tierName = matchTier1A != null ? "Tier 1A (Exact PAK File)" :
-                                     matchTier1B != null ? "Tier 1B (Same PAK Directory)" :
-                                     matchTier2 != null  ? "Tier 2 (Same Track Level)" :
-                                     matchTier3 != null  ? "Tier 3 (Shared Assets)" : "NOT FOUND";
-
                     string origin = bestMatch != null
                         ? $"Archive: '{bestMatch.ArchivePath}' -> VirtualFile: '{bestMatch.Name}'"
                         : "NO MATCH IN VFS";
@@ -1572,12 +1493,13 @@ namespace TDR.Tools.Export
                     string[] candidateNames = new[]
                     {
                         $"{t}.tga",
-                        $"{bangT}_128x128_32.tga", $"{bangT}_64x64_32.tga", $"{bangT}_32x32_32.tga", $"{bangT}_16x16_32.tga", $"{bangT}_8x8_32.tga", $"{bangT}_4x4_32.tga", $"{bangT}_2x2_32.tga", $"{bangT}_1x1_32.tga",
-                        $"{cleanT}.tga", $"{cleanT}_32.tga", $"{cleanT}_128x128_32.tga", $"{cleanT}_64x64_32.tga", $"{cleanT}_32x32_32.tga", $"{cleanT}_16x16_32.tga", $"{cleanT}_8x8_32.tga", $"{cleanT}_4x4_8.tga", $"{cleanT}_2x2_32.tga", $"{cleanT}_1x1_32.tga",
-                        $"{bangT}_128x128_8.tga", $"{bangT}_64x64_8.tga", $"{bangT}_32x32_8.tga", $"{bangT}_16x16_8.tga", $"{bangT}_8x8_8.tga", $"{bangT}_4x4_8.tga", $"{bangT}_2x2_8.tga", $"{bangT}_1x1_8.tga",
-                        $"{cleanT}_128x128_8.tga", $"{cleanT}_64x64_8.tga", $"{cleanT}_32x32_8.tga", $"{cleanT}_16x16_8.tga", $"{cleanT}_8x8_8.tga", $"{cleanT}_4x4_8.tga", $"{cleanT}_2x2_8.tga", $"{cleanT}_1x1_8.tga"
+                        $"{bangT}_512x512_32.tga", $"{bangT}_256x256_32.tga", $"{bangT}_256_256_32.tga", $"{bangT}_128x128_32.tga", $"{bangT}_128_128_32.tga", $"{bangT}_64x64_32.tga", $"{bangT}_32x32_32.tga", $"{bangT}_16x16_32.tga", $"{bangT}_8x8_32.tga", $"{bangT}_4x4_32.tga", $"{bangT}_2x2_32.tga", $"{bangT}_1x1_32.tga",
+                        $"{cleanT}.tga", $"{cleanT}_32.tga", $"{cleanT}_512x512_32.tga", $"{cleanT}_256x256_32.tga", $"{cleanT}_256_256_32.tga", $"{cleanT}_128x128_32.tga", $"{cleanT}_128_128_32.tga", $"{cleanT}_64x64_32.tga", $"{cleanT}_32x32_32.tga", $"{cleanT}_16x16_32.tga", $"{cleanT}_8x8_32.tga", $"{cleanT}_4x4_8.tga", $"{cleanT}_2x2_32.tga", $"{cleanT}_1x1_32.tga",
+                        $"{bangT}_512x512_8.tga", $"{bangT}_256x256_8.tga", $"{bangT}_256_256_8.tga", $"{bangT}_128x128_8.tga", $"{bangT}_128_128_8.tga", $"{bangT}_64x64_8.tga", $"{bangT}_32x32_8.tga", $"{bangT}_16x16_8.tga", $"{bangT}_8x8_8.tga", $"{bangT}_4x4_8.tga", $"{bangT}_2x2_8.tga", $"{bangT}_1x1_8.tga",
+                        $"{cleanT}_512x512_8.tga", $"{cleanT}_256x256_8.tga", $"{cleanT}_256_256_8.tga", $"{cleanT}_128x128_8.tga", $"{cleanT}_128_128_8.tga", $"{cleanT}_64x64_8.tga", $"{cleanT}_32x32_8.tga", $"{cleanT}_16x16_8.tga", $"{cleanT}_8x8_8.tga", $"{cleanT}_4x4_8.tga", $"{cleanT}_2x2_8.tga", $"{cleanT}_1x1_8.tga"
                     };
 
+                    bool foundFallback = false;
                     foreach (string cand in candidateNames)
                     {
                         byte[]? candBytes = _vfs.LoadFileContext(cand, "POWERUPS") ?? _vfs.LoadFile(cand);
@@ -1599,8 +1521,14 @@ namespace TDR.Tools.Export
                                     mtl.WriteLine($"map_Bump -bm 1.0 {bumpName}");
                                 }
                             }
+                            foundFallback = true;
                             break;
                         }
+                    }
+
+                    if (!foundFallback)
+                    {
+                        Log($"[MTL WARNING] Texture for material '{t}' not found in VFS context.");
                     }
                 }
             }
@@ -1610,22 +1538,11 @@ namespace TDR.Tools.Export
         {
             if (_convertTexturesToPng && originalFileName.EndsWith(".tga", StringComparison.OrdinalIgnoreCase))
             {
-                try
+                string pngName = Path.ChangeExtension(originalFileName, ".png");
+                string pngPath = Path.Combine(targetDir, pngName);
+                if (TgaDecoder.SaveTgaAsPng(rawData, pngPath))
                 {
-                    var bitmap = TgaDecoder.DecodeTga(rawData);
-                    if (bitmap != null)
-                    {
-                        string pngName = Path.ChangeExtension(originalFileName, ".png");
-                        string pngPath = Path.Combine(targetDir, pngName);
-#pragma warning disable CS0618
-                        bitmap.Save(pngPath);
-#pragma warning restore CS0618
-                        return pngName;
-                    }
-                }
-                catch
-                {
-                    // Fallback to raw TGA write on decode error
+                    return pngName;
                 }
             }
 

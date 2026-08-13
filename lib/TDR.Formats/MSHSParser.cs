@@ -52,7 +52,8 @@ namespace TDR.PakLib.Formats
             var container = new MSHSContainer();
             bool isSingleMesh = fileName.EndsWith(".msh", StringComparison.OrdinalIgnoreCase);
 
-            using var br = new BinaryReader(new MemoryStream(data));
+            using var ms = new MemoryStream(data);
+            using var br = new BinaryReader(ms);
             while (br.BaseStream.Position + 4 <= br.BaseStream.Length)
             {
                 var mesh = new TDRMeshData
@@ -67,6 +68,7 @@ namespace TDR.PakLib.Formats
                 }
 
                 mesh.VertexCount = br.ReadInt32();
+                if (mesh.VertexCount < 0 || mesh.VertexCount > 1_000_000) break;
 
                 if (mesh.Mode != MeshMode.Tri)
                 {
@@ -80,6 +82,7 @@ namespace TDR.PakLib.Formats
                         for (int i = 0; i < mesh.FaceCount; i++)
                         {
                             int vertCount = br.ReadInt32();
+                            if (vertCount < 0 || vertCount > 10_000) break;
                             var face = new MeshFace
                             {
                                 Normal = new Vector3(br.ReadSingle(), br.ReadSingle(), br.ReadSingle())
@@ -129,11 +132,15 @@ namespace TDR.PakLib.Formats
                             v2.Normal = new Vector3(br.ReadSingle(), br.ReadSingle(), br.ReadSingle());
                             v3.Normal = new Vector3(br.ReadSingle(), br.ReadSingle(), br.ReadSingle());
 
-                            face.Vertices.Add(v1);
-                            face.Vertices.Add(v2);
-                            face.Vertices.Add(v3);
-
-                            mesh.Faces.Add(face);
+                            if (v1.PositionIndex >= 0 && v1.PositionIndex < mesh.Positions.Count &&
+                                v2.PositionIndex >= 0 && v2.PositionIndex < mesh.Positions.Count &&
+                                v3.PositionIndex >= 0 && v3.PositionIndex < mesh.Positions.Count)
+                            {
+                                face.Vertices.Add(v1);
+                                face.Vertices.Add(v2);
+                                face.Vertices.Add(v3);
+                                mesh.Faces.Add(face);
+                            }
                         }
 
                         if (isSingleMesh)
@@ -172,19 +179,24 @@ namespace TDR.PakLib.Formats
 
                         foreach (var face in mesh.Faces)
                         {
-                            Vector3 v0 = mesh.Vertices[face.V1].Position;
-                            Vector3 v1 = mesh.Vertices[face.V2].Position;
-                            Vector3 v2 = mesh.Vertices[face.V3].Position;
+                            if (face.V1 >= 0 && face.V1 < mesh.Vertices.Count &&
+                                face.V2 >= 0 && face.V2 < mesh.Vertices.Count &&
+                                face.V3 >= 0 && face.V3 < mesh.Vertices.Count)
+                            {
+                                Vector3 v0 = mesh.Vertices[face.V1].Position;
+                                Vector3 v1 = mesh.Vertices[face.V2].Position;
+                                Vector3 v2 = mesh.Vertices[face.V3].Position;
 
-                            Vector3 u = v0 - v1;
-                            Vector3 v = v0 - v2;
-                            Vector3 norm = Vector3.Cross(u, v);
-                            if (norm.LengthSquared() > 0) norm = Vector3.Normalize(norm);
-                            face.Normal = norm;
+                                Vector3 u = v0 - v1;
+                                Vector3 v = v0 - v2;
+                                Vector3 norm = Vector3.Cross(u, v);
+                                if (norm.LengthSquared() > 0) norm = Vector3.Normalize(norm);
+                                face.Normal = norm;
 
-                            mesh.Vertices[face.V1].Normal += norm;
-                            mesh.Vertices[face.V2].Normal += norm;
-                            mesh.Vertices[face.V3].Normal += norm;
+                                mesh.Vertices[face.V1].Normal += norm;
+                                mesh.Vertices[face.V2].Normal += norm;
+                                mesh.Vertices[face.V3].Normal += norm;
+                            }
                         }
 
                         foreach (var vert in mesh.Vertices)

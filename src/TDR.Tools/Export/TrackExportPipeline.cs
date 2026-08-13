@@ -45,6 +45,7 @@ namespace TDR.Tools.Export
                     });
 
                 if (vfsMatch != null) return vfsMatch.Name;
+                return null;
             }
 
             string targetPattern = $"tracks/{tName}/{tName}.txt";

@@ -62,7 +62,7 @@ namespace TDR.PakLib.Formats
                 foreach (string line in text.Split('\n'))
                 {
                     string trimmed = line.Trim().TrimStart('\uFEFF');
-                    if (trimmed.StartsWith("//") || string.IsNullOrWhiteSpace(trimmed)) continue;
+                    if (string.IsNullOrWhiteSpace(trimmed) || trimmed.StartsWith("//")) continue;
 
                     string[] parts = trimmed.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
                     if (parts.Length == 0) continue;
@@ -203,6 +203,25 @@ namespace TDR.PakLib.Formats
 
             string lowerBase = cleanBase.ToLowerInvariant();
 
+            static bool IsMetadataFile(string name)
+            {
+                string l = name.ToLowerInvariant();
+                return l.Contains("script") ||
+                       l.Contains("collision") ||
+                       l.Contains("moveable") ||
+                       l.Contains("strings") ||
+                       l.Contains("raceinfo") ||
+                       l.Contains("sfxlist") ||
+                       l.Contains("palette") ||
+                       l.Contains("follower") ||
+                       l.Contains("volume") ||
+                       l.Contains("placement") ||
+                       l.Contains("path") ||
+                       l.Contains("occluder") ||
+                       l.Contains("background") ||
+                       l.Contains("dingable");
+            }
+
             // 1. Discover variants from official races.txt if present
             var allTracks = DiscoverTracks(vfs, rootPath);
             var targetTrack = allTracks.FirstOrDefault(t => t.Name.Equals(lowerBase, StringComparison.OrdinalIgnoreCase));
@@ -210,12 +229,23 @@ namespace TDR.PakLib.Formats
             {
                 foreach (var variantFolder in targetTrack.VariantFolders)
                 {
-                    if (!rawVariants.Contains(variantFolder, StringComparer.OrdinalIgnoreCase))
+                    string vName = variantFolder;
+                    if (vName.StartsWith(cleanBase + "_", StringComparison.OrdinalIgnoreCase))
+                        vName = vName[(cleanBase.Length + 1)..];
+                    else if (vName.StartsWith(cleanBase, StringComparison.OrdinalIgnoreCase))
+                        vName = vName[cleanBase.Length..];
+
+                    if (!string.IsNullOrWhiteSpace(vName) &&
+                        !rawVariants.Contains(vName, StringComparer.OrdinalIgnoreCase) &&
+                        !IsMetadataFile(variantFolder) &&
+                        !IsMetadataFile(vName))
                     {
-                        rawVariants.Add(variantFolder);
+                        rawVariants.Add(vName);
                     }
                 }
             }
+
+
 
             // 2. Discover variants from VFS indexed files matching baseTrackName prefix
             foreach (var file in vfs.GetFiles())
@@ -229,8 +259,7 @@ namespace TDR.PakLib.Formats
                         file.Name.EndsWith(".pup", StringComparison.OrdinalIgnoreCase) ||
                         file.Name.EndsWith(".pak", StringComparison.OrdinalIgnoreCase))
                     {
-                        if (!rawVariants.Contains(fileNameNoExt, StringComparer.OrdinalIgnoreCase) &&
-                            !lowerFile.Contains("descriptor") && !lowerFile.Contains("script") && !lowerFile.Contains("collision") && !lowerFile.Contains("moveable"))
+                        if (!rawVariants.Contains(fileNameNoExt, StringComparer.OrdinalIgnoreCase) && !IsMetadataFile(lowerFile))
                         {
                             rawVariants.Add(fileNameNoExt);
                         }
@@ -249,8 +278,7 @@ namespace TDR.PakLib.Formats
                     {
                         string fnNoExt = Path.GetFileNameWithoutExtension(diskFile);
                         string lowerFn = fnNoExt.ToLowerInvariant();
-                        if (!rawVariants.Contains(fnNoExt, StringComparer.OrdinalIgnoreCase) &&
-                            !lowerFn.Contains("descriptor") && !lowerFn.Contains("script") && !lowerFn.Contains("collision") && !lowerFn.Contains("moveable"))
+                        if (!rawVariants.Contains(fnNoExt, StringComparer.OrdinalIgnoreCase) && !IsMetadataFile(lowerFn))
                         {
                             rawVariants.Add(fnNoExt);
                         }
