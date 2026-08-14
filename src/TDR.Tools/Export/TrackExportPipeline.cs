@@ -63,16 +63,17 @@ namespace TDR.Tools.Export
 
         public static bool ExportTrack(PakManager vfs, string trackName, string? variantSuffix, string outputDir, TrackExportOptions options, Action<string>? log = null, Action<int, string>? progressCallback = null)
         {
+            log ??= msg => Services.LogService.Instance.Info(msg);
             if (string.IsNullOrWhiteSpace(trackName)) return false;
 
             // Fallback: If no format option selected, default to ExportObj = true
             if (!options.ExportObj && !options.ExportGltf && !options.ExportSceneJson && !options.DumpAll)
             {
-                log?.Invoke("[!] No format selected. Defaulting to ExportObj = true.");
+                log("[!] No format selected. Defaulting to ExportObj = true.");
                 options = options with { ExportObj = true };
             }
 
-            log?.Invoke($"[+] Starting Track Export Pipeline for '{trackName}' (Variant: {variantSuffix ?? "Base"}) → '{outputDir}'");
+            log($"[+] Starting Track Export Pipeline for '{trackName}' (Variant: {variantSuffix ?? "Base"}) → '{outputDir}'");
             Directory.CreateDirectory(outputDir);
 
             string cleanName = TrackDiscovery.GetBaseTrackName(trackName);

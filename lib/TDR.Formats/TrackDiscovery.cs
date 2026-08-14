@@ -6,14 +6,10 @@ using System.Text.RegularExpressions;
 
 namespace TDR.PakLib.Formats
 {
-    public sealed class TrackInfo
-    {
-        public string Name { get; set; } = string.Empty;
-        public string TrackTxtPath { get; set; } = string.Empty;
-        public string Description { get; set; } = string.Empty;
-        public List<string> VariantFolders { get; } = new();
-    }
-
+    /// <summary>
+    /// Pure string and content verification utilities for TDR2000 track files and descriptors.
+    /// Completely decoupled from VFS / PakManager.
+    /// </summary>
     public static class TrackDiscovery
     {
         private static readonly Regex VariantSuffixRegex = new(@"_(Race\d*|Mission\d*|Multiplayer|Race|Mission)$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
@@ -22,6 +18,19 @@ namespace TDR.PakLib.Formats
         {
             if (string.IsNullOrWhiteSpace(folderOrFileName)) return string.Empty;
             return VariantSuffixRegex.Replace(folderOrFileName, string.Empty);
+        }
+
+        public static string GetVariantSuffix(string folderOrFileName)
+        {
+            if (string.IsNullOrWhiteSpace(folderOrFileName)) return string.Empty;
+            var match = VariantSuffixRegex.Match(folderOrFileName);
+            return match.Success ? match.Groups[1].Value : string.Empty;
+        }
+
+        public static bool IsVariantTrack(string folderOrFileName)
+        {
+            if (string.IsNullOrWhiteSpace(folderOrFileName)) return false;
+            return VariantSuffixRegex.IsMatch(folderOrFileName);
         }
 
         /// <summary>
@@ -117,177 +126,6 @@ namespace TDR.PakLib.Formats
             if (racesBytes == null || racesBytes.Length == 0) return new List<string>();
             var racesFile = RacesFile.Parse(racesBytes);
             return racesFile.Races.Select(r => r.Track).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        }
-
-        public static List<TrackInfo> DiscoverTracks(PakManager vfs, string rootPath)
-        {
-            var tracksMap = new Dictionary<string, TrackInfo>(StringComparer.OrdinalIgnoreCase);
-
-            // 0. Parse official races.txt from VFS if available (e.g., CARMA.pak/races.txt)
-            byte[]? racesData = vfs.LoadFile("races.txt");
-            if (racesData != null)
-            {
-                var officialTracks = ParseRacesTxt(racesData);
-                foreach (var track in officialTracks)
-                {
-                    string baseName = GetBaseTrackName(track);
-                    if (!tracksMap.TryGetValue(baseName, out var info))
-                    {
-                        info = new TrackInfo
-                        {
-                            Name = baseName,
-                            TrackTxtPath = $"tracks/{baseName.ToLower()}/{baseName.ToLower()}.txt",
-                            Description = $"Official track ({track})"
-                        };
-                        tracksMap[baseName] = info;
-                    }
-
-                    if (!track.Equals(baseName, StringComparison.OrdinalIgnoreCase) && !info.VariantFolders.Contains(track, StringComparer.OrdinalIgnoreCase))
-                    {
-                        info.VariantFolders.Add(track);
-                    }
-                }
-            }
-
-            // 1. Discover tracks from VFS index
-            foreach (var file in vfs.GetFiles())
-            {
-                string norm = file.Name.Replace('\\', '/').ToLower();
-                if (norm.StartsWith("tracks/") && norm.EndsWith(".txt"))
-                {
-                    string[] parts = norm.Split('/');
-                    if (parts.Length == 3)
-                    {
-                        string folderName = parts[1];
-                        string fileNameNoExt = Path.GetFileNameWithoutExtension(parts[2]);
-                        string baseTrackName = GetBaseTrackName(folderName);
-                        if (string.IsNullOrEmpty(baseTrackName) || baseTrackName.Equals(folderName, StringComparison.OrdinalIgnoreCase))
-                        {
-                            baseTrackName = GetBaseTrackName(fileNameNoExt);
-                        }
-
-                        if (!tracksMap.TryGetValue(baseTrackName, out var info))
-                        {
-                            info = new TrackInfo
-                            {
-                                Name = baseTrackName,
-                                TrackTxtPath = file.Name,
-                                Description = $"Level descriptor ({file.Name})"
-                            };
-                            tracksMap[baseTrackName] = info;
-                        }
-
-                        if (!folderName.Equals(baseTrackName, StringComparison.OrdinalIgnoreCase) && !info.VariantFolders.Contains(folderName, StringComparer.OrdinalIgnoreCase))
-                        {
-                            info.VariantFolders.Add(folderName);
-                        }
-
-                        if (!fileNameNoExt.Equals(baseTrackName, StringComparison.OrdinalIgnoreCase) && !info.VariantFolders.Contains(fileNameNoExt, StringComparer.OrdinalIgnoreCase))
-                        {
-                            info.VariantFolders.Add(fileNameNoExt);
-                        }
-                    }
-                }
-            }
-
-            return tracksMap.Values.OrderBy(t => t.Name, StringComparer.OrdinalIgnoreCase).ToList();
-        }
-
-        public static List<string> DiscoverRawVariants(string baseTrackName, PakManager vfs, string rootPath)
-        {
-            var rawVariants = new List<string>();
-            if (string.IsNullOrWhiteSpace(baseTrackName)) return rawVariants;
-
-            string cleanBase = GetBaseTrackName(baseTrackName);
-            rawVariants.Add(cleanBase);
-
-            string lowerBase = cleanBase.ToLowerInvariant();
-
-            static bool IsMetadataFile(string name)
-            {
-                string l = name.ToLowerInvariant();
-                return l.Contains("script") ||
-                       l.Contains("collision") ||
-                       l.Contains("moveable") ||
-                       l.Contains("strings") ||
-                       l.Contains("raceinfo") ||
-                       l.Contains("sfxlist") ||
-                       l.Contains("palette") ||
-                       l.Contains("follower") ||
-                       l.Contains("volume") ||
-                       l.Contains("placement") ||
-                       l.Contains("path") ||
-                       l.Contains("occluder") ||
-                       l.Contains("background") ||
-                       l.Contains("dingable");
-            }
-
-            // 1. Discover variants from official races.txt if present
-            var allTracks = DiscoverTracks(vfs, rootPath);
-            var targetTrack = allTracks.FirstOrDefault(t => t.Name.Equals(lowerBase, StringComparison.OrdinalIgnoreCase));
-            if (targetTrack != null)
-            {
-                foreach (var variantFolder in targetTrack.VariantFolders)
-                {
-                    string vName = variantFolder;
-                    if (vName.StartsWith(cleanBase + "_", StringComparison.OrdinalIgnoreCase))
-                        vName = vName[(cleanBase.Length + 1)..];
-                    else if (vName.StartsWith(cleanBase, StringComparison.OrdinalIgnoreCase))
-                        vName = vName[cleanBase.Length..];
-
-                    if (!string.IsNullOrWhiteSpace(vName) &&
-                        !rawVariants.Contains(vName, StringComparer.OrdinalIgnoreCase) &&
-                        !IsMetadataFile(variantFolder) &&
-                        !IsMetadataFile(vName))
-                    {
-                        rawVariants.Add(vName);
-                    }
-                }
-            }
-
-
-
-            // 2. Discover variants from VFS indexed files matching baseTrackName prefix
-            foreach (var file in vfs.GetFiles())
-            {
-                string fileNameNoExt = Path.GetFileNameWithoutExtension(file.Name);
-                string lowerFile = fileNameNoExt.ToLowerInvariant();
-
-                if (lowerFile.StartsWith(lowerBase + "_") || lowerFile.StartsWith(lowerBase + " "))
-                {
-                    if (file.Name.EndsWith(".txt", StringComparison.OrdinalIgnoreCase) ||
-                        file.Name.EndsWith(".pup", StringComparison.OrdinalIgnoreCase) ||
-                        file.Name.EndsWith(".pak", StringComparison.OrdinalIgnoreCase))
-                    {
-                        if (!rawVariants.Contains(fileNameNoExt, StringComparer.OrdinalIgnoreCase) && !IsMetadataFile(lowerFile))
-                        {
-                            rawVariants.Add(fileNameNoExt);
-                        }
-                    }
-                }
-            }
-
-            // 3. Discover variants from physical disk files if rootPath is set
-            if (!string.IsNullOrEmpty(rootPath) && Directory.Exists(rootPath))
-            {
-                try
-                {
-                    string searchPattern = $"{cleanBase}_*";
-                    var diskFiles = Directory.GetFiles(rootPath, searchPattern, SearchOption.AllDirectories);
-                    foreach (string diskFile in diskFiles)
-                    {
-                        string fnNoExt = Path.GetFileNameWithoutExtension(diskFile);
-                        string lowerFn = fnNoExt.ToLowerInvariant();
-                        if (!rawVariants.Contains(fnNoExt, StringComparer.OrdinalIgnoreCase) && !IsMetadataFile(lowerFn))
-                        {
-                            rawVariants.Add(fnNoExt);
-                        }
-                    }
-                }
-                catch { }
-            }
-
-            return rawVariants;
         }
     }
 }

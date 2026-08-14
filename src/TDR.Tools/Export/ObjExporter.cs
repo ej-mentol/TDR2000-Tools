@@ -72,7 +72,14 @@ namespace TDR.Tools.Export
 
         private void Log(string message)
         {
-            _logger?.Invoke(message);
+            if (_logger != null)
+            {
+                _logger(message);
+            }
+            else
+            {
+                Services.LogService.Instance.Info(message);
+            }
         }
 
         // Keywords that point directly to a .hie or a .txt sub-descriptor (Stage 1 in EXPORT_FORMAT.md)
@@ -345,11 +352,47 @@ namespace TDR.Tools.Export
                 Log($"[+] Level Descriptor '{levelName}': Discovered {assets.HieFiles.Count} HIE reference(s), {assets.MovableDescriptors.Count} Movable descriptor(s), {assets.PedestrianDescriptors.Count} Pedestrian descriptor(s)");
             }
 
+            // LocalCoords Variant 2: pre-compute the minimum Y across all terrain vertices so that the
+            // map floor lands at Y=0 in Blender instead of an arbitrary first-node world position.
+            // X and Z are left at 0 (no horizontal shift — only vertical normalisation).
+            if (_useLocalCoords)
+            {
+                float minY = float.MaxValue;
+                var terrainHies = new HashSet<string>(assets.HieFiles, StringComparer.OrdinalIgnoreCase);
+                foreach (var inst in assets.HieInstances) terrainHies.Add(inst.HieName);
+
+                foreach (string hieName in terrainHies)
+                {
+                    if (hieName.Contains("sky", StringComparison.OrdinalIgnoreCase)) continue;
+                    byte[]? preBytes = _vfs.LoadFileContext(hieName, _trackContext ?? levelName);
+                    if (preBytes == null || preBytes.Length == 0) continue;
+                    var preHie = TDRHierarchy.Load(preBytes, hieName);
+                    var preTris = GroundSnapUtil.ExtractBaseTriangles(preHie, (path) => _vfs.LoadFileContext(path, _trackContext ?? levelName));
+                    foreach (var tri in preTris)
+                    {
+                        if (tri.A.Y < minY) minY = tri.A.Y;
+                        if (tri.B.Y < minY) minY = tri.B.Y;
+                        if (tri.C.Y < minY) minY = tri.C.Y;
+                    }
+                }
+
+                if (minY < float.MaxValue)
+                {
+                    _localOrigin = new Vector3(0f, minY, 0f);
+                    if (_verbose) Log($"[LocalCoords] Terrain floor Y = {minY:F2} → _localOrigin set to (0, {minY:F2}, 0)");
+                }
+                // if no terrain geometry was found, _localOrigin stays null and ??= captures from first processed node
+            }
+
             string mtlPath = Path.ChangeExtension(outputObjPath, ".mtl");
             string tempObj = outputObjPath + ".tmp";
             var textures = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
 
             int v = 1, vt = 1, vn = 1;
+            var bakedLayers = new List<string>();
+            var bakedMovableCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            int bakedPowerups = 0;
+            int bakedPedestrians = 0;
 
             try
             {
@@ -380,6 +423,7 @@ namespace TDR.Tools.Export
 
                                 AppendHieToWriter(hieBytes, inst.HieName, w, textures, ref v, ref vt, ref vn, sourceArchivePath, inst.Transform);
                                 processedHies.Add(inst.HieName);
+                                bakedLayers.Add(inst.HieName);
                                 if (!result.ResolvedHieFiles.Contains(inst.HieName, StringComparer.OrdinalIgnoreCase))
                                     result.ResolvedHieFiles.Add(inst.HieName);
                             }
@@ -403,6 +447,7 @@ namespace TDR.Tools.Export
 
                             Matrix4x4? initMat = assets.HieInitialTransforms.TryGetValue(hieName, out var im) ? im : null;
                             AppendHieToWriter(hieBytes, hieName, w, textures, ref v, ref vt, ref vn, sourceArchivePath, initMat);
+                            bakedLayers.Add(hieName);
                             result.ResolvedHieFiles.Add(hieName);
                         }
                         else if (_verbose)
@@ -423,22 +468,26 @@ namespace TDR.Tools.Export
                             movDescs.Add(defaultMov);
                         }
 
-                        // Extract base terrain triangles from both direct HIE files and sub-descriptor HIE instances
+                        // Extract base terrain triangles — only when ground snap is enabled to avoid
+                        // redundant HIE loading and triangle extraction on every export where snap is off.
                         var baseTriangles = new List<GroundSnapUtil.Triangle>();
-                        var snapHies = new HashSet<string>(assets.HieFiles, StringComparer.OrdinalIgnoreCase);
-                        foreach (var inst in assets.HieInstances) snapHies.Add(inst.HieName);
-
-                        foreach (string hieName in snapHies)
+                        if (_enableGroundSnap)
                         {
-                            if (hieName.Contains("sky", StringComparison.OrdinalIgnoreCase))
-                                continue;
+                            var snapHies = new HashSet<string>(assets.HieFiles, StringComparer.OrdinalIgnoreCase);
+                            foreach (var inst in assets.HieInstances) snapHies.Add(inst.HieName);
 
-                            byte[]? hieBytes = _vfs.LoadFileContext(hieName, _trackContext ?? levelName);
-                            if (hieBytes != null && hieBytes.Length > 0)
+                            foreach (string hieName in snapHies)
                             {
-                                var hie = TDRHierarchy.Load(hieBytes, hieName);
-                                var tris = GroundSnapUtil.ExtractBaseTriangles(hie, (path) => _vfs.LoadFileContext(path, _trackContext ?? levelName));
-                                if (tris.Count > 0) baseTriangles.AddRange(tris);
+                                if (hieName.Contains("sky", StringComparison.OrdinalIgnoreCase))
+                                    continue;
+
+                                byte[]? hieBytes = _vfs.LoadFileContext(hieName, _trackContext ?? levelName);
+                                if (hieBytes != null && hieBytes.Length > 0)
+                                {
+                                    var hie = TDRHierarchy.Load(hieBytes, hieName);
+                                    var tris = GroundSnapUtil.ExtractBaseTriangles(hie, (path) => _vfs.LoadFileContext(path, _trackContext ?? levelName));
+                                    if (tris.Count > 0) baseTriangles.AddRange(tris);
+                                }
                             }
                         }
 
@@ -461,7 +510,7 @@ namespace TDR.Tools.Export
                             byte[]? movData = _vfs.LoadFileContext(movDesc, _trackContext ?? cleanTrackName);
                             if (movData != null)
                             {
-                                AppendMovablesToWriter(movData, w, textures, ref v, ref vt, ref vn, (path) => _vfs.LoadFileContext(path, _trackContext ?? cleanTrackName), baseTriangles);
+                                AppendMovablesToWriter(movData, w, textures, ref v, ref vt, ref vn, (path) => _vfs.LoadFileContext(path, _trackContext ?? cleanTrackName), baseTriangles, bakedMovableCounts);
                             }
                         }
 
@@ -484,7 +533,7 @@ namespace TDR.Tools.Export
                             if (pupData != null)
                             {
                                 if (_verbose) Log($"[+] Baking Powerup Objects (.pup) '{pName}' into combined scene...");
-                                AppendPowerupsToWriter(pupData, w, textures, ref v, ref vt, ref vn, (path) => _vfs.LoadFileContext(path, _trackContext ?? cleanTrackName));
+                                bakedPowerups += AppendPowerupsToWriter(pupData, w, textures, ref v, ref vt, ref vn, (path) => _vfs.LoadFileContext(path, _trackContext ?? cleanTrackName));
                             }
                         }
 
@@ -502,7 +551,7 @@ namespace TDR.Tools.Export
                             if (pedData != null)
                             {
                                 if (_verbose) Log($"[+] Baking Pedestrian Placement descriptor '{pedDesc}' into combined scene...");
-                                AppendPedestriansToWriter(pedData, w, textures, ref v, ref vt, ref vn, (path) => _vfs.LoadFileContext(path, _trackContext ?? cleanTrackName));
+                                bakedPedestrians += AppendPedestriansToWriter(pedData, w, textures, ref v, ref vt, ref vn, (path) => _vfs.LoadFileContext(path, _trackContext ?? cleanTrackName));
                             }
                         }
                     }
@@ -517,6 +566,28 @@ namespace TDR.Tools.Export
                     string fn = Path.GetFileName(outputObjPath);
                     result.ProducedObjFiles.Add(fn);
                     result.BaseMeshFileName = fn;
+
+                    // Clean, readable export summary (Option B)
+                    Log($"[+] Exported: {fn} ({v - 1:N0} vertices, {textures.Count} textures)");
+                    if (bakedLayers.Count > 0)
+                    {
+                        Log($"    • Layers ({bakedLayers.Count}): {string.Join(", ", bakedLayers)}");
+                    }
+                    if (bakedMovableCounts.Count > 0)
+                    {
+                        int totalMovs = bakedMovableCounts.Values.Sum();
+                        var topProps = bakedMovableCounts.OrderByDescending(kv => kv.Value).Take(6).Select(kv => $"{kv.Key} {kv.Value}x");
+                        string propSummary = string.Join(", ", topProps);
+                        if (bakedMovableCounts.Count > 6) propSummary += $", +{bakedMovableCounts.Count - 6} more";
+                        Log($"    • Props ({totalMovs}): {propSummary}");
+                    }
+                    if (bakedPowerups > 0 || bakedPedestrians > 0)
+                    {
+                        var spawns = new List<string>();
+                        if (bakedPowerups > 0) spawns.Add($"{bakedPowerups} powerups");
+                        if (bakedPedestrians > 0) spawns.Add($"{bakedPedestrians} pedestrians");
+                        Log($"    • Spawns: {string.Join(", ", spawns)}");
+                    }
                 }
                 else
                 {
@@ -701,11 +772,33 @@ namespace TDR.Tools.Export
             }
         }
 
-        private void AppendMovablesToWriter(byte[] movData, StreamWriter w, Dictionary<string, string?> textures, ref int v, ref int vt, ref int vn, Func<string, byte[]?> loader, List<GroundSnapUtil.Triangle>? baseTriangles = null)
+        private void AppendMovablesToWriter(byte[] movData, StreamWriter w, Dictionary<string, string?> textures, ref int v, ref int vt, ref int vn, Func<string, byte[]?> loader, List<GroundSnapUtil.Triangle>? baseTriangles = null, Dictionary<string, int>? modelCountsCollector = null)
         {
             string text = Encoding.ASCII.GetString(movData);
             string[] lines = text.Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
             var instanceCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+            // Derive snap distances from the actual terrain Y range so that objects intentionally
+            // placed above ground (rooftops, balconies, hanging props) are not falsely pulled down.
+            // An object can drop at most the full terrain height span before the snap gives up.
+            float snapMaxDrop = 500f;   // safe fallback if baseTriangles is empty
+            float snapRayStart = 50f;
+            if (_enableGroundSnap && baseTriangles != null && baseTriangles.Count > 0)
+            {
+                float minTY = float.MaxValue, maxTY = float.MinValue;
+                foreach (var tri in baseTriangles)
+                {
+                    if (tri.A.Y < minTY) minTY = tri.A.Y; if (tri.A.Y > maxTY) maxTY = tri.A.Y;
+                    if (tri.B.Y < minTY) minTY = tri.B.Y; if (tri.B.Y > maxTY) maxTY = tri.B.Y;
+                    if (tri.C.Y < minTY) minTY = tri.C.Y; if (tri.C.Y > maxTY) maxTY = tri.C.Y;
+                }
+                float range = maxTY - minTY;
+                if (range > 0f)
+                {
+                    snapMaxDrop  = range;                             // full terrain height = max allowed drop
+                    snapRayStart = Math.Max(50f, range * 0.05f);     // 5% of terrain height above object
+                }
+            }
 
             foreach (string line in lines)
             {
@@ -734,7 +827,7 @@ namespace TDR.Tools.Export
                 if (_enableGroundSnap && baseTriangles != null && baseTriangles.Count > 0)
                 {
                     Vector3 origPos = new Vector3(px, py, pz);
-                    Vector3 snappedPos = GroundSnapUtil.SnapPointToSurface(origPos, baseTriangles, maxDropDistance: 25.0f, rayStartHeight: 10.0f);
+                    Vector3 snappedPos = GroundSnapUtil.SnapPointToSurface(origPos, baseTriangles, maxDropDistance: snapMaxDrop, rayStartHeight: snapRayStart);
                     px = snappedPos.X;
                     py = snappedPos.Y;
                     pz = snappedPos.Z;
@@ -747,6 +840,10 @@ namespace TDR.Tools.Export
                 string modelBaseName = Path.GetFileNameWithoutExtension(hieName);
                 int instIdx = instanceCounts.GetValueOrDefault(modelBaseName, 0) + 1;
                 instanceCounts[modelBaseName] = instIdx;
+                if (modelCountsCollector != null)
+                {
+                    modelCountsCollector[modelBaseName] = modelCountsCollector.GetValueOrDefault(modelBaseName, 0) + 1;
+                }
                 string instanceId = $"{modelBaseName}_{instIdx:D3}";
 
                 if (_useGrouping)
@@ -775,7 +872,7 @@ namespace TDR.Tools.Export
             }
         }
 
-        private void AppendPowerupsToWriter(byte[] pupData, StreamWriter w, Dictionary<string, string?> textures, ref int v, ref int vt, ref int vn, Func<string, byte[]?> loader)
+        private int AppendPowerupsToWriter(byte[] pupData, StreamWriter w, Dictionary<string, string?> textures, ref int v, ref int vt, ref int vn, Func<string, byte[]?> loader)
         {
             string text = Encoding.ASCII.GetString(pupData);
             string[] lines = text.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
@@ -783,6 +880,7 @@ namespace TDR.Tools.Export
             string lastCommentName = "Powerup";
             int lastTypeId = 0;
             int pupIndex = 0;
+            int bakedCount = 0;
 
             for (int i = 0; i < lines.Length; i++)
             {
@@ -832,12 +930,14 @@ namespace TDR.Tools.Export
                                 string defaultTex = "Default";
                                 // _localOrigin is NOT reset per powerup: global origin from ExportLevelToObj.
                                 ProcessNode(hie.Root, worldMatrix, ref defaultTex, hie, textures, w, ref v, ref vt, ref vn, movableArchive);
+                                bakedCount++;
                             }
                         }
                         catch { }
                     }
                 }
             }
+            return bakedCount;
         }
 
         private static string ResolvePowerupIconHie(int typeId, string name)
@@ -1223,7 +1323,7 @@ namespace TDR.Tools.Export
             }
         }
 
-        private void AppendPedestriansToWriter(byte[] pedData, StreamWriter w, Dictionary<string, string?> textures, ref int v, ref int vt, ref int vn, Func<string, byte[]?> loader)
+        private int AppendPedestriansToWriter(byte[] pedData, StreamWriter w, Dictionary<string, string?> textures, ref int v, ref int vt, ref int vn, Func<string, byte[]?> loader)
         {
             string text = Encoding.ASCII.GetString(pedData);
             string[] lines = text.Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
@@ -1267,6 +1367,7 @@ namespace TDR.Tools.Export
                     }
                 }
             }
+            return pedIdx;
         }
 
         private void ProcessNode(

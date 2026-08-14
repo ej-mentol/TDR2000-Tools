@@ -53,8 +53,8 @@ namespace TDR.Tools
             SourceTreeView?.AddHandler(PointerMovedEvent, OnSourcePointerMoved, RoutingStrategies.Tunnel);
 
             DestinationGrid?.AddHandler(PointerPressedEvent, OnDestinationPointerPressed, RoutingStrategies.Tunnel);
-            var destTree = DestinationGrid?.Children.OfType<TreeView>().FirstOrDefault();
-            destTree?.AddHandler(PointerPressedEvent, OnDestinationPointerPressed, RoutingStrategies.Tunnel);
+            DestinationTreeView?.AddHandler(PointerPressedEvent, OnDestinationPointerPressed, RoutingStrategies.Tunnel);
+            DestinationTreeView?.AddHandler(PointerMovedEvent, OnDestinationPointerMoved, RoutingStrategies.Tunnel);
         }
 
         private void OnClosePreviewClick(object? sender, RoutedEventArgs e)
@@ -127,7 +127,8 @@ namespace TDR.Tools
         private bool _isRightClickDrag = false;
         private Avalonia.Point _dragStartPoint;
         private bool _isPointerDown = false;
-        private PointerPressedEventArgs? _lastPressedArgs = null;
+        private PointerPressedEventArgs? _lastSourcePressedArgs = null;
+        private PointerPressedEventArgs? _lastDestinationPressedArgs = null;
         // Guard against OnDestinationDrop firing twice: event bubbles from TreeView → DestinationGrid.
         private bool _isProcessingDrop = false;
 
@@ -137,6 +138,7 @@ namespace TDR.Tools
             // reliably raise GotFocus on a TreeView in Avalonia, which left the "active panel"
             // tracking stuck on whichever side was last left-clicked.
             _lastFocusedPanel = "Source";
+            _lastSourcePressedArgs = e;
 
             Visual? sourceVisual = e.Source as Visual;
             if (e.Source is TextBox || sourceVisual?.GetVisualAncestors().OfType<TextBox>().Any() == true || (sourceVisual != null && IsScrollBarVisual(sourceVisual)))
@@ -148,8 +150,7 @@ namespace TDR.Tools
             var point = e.GetCurrentPoint(SourceTreeView);
             if (point.Properties.IsRightButtonPressed)
             {
-                // On right-click: resolve the node under the pointer via hit-test and select it,
-                // then clear the opposite (destination) panel selection so only one panel is active.
+                // On right-click: resolve the node under the pointer via hit-test and select it.
                 var hitNode = (e.Source as Control)?.DataContext as FileNodeViewModel
                            ?? ((e.Source as Visual)?.GetVisualAncestors()
                                .OfType<TreeViewItem>()
@@ -161,24 +162,24 @@ namespace TDR.Tools
                 _dragStartPoint = point.Position;
                 _isPointerDown = true;
                 _isRightClickDrag = true;
-                _lastPressedArgs = e;
             }
             else if (point.Properties.IsLeftButtonPressed)
             {
                 _dragStartPoint = point.Position;
                 _isPointerDown = true;
                 _isRightClickDrag = false;
-                _lastPressedArgs = e;
             }
         }
 
         private void OnSourceContextMenuOpening(object? sender, System.ComponentModel.CancelEventArgs e)
         {
+            _lastFocusedPanel = "Source";
+
             var targetControl = sender as Control;
             var hitNode = targetControl?.DataContext as FileNodeViewModel
                        ?? (targetControl as Visual)?.GetVisualAncestors().OfType<TreeViewItem>().FirstOrDefault()?.DataContext as FileNodeViewModel
-                       ?? (_lastPressedArgs?.Source as Control)?.DataContext as FileNodeViewModel
-                       ?? ((_lastPressedArgs?.Source as Visual)?.GetVisualAncestors().OfType<TreeViewItem>().FirstOrDefault()?.DataContext as FileNodeViewModel);
+                       ?? (_lastSourcePressedArgs?.Source as Control)?.DataContext as FileNodeViewModel
+                       ?? ((_lastSourcePressedArgs?.Source as Visual)?.GetVisualAncestors().OfType<TreeViewItem>().FirstOrDefault()?.DataContext as FileNodeViewModel);
 
             if (hitNode != null)
             {
@@ -194,11 +195,13 @@ namespace TDR.Tools
 
         private void OnDestinationContextMenuOpening(object? sender, System.ComponentModel.CancelEventArgs e)
         {
+            _lastFocusedPanel = "Destination";
+
             var targetControl = sender as Control;
             var hitNode = targetControl?.DataContext as FileNodeViewModel
                        ?? (targetControl as Visual)?.GetVisualAncestors().OfType<TreeViewItem>().FirstOrDefault()?.DataContext as FileNodeViewModel
-                       ?? (_lastPressedArgs?.Source as Control)?.DataContext as FileNodeViewModel
-                       ?? ((_lastPressedArgs?.Source as Visual)?.GetVisualAncestors().OfType<TreeViewItem>().FirstOrDefault()?.DataContext as FileNodeViewModel);
+                       ?? (_lastDestinationPressedArgs?.Source as Control)?.DataContext as FileNodeViewModel
+                       ?? ((_lastDestinationPressedArgs?.Source as Visual)?.GetVisualAncestors().OfType<TreeViewItem>().FirstOrDefault()?.DataContext as FileNodeViewModel);
 
             if (hitNode != null)
             {
@@ -229,7 +232,7 @@ namespace TDR.Tools
 
         private async void OnSourcePointerMoved(object? sender, PointerEventArgs e)
         {
-            if (!_isPointerDown || _lastPressedArgs == null) return;
+            if (!_isPointerDown || _lastSourcePressedArgs == null) return;
             if (e.Source is TextBox || (e.Source as Visual)?.GetVisualAncestors().OfType<TextBox>().Any() == true)
             {
                 _isPointerDown = false;
@@ -254,7 +257,7 @@ namespace TDR.Tools
                 try
                 {
                     var data = new DataTransfer();
-                    await DragDrop.DoDragDropAsync(_lastPressedArgs, data, DragDropEffects.Copy);
+                    await DragDrop.DoDragDropAsync(_lastSourcePressedArgs, data, DragDropEffects.Copy);
                 }
                 catch (Exception ex)
                 {
@@ -573,12 +576,13 @@ namespace TDR.Tools
         private void OnDestinationPointerPressed(object? sender, PointerPressedEventArgs e)
         {
             _lastFocusedPanel = "Destination";
+            _lastDestinationPressedArgs = e;
 
             Visual? destVisual = e.Source as Visual;
             if (e.Source is TextBox || destVisual?.GetVisualAncestors().OfType<TextBox>().Any() == true || (destVisual != null && IsScrollBarVisual(destVisual))) return;
 
-            var tree = DestinationGrid?.Children.OfType<TreeView>().FirstOrDefault();
-            var point = e.GetCurrentPoint(tree ?? (sender as Visual));
+            var tree = DestinationTreeView ?? (sender as Visual);
+            var point = e.GetCurrentPoint(tree);
 
             if (point.Properties.IsRightButtonPressed)
             {
@@ -593,27 +597,25 @@ namespace TDR.Tools
                 _dragStartPoint = point.Position;
                 _isPointerDown = true;
                 _isRightClickDrag = true;
-                _lastPressedArgs = e;
             }
             else if (point.Properties.IsLeftButtonPressed)
             {
                 _dragStartPoint = point.Position;
                 _isPointerDown = true;
                 _isRightClickDrag = false;
-                _lastPressedArgs = e;
             }
         }
 
         private async void OnDestinationPointerMoved(object? sender, PointerEventArgs e)
         {
-            if (!_isPointerDown || _lastPressedArgs == null) return;
+            if (!_isPointerDown || _lastDestinationPressedArgs == null) return;
             if (e.Source is TextBox || (e.Source as Visual)?.GetVisualAncestors().OfType<TextBox>().Any() == true)
             {
                 _isPointerDown = false;
                 return;
             }
 
-            var tree = DestinationGrid?.Children.OfType<TreeView>().FirstOrDefault();
+            var tree = DestinationTreeView;
             if (tree == null) return;
 
             var point = e.GetCurrentPoint(tree);
@@ -634,7 +636,7 @@ namespace TDR.Tools
                 try
                 {
                     var data = new DataTransfer();
-                    await DragDrop.DoDragDropAsync(_lastPressedArgs, data, DragDropEffects.Copy);
+                    await DragDrop.DoDragDropAsync(_lastDestinationPressedArgs, data, DragDropEffects.Copy);
                 }
                 catch (Exception ex)
                 {
@@ -953,15 +955,24 @@ namespace TDR.Tools
 
                     if (target is Control ctrl && ctrl.DataContext is FileNodeViewModel ctrlNode)
                         return ctrlNode;
+
+                    if (target == DestinationTreeView || (target as Visual)?.GetVisualAncestors().Contains(DestinationGrid) == true)
+                    {
+                        return _vm.SelectedDestinationNode ?? _vm.SelectedDestinationNodes.FirstOrDefault();
+                    }
+                    if (target == SourceTreeView || (target as Visual)?.GetVisualAncestors().Contains(SourceTreeView) == true)
+                    {
+                        return _vm.SelectedSourceNode ?? _vm.SelectedSourceNodes.FirstOrDefault();
+                    }
                 }
             }
 
             if (_lastFocusedPanel == "Destination")
             {
-                return _vm.SelectedDestinationNode ?? _vm.SelectedDestinationNodes.FirstOrDefault() ?? _vm.SelectedSourceNode ?? _vm.SelectedSourceNodes.FirstOrDefault();
+                return _vm.SelectedDestinationNode ?? _vm.SelectedDestinationNodes.FirstOrDefault();
             }
 
-            return _vm.SelectedSourceNode ?? _vm.SelectedSourceNodes.FirstOrDefault() ?? _vm.SelectedDestinationNode ?? _vm.SelectedDestinationNodes.FirstOrDefault();
+            return _vm.SelectedSourceNode ?? _vm.SelectedSourceNodes.FirstOrDefault();
         }
 
         private async void OnCopyFileClick(object? sender, RoutedEventArgs e)
@@ -1138,12 +1149,65 @@ namespace TDR.Tools
 
         private async void OnCopyAllLogLinesClick(object? sender, RoutedEventArgs e)
         {
-            if (_vm.LogLines.Count == 0) return;
-            string text = string.Join(Environment.NewLine, _vm.LogLines);
+            string text = Services.LogService.Instance.GetAllText();
+            if (string.IsNullOrEmpty(text) && _vm.LogLines.Count > 0)
+            {
+                text = string.Join(Environment.NewLine, _vm.LogLines);
+            }
+            if (string.IsNullOrEmpty(text)) return;
             var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
             if (clipboard != null)
             {
                 await clipboard.SetTextAsync(text);
+                _vm.LogSession("[+] Copied all log lines to clipboard.");
+            }
+        }
+
+        private async void OnCopyWarningsLogLinesClick(object? sender, RoutedEventArgs e)
+        {
+            string text = Services.LogService.Instance.GetWarningsText();
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                _vm.LogSession("[INFO] No warnings found in log history.");
+                return;
+            }
+            var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+            if (clipboard != null)
+            {
+                await clipboard.SetTextAsync(text);
+                _vm.LogSession($"[+] Copied {text.Split(Environment.NewLine).Length} warning lines to clipboard.");
+            }
+        }
+
+        private async void OnCopyErrorsLogLinesClick(object? sender, RoutedEventArgs e)
+        {
+            string text = Services.LogService.Instance.GetErrorsText();
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                _vm.LogSession("[INFO] No error lines found in log history.");
+                return;
+            }
+            var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+            if (clipboard != null)
+            {
+                await clipboard.SetTextAsync(text);
+                _vm.LogSession($"[+] Copied {text.Split(Environment.NewLine).Length} error lines to clipboard.");
+            }
+        }
+
+        private async void OnCopySummariesLogLinesClick(object? sender, RoutedEventArgs e)
+        {
+            string text = Services.LogService.Instance.GetSummariesText();
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                _vm.LogSession("[INFO] No export tree summary entries found in log history.");
+                return;
+            }
+            var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+            if (clipboard != null)
+            {
+                await clipboard.SetTextAsync(text);
+                _vm.LogSession("[+] Copied export summaries & trees to clipboard.");
             }
         }
 

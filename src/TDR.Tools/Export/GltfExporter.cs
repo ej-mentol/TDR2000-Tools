@@ -9,6 +9,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using TDR.PakLib;
 using TDR.PakLib.Formats;
+using TDR.Tools.Utilities;
 
 namespace TDR.Tools.Export
 {
@@ -57,7 +58,11 @@ namespace TDR.Tools.Export
             });
         }
 
-        private void Log(string msg) => _logger?.Invoke(msg);
+        private void Log(string msg)
+        {
+            if (_logger != null) _logger(msg);
+            else Services.LogService.Instance.Info(msg);
+        }
 
         public bool ExportLevelToGltf(byte[] levelData, string levelName, string outputGltfPath, bool includeMovables = true, Action<int, string>? progressCallback = null)
         {
@@ -128,6 +133,36 @@ namespace TDR.Tools.Export
                 return matIdx;
             }
 
+            // LocalCoords Variant 2: pre-compute global terrain floor minY
+            Vector3? globalOrigin = null;
+            if (_useLocalCoords)
+            {
+                float minY = float.MaxValue;
+                var terrainHies = new HashSet<string>(assets.HieFiles, StringComparer.OrdinalIgnoreCase);
+                foreach (var inst in assets.HieInstances) terrainHies.Add(inst.HieName);
+
+                foreach (string hieName in terrainHies)
+                {
+                    if (hieName.Contains("sky", StringComparison.OrdinalIgnoreCase)) continue;
+                    byte[]? preBytes = _vfs.LoadFileContext(hieName, _trackContext ?? levelName);
+                    if (preBytes == null || preBytes.Length == 0) continue;
+                    var preHie = TDRHierarchy.Load(preBytes, hieName);
+                    var preTris = GroundSnapUtil.ExtractBaseTriangles(preHie, (path) => _vfs.LoadFileContext(path, _trackContext ?? levelName));
+                    foreach (var tri in preTris)
+                    {
+                        if (tri.A.Y < minY) minY = tri.A.Y;
+                        if (tri.B.Y < minY) minY = tri.B.Y;
+                        if (tri.C.Y < minY) minY = tri.C.Y;
+                    }
+                }
+
+                if (minY < float.MaxValue)
+                {
+                    globalOrigin = new Vector3(0f, minY, 0f);
+                    if (_verbose) Log($"[LocalCoords glTF] Terrain floor Y = {minY:F2} → globalOrigin set to (0, {minY:F2}, 0)");
+                }
+            }
+
             // 1. Bake Static Level HIE Hierarchies
             int totalHies = assets.HieFiles.Count;
             for (int i = 0; i < totalHies; i++)
@@ -147,13 +182,7 @@ namespace TDR.Tools.Export
                 if (hie.Root != null)
                 {
                     Matrix4x4 startMatrix = assets.HieInitialTransforms.TryGetValue(hieName, out var initMat) ? initMat : Matrix4x4.Identity;
-                    Vector3? localOrigin = null;
-                    if (_useLocalCoords && Matrix4x4.Decompose(hie.Root.Transform * startMatrix, out _, out _, out Vector3 rootPos))
-                    {
-                        localOrigin = rootPos;
-                    }
-
-                    int layerNodeIdx = AddHieNodeToGltf(hie.Root, startMatrix, hie, gltf, archivePath, bw, GetOrAddMaterial, meshMap, localOrigin);
+                    int layerNodeIdx = AddHieNodeToGltf(hie.Root, startMatrix, hie, gltf, archivePath, bw, GetOrAddMaterial, meshMap, globalOrigin);
                     rootNode.Children.Add(layerNodeIdx);
                 }
             }
@@ -220,6 +249,11 @@ namespace TDR.Tools.Export
                                 gltfMeshIdx = BuildGltfMeshFromHie(hie, gltf, archivePath, bw, GetOrAddMaterial);
                                 if (gltfMeshIdx >= 0) meshMap[hieName] = gltfMeshIdx;
                             }
+                        }
+
+                        if (_useLocalCoords && globalOrigin.HasValue)
+                        {
+                            py -= globalOrigin.Value.Y;
                         }
 
                         if (gltfMeshIdx >= 0)

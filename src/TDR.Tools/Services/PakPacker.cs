@@ -23,9 +23,10 @@ namespace TDR.Tools.Services
         /// </summary>
         public static bool PackDirectory(string inputDirectoryPath, string outputPakPath, bool compress = true, Action<string>? log = null)
         {
+            log ??= msg => LogService.Instance.Info(msg);
             if (string.IsNullOrWhiteSpace(inputDirectoryPath) || !Directory.Exists(inputDirectoryPath))
             {
-                log?.Invoke($"[!] Error: Input directory '{inputDirectoryPath}' does not exist.");
+                log($"[!] Error: Input directory '{inputDirectoryPath}' does not exist.");
                 return false;
             }
 
@@ -48,6 +49,7 @@ namespace TDR.Tools.Services
         /// </summary>
         public static bool PackFiles(IEnumerable<FileToPack> fileEntries, string outputPakPath, bool compress = true, Action<string>? log = null)
         {
+            log ??= msg => LogService.Instance.Info(msg);
             var fileList = fileEntries.ToList();
             string outputDir = Path.GetDirectoryName(outputPakPath) ?? Directory.GetCurrentDirectory();
             Directory.CreateDirectory(outputDir);

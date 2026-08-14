@@ -5,6 +5,7 @@ using System.Linq;
 using TDR.PakLib;
 using TDR.PakLib.Formats;
 using TDR.Tools.Export;
+using TDR.Tools.Services;
 
 namespace TDR.Tools
 {
@@ -100,7 +101,7 @@ namespace TDR.Tools
                 string baseTrackName = TrackDiscovery.GetBaseTrackName(Path.GetFileNameWithoutExtension(cleanLevelArg));
 
                 // Verify short track name against discovered tracks in VFS
-                var discoveredTracks = TrackDiscovery.DiscoverTracks(VFS, assetsRoot);
+                var discoveredTracks = TrackDiscoveryService.DiscoverTracks(VFS, assetsRoot);
                 var matchedTrack = discoveredTracks.FirstOrDefault(t => t.Name.Equals(baseTrackName, StringComparison.OrdinalIgnoreCase));
 
                 if (matchedTrack == null && discoveredTracks.Count > 0)

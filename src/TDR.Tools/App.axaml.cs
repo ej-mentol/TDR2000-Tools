@@ -42,14 +42,6 @@ public partial class App : Application
     {
         string msg = $"[CRITICAL UI EXCEPTION] {context}: {ex.GetType().Name} - {ex.Message}\n{ex.StackTrace}";
         System.Diagnostics.Debug.WriteLine(msg);
-
-        Dispatcher.UIThread.Post(() =>
-        {
-            if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop &&
-                desktop.MainWindow?.DataContext is ViewModels.MainViewModel vm)
-            {
-                vm.LogSession(msg);
-            }
-        });
+        Services.LogService.Instance.Error(msg);
     }
 }

@@ -329,6 +329,23 @@ namespace TDR.Tools.ViewModels
         public MainViewModel()
         {
             Preview = new PreviewViewModel(ReadAllBytesForNode, LogSession);
+
+            LogService.Instance.OnLogAdded += (entry) =>
+            {
+                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                {
+                    LogLines.Add(entry.FormattedText);
+                    if (LogLines.Count > 2500)
+                    {
+                        LogLines.RemoveAt(0);
+                    }
+                });
+            };
+
+            LogService.Instance.OnLogCleared += () =>
+            {
+                Avalonia.Threading.Dispatcher.UIThread.Post(() => LogLines.Clear());
+            };
         }
 
         public void InitializeStartup()
@@ -378,8 +395,19 @@ namespace TDR.Tools.ViewModels
 
         public void LogSession(string message)
         {
-            string timeStamp = DateTime.Now.ToString("HH:mm:ss");
-            LogLines.Add($"[{timeStamp}] {message}");
+            if (string.IsNullOrWhiteSpace(message)) return;
+
+            LogLevel level = LogLevel.Info;
+            if (message.Contains("[!]") || message.Contains("[WARN]", StringComparison.OrdinalIgnoreCase))
+                level = LogLevel.Warning;
+            else if (message.Contains("[ERROR]", StringComparison.OrdinalIgnoreCase) || message.Contains("[FAIL]", StringComparison.OrdinalIgnoreCase))
+                level = LogLevel.Error;
+            else if (message.Contains("EXPORT SUMMARY", StringComparison.OrdinalIgnoreCase) || message.Contains("Export tree ::", StringComparison.OrdinalIgnoreCase) || message.StartsWith("[+] ───"))
+                level = LogLevel.Summary;
+            else if (message.Contains("[DEBUG]", StringComparison.OrdinalIgnoreCase))
+                level = LogLevel.Debug;
+
+            LogService.Instance.Log(level, message);
         }
 
         public async Task RunWithWatchdogAsync(string opName, Func<Task> action, Action setProgressState, Action clearProgressState, int timeoutMs = 10000)
@@ -2029,6 +2057,15 @@ namespace TDR.Tools.ViewModels
                                 .Select(n => n.VirtualPath)
                                 .ToList();
                             if (targetVariants.Count == 0) targetVariants.Add(vm.TrackName);
+
+                            // Soft warning: no HIE files checked in the tree. IsHieSelected will allow
+                            // everything (empty list = no filter), so keyword-referenced external assets
+                            // like SKY_SPHERE may still export via descriptor parsing.
+                            if (options.SelectedHieFiles != null && options.SelectedHieFiles.Count == 0)
+                            {
+                                LogSession("[!] Custom Selection: no HIE resources selected in tree — " +
+                                           "only keyword-referenced assets (e.g. SKY_SPHERE) from the descriptor will be exported.");
+                            }
                         }
                         else
                         {

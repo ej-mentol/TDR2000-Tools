@@ -296,7 +296,7 @@
                     </Border>
 
                     <Grid x:Name="DestinationGrid" Grid.Row="1" DragDrop.AllowDrop="True" DragDrop.DragOver="OnDestinationDragOver" DragDrop.Drop="OnDestinationDrop">
-                        <TreeView ItemsSource="{Binding DestinationNodes}" SelectedItem="{Binding SelectedDestinationNode}" SelectedItems="{Binding SelectedDestinationNodes}" IsEnabled="{Binding !IsDestinationLoading}" DoubleTapped="OnDestinationTreeDoubleTapped" DragDrop.AllowDrop="True" DragDrop.DragOver="OnDestinationDragOver" DragDrop.Drop="OnDestinationDrop" SelectionMode="Multiple" GotFocus="OnDestinationTreeGotFocus" PointerPressed="OnDestinationPointerPressed" PointerMoved="OnDestinationPointerMoved" Margin="8">
+                        <TreeView x:Name="DestinationTreeView" ItemsSource="{Binding DestinationNodes}" SelectedItem="{Binding SelectedDestinationNode}" SelectedItems="{Binding SelectedDestinationNodes}" IsEnabled="{Binding !IsDestinationLoading}" DoubleTapped="OnDestinationTreeDoubleTapped" DragDrop.AllowDrop="True" DragDrop.DragOver="OnDestinationDragOver" DragDrop.Drop="OnDestinationDrop" SelectionMode="Multiple" GotFocus="OnDestinationTreeGotFocus" PointerPressed="OnDestinationPointerPressed" PointerMoved="OnDestinationPointerMoved" Margin="8">
                             <TreeView.Styles>
                                 <Style Selector="TreeViewItem" x:DataType="vm:FileNodeViewModel">
                                     <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}"/>
@@ -485,7 +485,11 @@
                             <MenuItem Header="Copy Selected Lines" InputGesture="Ctrl+C" Click="OnCopySelectedLogLinesClick"/>
                             <MenuItem Header="Copy All Log Lines" Click="OnCopyAllLogLinesClick"/>
                             <Separator/>
-                            <MenuItem Header="Clear Session Log" Click="OnClearLogClick"/>
+                            <MenuItem Header="⚠️ Copy Warnings Only" Click="OnCopyWarningsLogLinesClick"/>
+                            <MenuItem Header="❌ Copy Errors Only" Click="OnCopyErrorsLogLinesClick"/>
+                            <MenuItem Header="📊 Copy Export Trees &amp; Summaries" Click="OnCopySummariesLogLinesClick"/>
+                            <Separator/>
+                            <MenuItem Header="🧹 Clear Session Log" Click="OnClearLogClick"/>
                         </ContextMenu>
                     </ListBox.ContextMenu>
                     <ListBox.ItemTemplate>
