@@ -70,8 +70,6 @@
                         <CheckBox x:Name="UseGroupingCheckBox" Content="Group Mesh Instances (g &lt;HieName&gt;)" Foreground="{DynamicResource TextPrimaryBrush}"/>
                         <CheckBox x:Name="UseLocalCoordsCheckBox" Content="Use Local Coordinates" Foreground="{DynamicResource TextPrimaryBrush}"/>
                         <CheckBox x:Name="EnableGroundSnapCheckBox" Content="Raycast Ground Snap Props to Surface" Foreground="{DynamicResource TextPrimaryBrush}"/>
-                        <CheckBox x:Name="DumpAllCheckBox" Content="Dump All Raw Hierarchy Assets (.HIE)" Foreground="{DynamicResource TextPrimaryBrush}"
-                                  ToolTip.Tip="Advanced/Debug: Dumps all raw .HIE files into individual uncombined .OBJ models without building the world map. Use for extracting standalone 3D props or reversing assets."/>
                         <CheckBox x:Name="VerboseLogCheckBox" Content="Enable verbose diagnostic logging" Foreground="{DynamicResource TextPrimaryBrush}"/>
                         <CheckBox x:Name="DebugModeCheckBox" Content="Debug mode — timing metrics in session log" Foreground="{DynamicResource TextPrimaryBrush}"
                                   ToolTip.Tip="Writes timing information (VFS index, tree build, track discovery) to the session log. Use to identify slow operations."/>

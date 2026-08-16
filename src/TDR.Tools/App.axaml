@@ -36,5 +36,31 @@
 
     <Application.Styles>
         <FluentTheme />
+
+        <!-- Ultra-responsive, snappy ScrollBar hover & expansion transitions -->
+        <Style Selector="ScrollBar">
+            <Setter Property="Transitions">
+                <Transitions>
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.06" />
+                </Transitions>
+            </Setter>
+        </Style>
+        <Style Selector="ScrollBar /template/ Thumb">
+            <Setter Property="Transitions">
+                <Transitions>
+                    <BrushTransition Property="Background" Duration="0:0:0.05" />
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.05" />
+                    <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.05" />
+                </Transitions>
+            </Setter>
+        </Style>
+        <Style Selector="ScrollBar /template/ RepeatButton">
+            <Setter Property="Transitions">
+                <Transitions>
+                    <BrushTransition Property="Background" Duration="0:0:0.05" />
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.05" />
+                </Transitions>
+            </Setter>
+        </Style>
     </Application.Styles>
 </Application>

@@ -89,6 +89,7 @@ namespace TDR.PakLib.Formats
 
     public sealed class TDRHierarchy
     {
+        public string Name { get; set; } = string.Empty;
         public int Version { get; set; }
         public float AnimationFps { get; set; } = 60.0f;
         public List<string> Textures { get; } = new();
@@ -100,7 +101,7 @@ namespace TDR.PakLib.Formats
 
         public static TDRHierarchy Load(byte[] data, string name)
         {
-            var hie = new TDRHierarchy();
+            var hie = new TDRHierarchy { Name = name };
             if (data == null || data.Length == 0) return hie;
 
             string[] lines;

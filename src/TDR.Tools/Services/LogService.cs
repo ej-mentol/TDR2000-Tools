@@ -42,23 +42,36 @@ namespace TDR.Tools.Services
         public static LogService Instance => _instance.Value;
 
         private readonly object _lock = new();
-        private readonly List<LogEntry> _entries = new();
+        private readonly Queue<LogEntry> _entries = new();
         private const int MaxHistoryCount = 2500;
+
+        private bool _isDebugEnabled;
+        public bool IsDebugEnabled
+        {
+            get => _isDebugEnabled || AppSettings.Load().DebugMode;
+            set => _isDebugEnabled = value;
+        }
+
+        public bool IsEnabled(LogLevel level)
+        {
+            if (level == LogLevel.Debug && !IsDebugEnabled) return false;
+            return true;
+        }
 
         public event Action<LogEntry>? OnLogAdded;
         public event Action? OnLogCleared;
 
         public void Log(LogLevel level, string message)
         {
-            if (string.IsNullOrWhiteSpace(message)) return;
+            if (!IsEnabled(level) || string.IsNullOrWhiteSpace(message)) return;
 
             var entry = new LogEntry(level, message);
             lock (_lock)
             {
-                _entries.Add(entry);
+                _entries.Enqueue(entry);
                 if (_entries.Count > MaxHistoryCount)
                 {
-                    _entries.RemoveAt(0);
+                    _entries.Dequeue();
                 }
             }
 

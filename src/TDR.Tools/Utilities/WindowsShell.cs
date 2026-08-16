@@ -38,19 +38,27 @@ namespace TDR.Tools.Utilities
             if (!OperatingSystem.IsWindows()) return;
             if (string.IsNullOrEmpty(path)) return;
 
-            var info = new SHELLEXECUTEINFO
+            try
             {
-                cbSize = Marshal.SizeOf<SHELLEXECUTEINFO>(),
-                hwnd = owner,
-                lpVerb = "properties",
-                lpFile = path,
-                nShow = SW_SHOW,
-                fMask = SEE_MASK_INVOKEIDLIST
-            };
+                var info = new SHELLEXECUTEINFO
+                {
+                    cbSize = Marshal.SizeOf<SHELLEXECUTEINFO>(),
+                    hwnd = owner,
+                    lpVerb = "properties",
+                    lpFile = path,
+                    nShow = SW_SHOW,
+                    fMask = SEE_MASK_INVOKEIDLIST
+                };
 
-            if (!ShellExecuteEx(ref info))
+                if (!ShellExecuteEx(ref info))
+                {
+                    int err = Marshal.GetLastWin32Error();
+                    Services.LogService.Instance.Warn($"[Shell] ShowProperties failed for '{path}' (Win32 Error: {err})");
+                }
+            }
+            catch (Exception ex)
             {
-                throw new Win32Exception(Marshal.GetLastWin32Error());
+                Services.LogService.Instance.Error($"[Shell] ShowProperties exception for '{path}': {ex.Message}");
             }
         }
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
@@ -82,8 +90,15 @@ namespace TDR.Tools.Utilities
 
             if (!OperatingSystem.IsWindows())
             {
-                if (System.IO.File.Exists(path)) System.IO.File.Delete(path);
-                else if (System.IO.Directory.Exists(path)) System.IO.Directory.Delete(path, true);
+                if (permanent)
+                {
+                    if (System.IO.File.Exists(path)) System.IO.File.Delete(path);
+                    else if (System.IO.Directory.Exists(path)) System.IO.Directory.Delete(path, true);
+                }
+                else
+                {
+                    Services.LogService.Instance.Warn($"[Shell] Recycle bin is only supported on Windows. Soft deletion skipped for '{path}'.");
+                }
                 return;
             }
 
@@ -112,16 +127,32 @@ namespace TDR.Tools.Utilities
                 };
 
                 int result = SHFileOperation(ref shf);
-                if (result != 0)
+                if (result != 0 && !shf.fAnyOperationsAborted)
+                {
+                    if (permanent)
+                    {
+                        // Explicit permanent deletion requested: fallback to direct deletion
+                        if (System.IO.File.Exists(path)) System.IO.File.Delete(path);
+                        else if (System.IO.Directory.Exists(path)) System.IO.Directory.Delete(path, true);
+                    }
+                    else
+                    {
+                        // Soft deletion failed: do NOT permanently delete without user consent!
+                        Services.LogService.Instance.Warn($"[Shell] Failed to move '{path}' to Recycle Bin (Win32 Error: {result}). Permanent deletion aborted to prevent data loss.");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                if (permanent)
                 {
                     if (System.IO.File.Exists(path)) System.IO.File.Delete(path);
                     else if (System.IO.Directory.Exists(path)) System.IO.Directory.Delete(path, true);
                 }
-            }
-            catch
-            {
-                if (System.IO.File.Exists(path)) System.IO.File.Delete(path);
-                else if (System.IO.Directory.Exists(path)) System.IO.Directory.Delete(path, true);
+                else
+                {
+                    Services.LogService.Instance.Error($"[Shell] Exception moving '{path}' to Recycle Bin: {ex.Message}. Permanent deletion aborted.");
+                }
             }
         }
     }

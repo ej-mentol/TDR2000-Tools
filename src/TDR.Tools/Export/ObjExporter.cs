@@ -28,10 +28,28 @@ namespace TDR.Tools.Export
         private readonly Action<string>? _logger;
         private readonly HashSet<string>? _selectedHieFiles;
         private readonly Dictionary<string, MSHSContainer> _meshCache = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, TDRHierarchy> _hieCache = new(StringComparer.OrdinalIgnoreCase);
         // Captured once per export (from the first mesh node encountered) when UseLocalCoords is on.
         // All subsequent mesh translations are offset by this value instead of being zeroed outright,
         // so meshes keep their position relative to each other — only the whole level shifts near origin.
         private Vector3? _localOrigin;
+
+        private TDRHierarchy? GetOrLoadHierarchy(string hieName, Func<string, byte[]?> loader)
+        {
+            if (_hieCache.TryGetValue(hieName, out var cached)) return cached;
+            byte[]? hieData = loader(hieName);
+            if (hieData == null || hieData.Length == 0) return null;
+            try
+            {
+                var hie = TDRHierarchy.Load(hieData, hieName);
+                _hieCache[hieName] = hie;
+                return hie;
+            }
+            catch
+            {
+                return null;
+            }
+        }
 
         public ObjExporter(PakManager vfs, string exportDir, bool noMaterials, bool useLocalCoords, bool verbose = false, bool useGrouping = true, bool includeMovableProps = true, string? trackContext = null, Action<string>? logger = null, bool enableGroundSnap = false, IEnumerable<string>? selectedHieFiles = null, bool convertTexturesToPng = true)
         {
@@ -70,15 +88,19 @@ namespace TDR.Tools.Export
             });
         }
 
-        private void Log(string message)
+        private bool IsVerboseEnabled => _verbose || Services.LogService.Instance.IsEnabled(Services.LogLevel.Debug);
+
+        private void Log(string message, Services.LogLevel level = Services.LogLevel.Info)
         {
+            if (level == Services.LogLevel.Debug && !IsVerboseEnabled) return;
+
             if (_logger != null)
             {
                 _logger(message);
             }
             else
             {
-                Services.LogService.Instance.Info(message);
+                Services.LogService.Instance.Log(level, message);
             }
         }
 
@@ -97,7 +119,7 @@ namespace TDR.Tools.Export
         {
             "STATIC_MESH_DESCRIPTOR", "BREAKABLES_DESCRIPTOR", "ANIMATED_PROPS",
             "CONSOFT_DESCRIPTOR", "LEVEL_CONSOFT", "ARTICULATED_BRIDGES", "LIGHTS_DESCRIPTOR",
-            "DRONE_DESCRIPTOR", "SPECIAL_VOLUMES", "SPECIAL_VOLUMES_0"
+            "SPECIAL_VOLUMES", "SPECIAL_VOLUMES_0"
         };
 
         public sealed class HieInstanceInfo
@@ -112,6 +134,7 @@ namespace TDR.Tools.Export
             public List<HieInstanceInfo> HieInstances { get; } = new();
             public List<string> MovableDescriptors { get; } = new();
             public List<string> PedestrianDescriptors { get; } = new();
+            public List<string> DroneDescriptors { get; } = new();
             public Dictionary<string, Matrix4x4> HieInitialTransforms { get; } = new(StringComparer.OrdinalIgnoreCase);
         }
 
@@ -256,6 +279,13 @@ namespace TDR.Tools.Export
                     continue;
                 }
 
+                if (firstToken.Equals("DRONE_DESCRIPTOR", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!string.IsNullOrWhiteSpace(secondToken) && !result.DroneDescriptors.Contains(secondToken, StringComparer.OrdinalIgnoreCase))
+                        result.DroneDescriptors.Add(secondToken);
+                    continue;
+                }
+
                 // Stage 1: Direct .hie or .txt (for BASE_CONSOFT, LEVEL_MESH, STATIC_MESH, etc.)
                 if (!string.IsNullOrWhiteSpace(secondToken) && DirectHieKeywords.Contains(firstToken, StringComparer.OrdinalIgnoreCase))
                 {
@@ -364,9 +394,8 @@ namespace TDR.Tools.Export
                 foreach (string hieName in terrainHies)
                 {
                     if (hieName.Contains("sky", StringComparison.OrdinalIgnoreCase)) continue;
-                    byte[]? preBytes = _vfs.LoadFileContext(hieName, _trackContext ?? levelName);
-                    if (preBytes == null || preBytes.Length == 0) continue;
-                    var preHie = TDRHierarchy.Load(preBytes, hieName);
+                    var preHie = GetOrLoadHierarchy(hieName, name => _vfs.LoadFileContext(name, _trackContext ?? levelName));
+                    if (preHie == null) continue;
                     var preTris = GroundSnapUtil.ExtractBaseTriangles(preHie, (path) => _vfs.LoadFileContext(path, _trackContext ?? levelName));
                     foreach (var tri in preTris)
                     {
@@ -391,8 +420,8 @@ namespace TDR.Tools.Export
             int v = 1, vt = 1, vn = 1;
             var bakedLayers = new List<string>();
             var bakedMovableCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            var bakedDroneCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             int bakedPowerups = 0;
-            int bakedPedestrians = 0;
 
             try
             {
@@ -481,10 +510,9 @@ namespace TDR.Tools.Export
                                 if (hieName.Contains("sky", StringComparison.OrdinalIgnoreCase))
                                     continue;
 
-                                byte[]? hieBytes = _vfs.LoadFileContext(hieName, _trackContext ?? levelName);
-                                if (hieBytes != null && hieBytes.Length > 0)
+                                var hie = GetOrLoadHierarchy(hieName, name => _vfs.LoadFileContext(name, _trackContext ?? levelName));
+                                if (hie != null)
                                 {
-                                    var hie = TDRHierarchy.Load(hieBytes, hieName);
                                     var tris = GroundSnapUtil.ExtractBaseTriangles(hie, (path) => _vfs.LoadFileContext(path, _trackContext ?? levelName));
                                     if (tris.Count > 0) baseTriangles.AddRange(tris);
                                 }
@@ -537,22 +565,18 @@ namespace TDR.Tools.Export
                             }
                         }
 
-                        // 4. Bake Pedestrian Placement Descriptors into the combined scene
-                        var pedDescs = new List<string>(assets.PedestrianDescriptors);
-                        string defaultPed = $"{cleanTrackName}_Ped_Placement.txt";
-                        if (!pedDescs.Contains(defaultPed, StringComparer.OrdinalIgnoreCase) && _vfs.FileExists(defaultPed))
+                        // 4. Bake Traffic Drones (DRONE_DESCRIPTOR) into the combined scene
+                        var droneDescs = new List<string>(assets.DroneDescriptors);
+                        string defaultDrone = $"{cleanTrackName}_DroneDescriptor.txt";
+                        if (!droneDescs.Contains(defaultDrone, StringComparer.OrdinalIgnoreCase) && _vfs.FileExists(defaultDrone))
                         {
-                            pedDescs.Add(defaultPed);
+                            droneDescs.Add(defaultDrone);
                         }
 
-                        foreach (string pedDesc in pedDescs)
+                        if (droneDescs.Count > 0)
                         {
-                            byte[]? pedData = _vfs.LoadFileContext(pedDesc, _trackContext ?? cleanTrackName);
-                            if (pedData != null)
-                            {
-                                if (_verbose) Log($"[+] Baking Pedestrian Placement descriptor '{pedDesc}' into combined scene...");
-                                bakedPedestrians += AppendPedestriansToWriter(pedData, w, textures, ref v, ref vt, ref vn, (path) => _vfs.LoadFileContext(path, _trackContext ?? cleanTrackName));
-                            }
+                            if (_verbose) Log($"[+] Baking Traffic Drones ({droneDescs.Count} descriptor(s)) into combined scene...");
+                            AppendDronesToWriter(droneDescs, w, textures, ref v, ref vt, ref vn, (path) => _vfs.LoadFileContext(path, _trackContext ?? cleanTrackName), cleanTrackName, bakedDroneCounts);
                         }
                     }
                 }
@@ -568,10 +592,10 @@ namespace TDR.Tools.Export
                     result.BaseMeshFileName = fn;
 
                     // Clean, readable export summary (Option B)
-                    Log($"[+] Exported: {fn} ({v - 1:N0} vertices, {textures.Count} textures)");
+                    Log($"[+] Exported: {fn} ({v - 1:N0} vertices, {textures.Count} textures)", Services.LogLevel.Summary);
                     if (bakedLayers.Count > 0)
                     {
-                        Log($"    • Layers ({bakedLayers.Count}): {string.Join(", ", bakedLayers)}");
+                        Log($"    • Layers ({bakedLayers.Count}): {string.Join(", ", bakedLayers)}", Services.LogLevel.Summary);
                     }
                     if (bakedMovableCounts.Count > 0)
                     {
@@ -579,19 +603,22 @@ namespace TDR.Tools.Export
                         var topProps = bakedMovableCounts.OrderByDescending(kv => kv.Value).Take(6).Select(kv => $"{kv.Key} {kv.Value}x");
                         string propSummary = string.Join(", ", topProps);
                         if (bakedMovableCounts.Count > 6) propSummary += $", +{bakedMovableCounts.Count - 6} more";
-                        Log($"    • Props ({totalMovs}): {propSummary}");
+                        Log($"    • Props ({totalMovs}): {propSummary}", Services.LogLevel.Summary);
                     }
-                    if (bakedPowerups > 0 || bakedPedestrians > 0)
+                    if (bakedDroneCounts.Count > 0)
                     {
-                        var spawns = new List<string>();
-                        if (bakedPowerups > 0) spawns.Add($"{bakedPowerups} powerups");
-                        if (bakedPedestrians > 0) spawns.Add($"{bakedPedestrians} pedestrians");
-                        Log($"    • Spawns: {string.Join(", ", spawns)}");
+                        int totalDrones = bakedDroneCounts.Values.Sum();
+                        var droneList = bakedDroneCounts.Select(kv => $"{kv.Key} {kv.Value}x");
+                        Log($"    • Drones ({totalDrones}): {string.Join(", ", droneList)}", Services.LogLevel.Summary);
+                    }
+                    if (bakedPowerups > 0)
+                    {
+                        Log($"    • Spawns: {bakedPowerups} powerups", Services.LogLevel.Summary);
                     }
                 }
                 else
                 {
-                    if (_verbose) Log($"    [OBJ Export] Level '{levelName}' yielded 0 vertices — empty OBJ file skipped.");
+                    if (IsVerboseEnabled) Log($"    [OBJ Export] Level '{levelName}' yielded 0 vertices — empty OBJ file skipped.", Services.LogLevel.Debug);
                 }
             }
             finally
@@ -624,8 +651,8 @@ namespace TDR.Tools.Export
             // at the start of the whole export so a single global origin is shared across all HIE
             // layers, movables, and powerups, keeping everything positioned relative to each other.
 
-            var hie = TDRHierarchy.Load(hieBytes, hieName);
-            if (hie.Root == null && hie.Meshes.Count == 0) return;
+            var hie = GetOrLoadHierarchy(hieName, _ => hieBytes);
+            if (hie == null || (hie.Root == null && hie.Meshes.Count == 0)) return;
 
             Matrix4x4 startMatrix = initialTransform ?? Matrix4x4.Identity;
 
@@ -675,8 +702,8 @@ namespace TDR.Tools.Export
         {
             if (resetOrigin) _localOrigin = null; // fresh origin capture for standalone single HIE export
 
-            var hie = TDRHierarchy.Load(hieData, hieName);
-            if (hie.Root == null && hie.Meshes.Count == 0)
+            var hie = GetOrLoadHierarchy(hieName, _ => hieData);
+            if (hie == null || (hie.Root == null && hie.Meshes.Count == 0))
             {
                 if (_verbose) Log($"    [HIE Parser] '{hieName}' is empty (0 nodes, 0 meshes) — SKIPPED");
                 return;
@@ -854,21 +881,48 @@ namespace TDR.Tools.Export
                     w.WriteLine($"# Quaternion: {F(qx)} {F(qy)} {F(qz)} {F(qw)}");
                 }
 
-                byte[]? hieData = loader(hieName);
-                if (hieData == null) continue;
-                string? movableArchive = _vfs.GetArchivePath(hieName);
-                try
+                var hie = GetOrLoadHierarchy(hieName, loader);
+                if (hie?.Root != null)
                 {
-                    var hie = TDRHierarchy.Load(hieData, hieName);
-                    if (hie.Root != null)
+                    string? movableArchive = _vfs.GetArchivePath(hieName);
+                    string defaultTex = "Default";
+                    // _localOrigin is NOT reset per movable: the global origin from ExportLevelToObj
+                    // keeps movables positioned correctly relative to the terrain.
+                    ProcessNode(hie.Root, worldMatrix, ref defaultTex, hie, textures, w, ref v, ref vt, ref vn, movableArchive);
+                }
+                else if (hie != null && hie.Meshes.Count > 0)
+                {
+                    string? movableArchive = _vfs.GetArchivePath(hieName);
+                    string defaultTex = hie.Textures.Count > 0 ? hie.Textures[0].Trim('"') : "Default";
+                    foreach (var meshName in hie.Meshes)
                     {
-                        string defaultTex = "Default";
-                        // _localOrigin is NOT reset per movable: the global origin from ExportLevelToObj
-                        // keeps movables positioned correctly relative to the terrain.
-                        ProcessNode(hie.Root, worldMatrix, ref defaultTex, hie, textures, w, ref v, ref vt, ref vn, movableArchive);
+                        if (!_meshCache.TryGetValue(meshName, out var container))
+                        {
+                            byte[]? meshData = loader(meshName);
+                            if (meshData != null)
+                            {
+                                container = MSHSContainer.Load(meshData, meshName);
+                                _meshCache[meshName] = container;
+                            }
+                        }
+                        if (container != null)
+                        {
+                            Matrix4x4 drawMatrix = worldMatrix;
+                            if (_useLocalCoords && _localOrigin.HasValue)
+                            {
+                                drawMatrix.M41 -= _localOrigin.Value.X;
+                                drawMatrix.M42 -= _localOrigin.Value.Y;
+                                drawMatrix.M43 -= _localOrigin.Value.Z;
+                            }
+                            w.WriteLine($"usemtl {defaultTex}");
+                            textures.TryAdd(defaultTex, movableArchive);
+                            for (int i = 0; i < container.Meshes.Count; i++)
+                            {
+                                WriteSubMesh(container.Meshes[i], drawMatrix, w, ref v, ref vt, ref vn);
+                            }
+                        }
                     }
                 }
-                catch { }
             }
         }
 
@@ -918,100 +972,22 @@ namespace TDR.Tools.Export
                         w.WriteLine($"# WorldPos: {F(px)} {F(py)} {F(pz)}");
                     }
 
-                    byte[]? hieData = loader(iconHieName);
-                    if (hieData != null)
+                    var hie = GetOrLoadHierarchy(iconHieName, loader);
+                    if (hie?.Root != null)
                     {
                         string? movableArchive = _vfs.GetArchivePath(iconHieName);
-                        try
-                        {
-                            var hie = TDRHierarchy.Load(hieData, iconHieName);
-                            if (hie.Root != null)
-                            {
-                                string defaultTex = "Default";
-                                // _localOrigin is NOT reset per powerup: global origin from ExportLevelToObj.
-                                ProcessNode(hie.Root, worldMatrix, ref defaultTex, hie, textures, w, ref v, ref vt, ref vn, movableArchive);
-                                bakedCount++;
-                            }
-                        }
-                        catch { }
+                        string defaultTex = "Default";
+                        // _localOrigin is NOT reset per powerup: global origin from ExportLevelToObj.
+                        ProcessNode(hie.Root, worldMatrix, ref defaultTex, hie, textures, w, ref v, ref vt, ref vn, movableArchive);
+                        bakedCount++;
                     }
                 }
             }
             return bakedCount;
         }
 
-        private static string ResolvePowerupIconHie(int typeId, string name)
-        {
-            // If typeId comes in as raw VB Long uint32 representation (e.g. 1116733440), convert back to float ID
-            if (typeId > 100000)
-            {
-                byte[] bytes = BitConverter.GetBytes(typeId);
-                float floatVal = BitConverter.ToSingle(bytes, 0);
-                if (!float.IsNaN(floatVal) && floatVal >= 0 && floatVal < 500)
-                {
-                    typeId = (int)Math.Round(floatVal);
-                }
-            }
-
-            string lowerName = name.ToLowerInvariant();
-
-            // 1. Mission / Quest / System Special Items (from official TDR2000.exe disassembly)
-            if (lowerName.Contains("arrow")) return "ArrowArrow.hie";
-            if (lowerName.Contains("bigbomb") || lowerName.Contains("big_bomb")) return "BIG_BOMBBomb.hie";
-            if (lowerName.Contains("spike")) return "MortarTailSpike.hie";
-            if (lowerName.Contains("bomb")) return "BombPiececube1.hie";
-            if (lowerName.Contains("fuse")) return "fuseFuse_NULL.hie";
-            if (lowerName.Contains("enginepart") || lowerName.Contains("engine_part")) return "EnginePartobj3.hie";
-            if (lowerName.Contains("moneybag") || lowerName.Contains("money_bag")) return "DingablesMoneyBagPowerup.hie";
-            if (lowerName.Contains("artillery") || lowerName.Contains("shell")) return "DingablesArtilleryShellPow.hie";
-            if (lowerName.Contains("mortar")) return "mortarTail_Render.hie";
-            if (lowerName.Contains("oil") || lowerName.Contains("drum")) return "Oil_DrumDrum_null.hie";
-
-            // 2. Repair & Spanner -> Spanner Icon (Check early before engine/powerup strings!)
-            if (lowerName.Contains("spanner") || lowerName.Contains("repair") || lowerName.Contains("fix"))
-                return "newIconsSPANNER.hie";
-
-            // 3. Money & Cash -> Wadocash Icon
-            if (lowerName.Contains("cash") || lowerName.Contains("credit") || lowerName.Contains("money"))
-                return "newIconsWADOCASH.hie";
-
-            // 4. Time Bonus -> Time Icon
-            if (lowerName.Contains("time")) return "newIconsTIME.hie";
-
-            // 5. Pedestrian Powers & Ray Weapons -> Pedestrian Sign Icon
-            if (lowerName.Contains("zombie") || lowerName.Contains("pedestrian") || lowerName.Contains("flamethrower") ||
-                lowerName.Contains("ray") || lowerName.Contains("dismember"))
-                return "newIconsPEDSIGN.hie";
-
-            // 6. Armor & Defense -> Helmet Icon
-            if (lowerName.Contains("armour") || lowerName.Contains("defense") || lowerName.Contains("helmet") || lowerName.Contains("invulnerability"))
-                return "newIconsHELMET.hie";
-
-            // 7. Offense & Fist -> Fist Icon
-            if (lowerName.Contains("fist") || lowerName.Contains("offensive") || lowerName.Contains("damage"))
-                return "newIconsFIST.hie";
-
-            // 8. Engine & Speed -> Engine Icon (Do NOT match generic "powerup" string!)
-            if (lowerName.Contains("engine") || lowerName.Contains("turbo") || lowerName.Contains("burner") || lowerName.Contains("speed") || lowerName.Contains("hot rod"))
-                return "newIconsENGINE.hie";
-
-            // 9. APO All
-            if (lowerName.Contains("apo")) return "newIconsAPOall.hie";
-
-            return typeId switch
-            {
-                1 or 29 or 30 => "newIconsHELMET.hie",
-                2 or 24 or 27 or 28 or 80 => "newIconsENGINE.hie",
-                3 or 36 or 43 => "newIconsFIST.hie",
-                4 or 73 or 74 or 75 => "newIconsSPANNER.hie",
-                5 or 70 or 71 or 72 => "newIconsWADOCASH.hie",
-                64 or 68 => "newIconsTIME.hie",
-                45 or 46 or 47 or 49 or 50 or 51 or 52 or 55 or 56 or 57 or 58 or 62 or 66 or 78 or 93 or 114 or 118 => "newIconsPEDSIGN.hie",
-                94 => "mortarTail_Render.hie",
-                92 => "Oil_DrumDrum_null.hie",
-                _ => "newIconsSPANNER.hie"
-            };
-        }
+        private static string ResolvePowerupIconHie(int typeId, string name) =>
+            TextureResolver.ResolvePowerupIconHie(typeId, name);
         public void ExportMovablesToObj(string descPath, Func<string, byte[]?> loader)
         {
             byte[]? data = loader(descPath);
@@ -1093,17 +1069,9 @@ namespace TDR.Tools.Export
                         }
                         string? movableArchive = _vfs.GetArchivePath(hieName);
                         if (_verbose) Log($"    [MOV] HIE loaded OK : {hieName} ({hieData.Length} bytes), archive: {movableArchive ?? "loose/unknown"}");
-                        try
+                        var hie = GetOrLoadHierarchy(hieName, _ => hieData);
+                        if (hie != null)
                         {
-                            var hie = TDRHierarchy.Load(hieData, hieName);
-                            if (_verbose)
-                            {
-                                Log($"      [HIE] Meshes={hie.Meshes.Count}  Nodes={hie.Nodes.Count}  Textures={hie.Textures.Count}  Matrices={hie.Matrices.Count}");
-                                foreach (var nd in hie.Nodes)
-                                    Log($"      [NODE] Type={nd.Type}({(int)nd.Type})  Index={nd.Index}  Child={nd.Child}  Sib={nd.Sibling}");
-                                foreach (var mref in hie.Meshes)
-                                    Log($"      [MESHREF] '{mref}'");
-                            }
                             if (hie.Root != null)
                             {
                                 string defaultTex = "Default";
@@ -1117,7 +1085,7 @@ namespace TDR.Tools.Export
                                 {
                                     if (!_meshCache.TryGetValue(meshName, out var container))
                                     {
-                                        byte[]? meshData = loader(meshName);
+                                        byte[]? meshData = _vfs.LoadFileContext(meshName, _trackContext);
                                         if (meshData != null)
                                         {
                                             container = MSHSContainer.Load(meshData, meshName);
@@ -1127,7 +1095,6 @@ namespace TDR.Tools.Export
 
                                     if (container != null)
                                     {
-                                        if (_useGrouping) w.WriteLine($"g Part_{subMeshIdx++}");
                                         for (int i = 0; i < container.Meshes.Count; i++)
                                         {
                                             var subMesh = container.Meshes[i];
@@ -1139,12 +1106,9 @@ namespace TDR.Tools.Export
                                             WriteSubMesh(subMesh, worldMatrix, w, ref v, ref vt, ref vn);
                                         }
                                     }
+                                    subMeshIdx++;
                                 }
                             }
-                        }
-                        catch (Exception ex)
-                        {
-                            if (_verbose) Log($"  [!] Error parsing HIE '{hieName}': {ex.Message}");
                         }
                     }
                 }
@@ -1166,56 +1130,64 @@ namespace TDR.Tools.Export
             }
         }
 
-        public void ExportPedestriansToObj(string pedPlacementPath, string? pedDescPath, Func<string, byte[]?> loader)
+        public void ExportTrackProps(string trackName, Func<string, byte[]?> loader, Action<int, string>? progressCallback = null)
         {
-            byte[]? pedData = loader(pedPlacementPath);
-            if (pedData == null) return;
-
-            var pedClasses = new List<string>();
-            if (!string.IsNullOrWhiteSpace(pedDescPath))
+            progressCallback?.Invoke(10, $"Exporting track props: {trackName}");
+            string pedPlacement = $"{trackName}_Ped_Placement.txt";
+            byte[]? pedData = loader(pedPlacement);
+            if (pedData == null)
             {
-                byte[]? pedDescData = loader(pedDescPath);
-                if (pedDescData != null)
+                if (_verbose) Log($"  [i] No ped placement file found: {pedPlacement}");
+                return;
+            }
+
+            // Parse PedDescriptor to get skeleton/class names
+            string pedDesc = $"{trackName}_PedDescriptor.txt";
+            byte[]? descData = loader(pedDesc);
+            var classNames = new List<string>();
+            if (descData != null)
+            {
+                string descText = Encoding.ASCII.GetString(descData);
+                foreach (string rawLine in descText.Split('\n'))
                 {
-                    string[] descLines = Encoding.ASCII.GetString(pedDescData).Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
-                    foreach (string l in descLines)
+                    string line = rawLine.Contains("//") ? rawLine[..rawLine.IndexOf("//")].Trim() : rawLine.Trim();
+                    if (string.IsNullOrWhiteSpace(line)) continue;
+                    if (line.EndsWith(".txt", StringComparison.OrdinalIgnoreCase))
                     {
-                        string c = l.Contains("//") ? l[..l.IndexOf("//")].Trim() : l.Trim();
-                        if (string.IsNullOrWhiteSpace(c)) continue;
-                        string[] tok = c.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
-                        if (tok.Length > 0 && tok[0].EndsWith(".hie", StringComparison.OrdinalIgnoreCase))
-                        {
-                            pedClasses.Add(Path.GetFileNameWithoutExtension(tok[0].Trim('"')));
-                        }
+                        string name = Path.GetFileNameWithoutExtension(line);
+                        name = name.Replace("Skeleton Descriptor", "").Replace("Descriptor", "").Trim();
+                        classNames.Add(name);
                     }
                 }
             }
 
-            string outName = Path.GetFileNameWithoutExtension(pedPlacementPath) + "_pedestrians";
-            string objPath = Path.Combine(_exportDir, outName + ".obj");
-            string mtlPath = Path.Combine(_exportDir, outName + ".mtl");
+            string objPath = Path.Combine(_exportDir, $"{trackName}_pedestrians.obj");
+            string mtlPath = Path.ChangeExtension(objPath, ".mtl");
             string tempObj = objPath + ".tmp";
 
-            var textures = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
-            var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             int v = 1, vt = 1, vn = 1;
+            var textures = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
 
             try
             {
                 using (var w = new StreamWriter(tempObj, false, Encoding.ASCII))
                 {
-                    w.WriteLine($"# TDR2000 Pedestrians OBJ Export");
+                    w.WriteLine($"# TDR2000 Pedestrian Spawn Placements - {trackName}");
                     w.WriteLine($"mtllib {Path.GetFileName(mtlPath)}");
 
-                    string[] lines = Encoding.ASCII.GetString(pedData).Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
+                    string pedText = Encoding.ASCII.GetString(pedData);
+                    string[] lines = pedText.Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
 
-                    foreach (string line in lines)
+                    int pedIdx = 0;
+                    foreach (string rawLine in lines)
                     {
-                        string clean = line.Contains("//") ? line[..line.IndexOf("//")].Trim() : line.Trim();
+                        string clean = rawLine.Contains("//") ? rawLine[..rawLine.IndexOf("//")].Trim() : rawLine.Trim();
                         if (string.IsNullOrWhiteSpace(clean)) continue;
 
                         string[] parts = clean.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
-                        if (parts.Length < 7 || parts[0] != "1") continue;
+                        if (parts.Length < 7) continue;
+
+                        if (parts[0] != "1") continue; // 0 = disabled
 
                         if (!int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out int classId) ||
                             !float.TryParse(parts[3], NumberStyles.Float, CultureInfo.InvariantCulture, out float px) ||
@@ -1226,11 +1198,10 @@ namespace TDR.Tools.Export
                             continue;
                         }
 
-                        string className = classId >= 0 && classId < pedClasses.Count ? pedClasses[classId] : $"Pedestrian_Class_{classId}";
-                        int instIdx = counts.GetValueOrDefault(className, 0) + 1;
-                        counts[className] = instIdx;
+                        pedIdx++;
+                        string className = classId >= 0 && classId < classNames.Count ? classNames[classId] : $"PedClass_{classId}";
+                        string instanceId = $"{className}_{pedIdx:D3}";
 
-                        string instanceId = $"{className}_{instIdx:D3}";
                         Matrix4x4 worldMatrix = Matrix4x4.CreateRotationY(heading * (float)(Math.PI / 180.0)) * Matrix4x4.CreateTranslation(px, py, pz);
 
                         if (_useGrouping)
@@ -1242,21 +1213,13 @@ namespace TDR.Tools.Export
 
                         bool exportedMesh = false;
                         string hieName = $"{className}.hie";
-                        byte[]? hieData = loader(hieName);
-                        if (hieData != null)
+                        var hie = GetOrLoadHierarchy(hieName, loader);
+                        if (hie?.Root != null)
                         {
-                            try
-                            {
-                                var hie = TDRHierarchy.Load(hieData, hieName);
-                                string? archivePath = _vfs.GetArchivePath(hieName);
-                                if (hie.Root != null)
-                                {
-                                    string defaultTex = "Default";
-                                    ProcessNode(hie.Root, worldMatrix, ref defaultTex, hie, textures, w, ref v, ref vt, ref vn, archivePath);
-                                    exportedMesh = true;
-                                }
-                            }
-                            catch { }
+                            string? archivePath = _vfs.GetArchivePath(hieName);
+                            string defaultTex = "Default";
+                            ProcessNode(hie.Root, worldMatrix, ref defaultTex, hie, textures, w, ref v, ref vt, ref vn, archivePath);
+                            exportedMesh = true;
                         }
 
                         if (!exportedMesh)
@@ -1350,24 +1313,141 @@ namespace TDR.Tools.Export
                         w.WriteLine($"# WorldPos: {F(px)} {F(py)} {F(pz)}");
                     }
 
-                    byte[]? hieData = loader(pedHieName);
-                    if (hieData != null)
+                    var hie = GetOrLoadHierarchy(pedHieName, loader);
+                    if (hie?.Root != null)
                     {
                         string? pedArchive = _vfs.GetArchivePath(pedHieName);
-                        try
-                        {
-                            var hie = TDRHierarchy.Load(hieData, pedHieName);
-                            if (hie.Root != null)
-                            {
-                                string currentTex = "Default";
-                                ProcessNode(hie.Root, worldMatrix, ref currentTex, hie, textures, w, ref v, ref vt, ref vn, pedArchive);
-                            }
-                        }
-                        catch { }
+                        string currentTex = "Default";
+                        ProcessNode(hie.Root, worldMatrix, ref currentTex, hie, textures, w, ref v, ref vt, ref vn, pedArchive);
                     }
                 }
             }
             return pedIdx;
+        }
+
+        private byte[]? LoadDroneHie(string droneName, out string resolvedName)
+        {
+            string clean = droneName
+                .Replace("MAIN_NULL_PED", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("MAIN_NULL", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("_PED", "", StringComparison.OrdinalIgnoreCase)
+                .Trim('_');
+
+            var candidates = new List<string>
+            {
+                droneName,
+                droneName + ".hie",
+                $"cars/{droneName}/{droneName}.hie",
+                $"drones/{droneName}/{droneName}.hie",
+                clean,
+                clean + ".hie",
+                $"cars/{clean}/{clean}.hie",
+                $"drones/{clean}/{clean}.hie",
+                $"cars/{clean}/{clean}main_null.hie"
+            };
+
+            foreach (var cand in candidates.Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                byte[]? data = _vfs.LoadFile(cand);
+                if (data != null && data.Length > 0)
+                {
+                    resolvedName = cand;
+                    return data;
+                }
+            }
+
+            resolvedName = droneName;
+            return null;
+        }
+
+        private int AppendDronesToWriter(
+            List<string> droneDescs,
+            StreamWriter w,
+            Dictionary<string, string?> textures,
+            ref int v, ref int vt, ref int vn,
+            Func<string, byte[]?> loader,
+            string cleanTrackName,
+            Dictionary<string, int>? droneCountsCollector = null)
+        {
+            if (droneDescs == null || droneDescs.Count == 0) return 0;
+
+            // 1. Parse drone vehicle types & requested instance counts
+            var droneRequests = new List<(string Name, int Count)>();
+            foreach (string descName in droneDescs)
+            {
+                byte[]? data = loader(descName);
+                if (data == null || data.Length == 0) continue;
+
+                string text = Encoding.ASCII.GetString(data);
+                string[] lines = text.Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
+
+                foreach (string rawLine in lines)
+                {
+                    string clean = rawLine.Contains("//") ? rawLine[..rawLine.IndexOf("//")].Trim() : rawLine.Trim();
+                    if (string.IsNullOrWhiteSpace(clean)) continue;
+
+                    string[] parts = clean.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                    if (parts.Length >= 2)
+                    {
+                        string dName = parts[0].Trim('"');
+                        if (int.TryParse(parts[1], out int count) && count > 0)
+                        {
+                            droneRequests.Add((dName, count));
+                        }
+                    }
+                }
+            }
+
+            if (droneRequests.Count == 0) return 0;
+
+            var roadSplines = SplineResolver.ResolveRoadSplines(_vfs, cleanTrackName, _trackContext, msg => Log(msg));
+            int totalDrones = droneRequests.Sum(r => r.Count);
+            var spawnMatrices = SplineResolver.GenerateSpawnMatrices(roadSplines, totalDrones);
+
+            int bakedTotal = 0;
+            int spawnIdx = 0;
+
+            foreach (var req in droneRequests)
+            {
+                byte[]? droneHieBytes = LoadDroneHie(req.Name, out string resolvedHieName);
+                if (droneHieBytes == null)
+                {
+                    if (_verbose)
+                        Log($"    [!] Traffic drone '{req.Name}' model not found in VFS (skipped 3D mesh).");
+                    continue;
+                }
+
+                var hie = GetOrLoadHierarchy(resolvedHieName, _ => droneHieBytes);
+                if (hie?.Root == null) continue;
+
+                string? droneArchive = _vfs.GetArchivePath(resolvedHieName);
+
+                for (int i = 0; i < req.Count; i++)
+                {
+                    Matrix4x4 spawnMat = spawnMatrices[spawnIdx % spawnMatrices.Count];
+                    spawnIdx++;
+
+                    string instanceId = $"Drone_{Path.GetFileNameWithoutExtension(req.Name)}_{i + 1:D2}";
+                    if (_useGrouping)
+                    {
+                        w.WriteLine($"o {instanceId}");
+                        w.WriteLine($"# Class: {req.Name}");
+                        w.WriteLine($"# WorldPos: {F(spawnMat.M41)} {F(spawnMat.M42)} {F(spawnMat.M43)}");
+                    }
+
+                    string currentTex = "Default";
+                    ProcessNode(hie.Root, spawnMat, ref currentTex, hie, textures, w, ref v, ref vt, ref vn, droneArchive);
+                    bakedTotal++;
+
+                    if (droneCountsCollector != null)
+                    {
+                        string shortName = Path.GetFileNameWithoutExtension(req.Name);
+                        droneCountsCollector[shortName] = droneCountsCollector.GetValueOrDefault(shortName, 0) + 1;
+                    }
+                }
+            }
+
+            return bakedTotal;
         }
 
         private void ProcessNode(

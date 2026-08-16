@@ -17,8 +17,8 @@
             <StackPanel Spacing="6">
                 <TextBlock Text="{Binding TrackName, StringFormat='Export Destination Directory (Target output folder for level &quot;{0}&quot;):'}" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource TextSecondaryBrush}"/>
                 <Grid ColumnDefinitions="*,Auto">
-                    <TextBox Grid.Column="0" Text="{Binding OutputDirectory}" Height="32" FontSize="12" Padding="10,0" VerticalContentAlignment="Center" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextPrimaryBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" CornerRadius="4"/>
-                    <Button Grid.Column="1" Content="Browse..." Click="OnBrowseOutputFolderClick" Height="32" Margin="8,0,0,0" Padding="14,0" VerticalContentAlignment="Center" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextPrimaryBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="1" CornerRadius="4"/>
+                    <TextBox Grid.Column="0" Text="{Binding OutputDirectory}" Height="30" FontSize="11" Padding="10,0" VerticalContentAlignment="Center" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextPrimaryBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" CornerRadius="4"/>
+                    <Button Grid.Column="1" Content="Browse..." Click="OnBrowseOutputFolderClick" Height="30" FontSize="11" Margin="8,0,0,0" Padding="12,0" VerticalContentAlignment="Center" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextPrimaryBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="1" CornerRadius="4"/>
                 </Grid>
             </StackPanel>
         </Border>
@@ -57,24 +57,32 @@
 
             <!-- RIGHT COLUMN: PRESET SELECTOR & HIERARCHICAL TREE INSPECTOR -->
             <Grid Grid.Column="2" RowDefinitions="Auto,Auto,*">
-                <!-- Preset Dropdown Selector Bar -->
-                <Border Grid.Row="0" Background="{DynamicResource BgPanelBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="1" CornerRadius="6" Padding="12" Margin="0,0,0,10">
-                    <StackPanel Spacing="6">
-                        <TextBlock Text="Preset / Layer Filter:" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource TextSecondaryBrush}"/>
-                        <ComboBox ItemsSource="{Binding AvailableVariants}" SelectedItem="{Binding SelectedVariant}" HorizontalAlignment="Stretch" Height="32" FontSize="12" Padding="10,0" VerticalContentAlignment="Center" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextPrimaryBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}"/>
-                    </StackPanel>
-                </Border>
+                <!-- Row 0: Preset Selector & Expand/Collapse Toolbar -->
+                <Grid Grid.Row="0" ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,8">
+                    <ComboBox Grid.Column="0" ItemsSource="{Binding AvailableVariants}" SelectedItem="{Binding SelectedVariant}" HorizontalAlignment="Stretch" Height="30" FontSize="11" Padding="10,0" VerticalContentAlignment="Center" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextPrimaryBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" Margin="0,0,6,0"/>
+                    <Button Grid.Column="1" Content="Expand All" Click="OnExpandAllClick" Width="88" Height="30" FontSize="11" Padding="0" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextPrimaryBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" Margin="0,0,4,0"/>
+                    <Button Grid.Column="2" Content="Collapse All" Click="OnCollapseAllClick" Width="88" Height="30" FontSize="11" Padding="0" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextPrimaryBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}"/>
+                </Grid>
 
-                <!-- Search & Action Toolbar -->
+                <!-- Row 1: Search & Selection Toolbar -->
                 <Grid Grid.Row="1" ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,8">
-                    <TextBox Grid.Column="0" Text="{Binding SearchHieQuery, Mode=TwoWay}" Height="30" PlaceholderText="Filter supported track resources..." FontSize="11" Padding="8,0" VerticalContentAlignment="Center" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextPrimaryBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" Margin="0,0,8,0"/>
-                    <Button Grid.Column="1" Content="Select All" Click="OnSelectAllClick" Height="30" FontSize="11" Padding="10,0" VerticalContentAlignment="Center" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextPrimaryBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" Margin="0,0,4,0"/>
-                    <Button Grid.Column="2" Content="Deselect All" Click="OnDeselectAllClick" Height="30" FontSize="11" Padding="10,0" VerticalContentAlignment="Center" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextPrimaryBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}"/>
+                    <TextBox Grid.Column="0" Text="{Binding SearchHieQuery, Mode=TwoWay}" Height="30" PlaceholderText="Filter supported track resources..." FontSize="11" Padding="8,0" VerticalContentAlignment="Center" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextPrimaryBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" Margin="0,0,6,0"/>
+                    <Button Grid.Column="1" Content="Select All" Click="OnSelectAllClick" Width="88" Height="30" FontSize="11" Padding="0" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextPrimaryBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" Margin="0,0,4,0"/>
+                    <Button Grid.Column="2" Content="Deselect All" Click="OnDeselectAllClick" Width="88" Height="30" FontSize="11" Padding="0" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextPrimaryBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}"/>
                 </Grid>
 
                 <!-- Full-Height Supported Resources Hierarchy Tree Card -->
                 <Border Grid.Row="2" Background="{DynamicResource BgPanelBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="1" CornerRadius="6" Padding="10">
                     <TreeView ItemsSource="{Binding HieTreeNodes}" Background="Transparent">
+                        <TreeView.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="Select All" Click="OnSelectAllClick"/>
+                                <MenuItem Header="Deselect All" Click="OnDeselectAllClick"/>
+                                <Separator/>
+                                <MenuItem Header="Expand All" Click="OnExpandAllClick"/>
+                                <MenuItem Header="Collapse All" Click="OnCollapseAllClick"/>
+                            </ContextMenu>
+                        </TreeView.ContextMenu>
                         <TreeView.DataTemplates>
                             <TreeDataTemplate DataType="vm:HieNodeViewModel" ItemsSource="{Binding Children}">
                                 <StackPanel Spacing="0">
@@ -83,7 +91,7 @@
                                             Margin="-32,0,0,3"
                                             IsVisible="{Binding ShowTopSeparator}"
                                             Opacity="0.5"/>
-                                    <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay}" IsVisible="{Binding IsVisible}" Content="{Binding Name}" Padding="8,0,0,0" FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}"/>
+                                    <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay}" IsThreeState="False" IsVisible="{Binding IsVisible}" Content="{Binding Name}" Padding="8,0,0,0" FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}"/>
                                 </StackPanel>
                             </TreeDataTemplate>
                         </TreeView.DataTemplates>

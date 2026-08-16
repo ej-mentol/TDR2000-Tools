@@ -80,15 +80,14 @@ namespace TDR.Tools.Services
                     foreach (var file in fileList)
                     {
                         string normPath = file.VirtualPath.Replace('\\', '/').ToLowerInvariant();
-                        uint offset = (uint)pakStream.Position;
 
                         // Reuse the library's own zIG/RAW header (random key, verified format) instead of a
                         // separate, fixed-key reimplementation.
                         byte[] header = TDRArchive.CreateZigHeader(file.Content, compress);
-                        long beforeWrite = pakStream.Position;
                         TDRArchive.WriteAligned(pakStream, header);
 
-                        uint totalBlockSize = (uint)(pakStream.Position - beforeWrite);
+                        uint offset = (uint)(pakStream.Position - header.Length);
+                        uint totalBlockSize = (uint)header.Length;
                         indexedFiles.Add((normPath, offset, totalBlockSize));
                     }
                 }
@@ -101,9 +100,38 @@ namespace TDR.Tools.Services
                 byte[] dirBytes = TDRArchive.SerializeTrieIndex(pakFileEntries);
                 File.WriteAllBytes(tmpDir, dirBytes);
 
-                // Atomic Move: only overwrite original files once both .tmp files are 100% written
-                File.Move(tmpPak, pakFile, overwrite: true);
-                File.Move(tmpDir, dirFile, overwrite: true);
+                // Atomic Paired Replace: backup originals, move new files, rollback if either fails
+                string? backupPak = null;
+                string? backupDir = null;
+
+                try
+                {
+                    if (File.Exists(pakFile))
+                    {
+                        backupPak = pakFile + ".orig_bak";
+                        File.Copy(pakFile, backupPak, overwrite: true);
+                    }
+                    if (File.Exists(dirFile))
+                    {
+                        backupDir = dirFile + ".orig_bak";
+                        File.Copy(dirFile, backupDir, overwrite: true);
+                    }
+
+                    // Move PAK first, then DIR (if process is killed between moves, old DIR won't point to invalid offsets)
+                    File.Move(tmpPak, pakFile, overwrite: true);
+                    File.Move(tmpDir, dirFile, overwrite: true);
+
+                    // Successfully replaced both — clean up backups
+                    if (backupPak != null && File.Exists(backupPak)) try { File.Delete(backupPak); } catch { }
+                    if (backupDir != null && File.Exists(backupDir)) try { File.Delete(backupDir); } catch { }
+                }
+                catch
+                {
+                    // Rollback both to maintain pair integrity
+                    if (backupDir != null && File.Exists(backupDir)) try { File.Move(backupDir, dirFile, overwrite: true); } catch { }
+                    if (backupPak != null && File.Exists(backupPak)) try { File.Move(backupPak, pakFile, overwrite: true); } catch { }
+                    throw;
+                }
 
                 log?.Invoke($"[✓] Archive successfully packed ({fileList.Count} files, PAK: {new FileInfo(pakFile).Length} bytes, DIR: {dirBytes.Length} bytes).");
                 return true;

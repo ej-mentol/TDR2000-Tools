@@ -7,11 +7,14 @@ namespace TDR.Tools.Services
 {
     public class AudioWavInfo
     {
+        public bool IsValid { get; set; }
         public int SampleRate { get; set; } = 22050;
         public int BitsPerSample { get; set; } = 16;
         public int Channels { get; set; } = 1;
         public double DurationSeconds { get; set; } = 0.0;
-        public string FormatText => $"{SampleRate / 1000.0:F1} kHz @ {BitsPerSample}-bit {(Channels == 1 ? "Mono" : "Stereo")}";
+        public string FormatText => IsValid
+            ? $"{SampleRate / 1000.0:F1} kHz @ {BitsPerSample}-bit {(Channels == 1 ? "Mono" : "Stereo")}"
+            : "Non-RIFF / Raw Audio";
     }
 
     public class AudioPlayerService
@@ -26,17 +29,19 @@ namespace TDR.Tools.Services
         private const int SND_MEMORY = 0x0004;
         private const int SND_PURGE = 0x0040;
 
+        private readonly object _lock = new();
         private bool _isPlaying;
         private bool _isMuted;
         private bool _isLooping;
+        private GCHandle _pinnedHandle;
         private System.Threading.CancellationTokenSource? _progressCts;
 
-        public bool IsPlaying => _isPlaying;
-        public bool IsMuted => _isMuted;
+        public bool IsPlaying { get { lock (_lock) return _isPlaying; } }
+        public bool IsMuted { get { lock (_lock) return _isMuted; } }
         public bool IsLooping
         {
-            get => _isLooping;
-            set => _isLooping = value;
+            get { lock (_lock) return _isLooping; }
+            set { lock (_lock) _isLooping = value; }
         }
 
         public event Action<bool>? PlaybackStateChanged;
@@ -49,7 +54,8 @@ namespace TDR.Tools.Services
 
             try
             {
-                if (bytes[0] == 'R' && bytes[1] == 'I' && bytes[2] == 'F' && bytes[3] == 'F')
+                if (bytes[0] == 'R' && bytes[1] == 'I' && bytes[2] == 'F' && bytes[3] == 'F' &&
+                    bytes[8] == 'W' && bytes[9] == 'A' && bytes[10] == 'V' && bytes[11] == 'E')
                 {
                     int channels = BitConverter.ToInt16(bytes, 22);
                     int sampleRate = BitConverter.ToInt32(bytes, 24);
@@ -59,6 +65,7 @@ namespace TDR.Tools.Services
                     info.Channels = channels > 0 ? channels : 1;
                     info.SampleRate = sampleRate > 0 ? sampleRate : 22050;
                     info.BitsPerSample = bitsPerSample > 0 ? bitsPerSample : 16;
+                    info.IsValid = true;
 
                     if (byteRate > 0)
                     {
@@ -80,94 +87,139 @@ namespace TDR.Tools.Services
 
             if (wavBytes == null || wavBytes.Length == 0) return;
 
-            try
+            if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             {
-                var info = ParseWavHeader(wavBytes);
-                if (!_isMuted && RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                LogService.Instance.Info("[Audio] In-app WAV preview via WinMM is supported on Windows.");
+                return;
+            }
+
+            lock (_lock)
+            {
+                try
                 {
-                    PlaySound(wavBytes, IntPtr.Zero, SND_ASYNC | SND_MEMORY);
-                }
-
-                _isPlaying = true;
-                PlaybackStateChanged?.Invoke(true);
-
-                _progressCts = new System.Threading.CancellationTokenSource();
-                var token = _progressCts.Token;
-                double duration = info.DurationSeconds > 0 ? info.DurationSeconds : 1.0;
-                DateTime startTime = DateTime.UtcNow;
-
-                Task.Run(async () =>
-                {
-                    while (_isPlaying && !token.IsCancellationRequested)
+                    var info = ParseWavHeader(wavBytes);
+                    if (!_isMuted)
                     {
-                        double elapsed = (DateTime.UtcNow - startTime).TotalSeconds;
-                        double percent = Math.Min(100.0, (elapsed / duration) * 100.0);
-                        ProgressUpdated?.Invoke(elapsed, duration, percent);
-
-                        if (elapsed >= duration)
+                        // Pin memory for asynchronous WinMM playback so GC does not relocate it during playback
+                        _pinnedHandle = GCHandle.Alloc(wavBytes, GCHandleType.Pinned);
+                        bool ok = PlaySound(wavBytes, IntPtr.Zero, SND_ASYNC | SND_MEMORY);
+                        if (!ok)
                         {
-                            if (_isLooping)
+                            if (_pinnedHandle.IsAllocated)
                             {
-                                startTime = DateTime.UtcNow;
-                                if (!_isMuted && RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-                                {
-                                    PlaySound(wavBytes, IntPtr.Zero, SND_ASYNC | SND_MEMORY);
-                                }
+                                _pinnedHandle.Free();
                             }
-                            else
-                            {
-                                _isPlaying = false;
-                                ProgressUpdated?.Invoke(0.0, duration, 0.0);
-                                PlaybackStateChanged?.Invoke(false);
-                                break;
-                            }
+                            LogService.Instance.Warn("[Audio] PlaySound failed: file is not a playable RIFF/WAVE stream.");
+                            return;
                         }
+                    }
 
+                    _isPlaying = true;
+                    PlaybackStateChanged?.Invoke(true);
+
+                    _progressCts = new System.Threading.CancellationTokenSource();
+                    var token = _progressCts.Token;
+                    double duration = info.DurationSeconds > 0 ? info.DurationSeconds : 1.0;
+                    DateTime startTime = DateTime.UtcNow;
+
+                    Task.Run(async () =>
+                    {
                         try
                         {
-                            await Task.Delay(40, token);
+                            while (!token.IsCancellationRequested)
+                            {
+                                lock (_lock)
+                                {
+                                    if (!_isPlaying) break;
+                                }
+
+                                double elapsed = (DateTime.UtcNow - startTime).TotalSeconds;
+                                double percent = Math.Min(100.0, (elapsed / duration) * 100.0);
+
+                                try
+                                {
+                                    ProgressUpdated?.Invoke(elapsed, duration, percent);
+                                }
+                                catch { }
+
+                                if (elapsed >= duration)
+                                {
+                                    bool loop;
+                                    lock (_lock) { loop = _isLooping; }
+
+                                    if (loop)
+                                    {
+                                        startTime = DateTime.UtcNow;
+                                        if (!_isMuted && RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                                        {
+                                            PlaySound(wavBytes, IntPtr.Zero, SND_ASYNC | SND_MEMORY);
+                                        }
+                                    }
+                                    else
+                                    {
+                                        Stop();
+                                        break;
+                                    }
+                                }
+
+                                try
+                                {
+                                    await Task.Delay(40, token);
+                                }
+                                catch
+                                {
+                                    break;
+                                }
+                            }
                         }
                         catch
                         {
-                            break;
+                            Stop();
                         }
-                    }
-                }, token);
-            }
-            catch
-            {
-                _isPlaying = false;
-                PlaybackStateChanged?.Invoke(false);
+                    }, token);
+                }
+                catch
+                {
+                    Stop();
+                }
             }
         }
 
         public void Stop()
         {
-            try
+            lock (_lock)
             {
-                _progressCts?.Cancel();
-                _progressCts = null;
-
-                if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                try
                 {
-                    PlaySound(null, IntPtr.Zero, SND_PURGE);
+                    _progressCts?.Cancel();
+                    _progressCts = null;
+
+                    if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                    {
+                        PlaySound(null, IntPtr.Zero, SND_PURGE);
+                    }
+
+                    if (_pinnedHandle.IsAllocated)
+                    {
+                        _pinnedHandle.Free();
+                    }
                 }
-            }
-            catch
-            {
-                // Ignore cleanup errors
-            }
-            finally
-            {
-                _isPlaying = false;
-                ProgressUpdated?.Invoke(0.0, 0.0, 0.0);
-                PlaybackStateChanged?.Invoke(false);
+                catch
+                {
+                    // Ignore cleanup errors
+                }
+                finally
+                {
+                    _isPlaying = false;
+                    try { ProgressUpdated?.Invoke(0.0, 0.0, 0.0); } catch { }
+                    try { PlaybackStateChanged?.Invoke(false); } catch { }
+                }
             }
         }
 
         public void TogglePlay(byte[] wavBytes)
         {
-            if (_isPlaying)
+            if (IsPlaying)
             {
                 Stop();
             }
@@ -179,16 +231,23 @@ namespace TDR.Tools.Services
 
         public void ToggleMute(byte[]? currentWavBytes = null)
         {
-            _isMuted = !_isMuted;
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            lock (_lock)
             {
-                if (_isMuted)
+                _isMuted = !_isMuted;
+                if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
                 {
-                    PlaySound(null, IntPtr.Zero, SND_PURGE);
-                }
-                else if (_isPlaying && currentWavBytes != null)
-                {
-                    PlaySound(currentWavBytes, IntPtr.Zero, SND_ASYNC | SND_MEMORY);
+                    if (_isMuted)
+                    {
+                        PlaySound(null, IntPtr.Zero, SND_PURGE);
+                    }
+                    else if (_isPlaying && currentWavBytes != null)
+                    {
+                        if (!_pinnedHandle.IsAllocated)
+                        {
+                            _pinnedHandle = GCHandle.Alloc(currentWavBytes, GCHandleType.Pinned);
+                        }
+                        PlaySound(currentWavBytes, IntPtr.Zero, SND_ASYNC | SND_MEMORY);
+                    }
                 }
             }
         }

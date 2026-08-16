@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Numerics;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -193,7 +194,7 @@ namespace TDR.Tools.Export
 
     public static class SceneJsonExporter
     {
-        public static void GenerateManifest(string trackName, string? variantArg, PakManager vfs, string outDir, Func<string, byte[]?> loader, TrackExportResult? exportResult = null, bool verbose = false, Action<string>? log = null)
+        public static void GenerateManifest(string trackName, string? variantArg, PakManager vfs, string outDir, Func<string, byte[]?> loader, TrackExportResult? exportResult = null, bool useZeroOriginForPrefabs = true, bool verbose = false, Action<string>? log = null)
         {
             string cleanTrack = TrackDiscovery.GetBaseTrackName(trackName);
             string primaryObjName = $"{cleanTrack}.obj";
@@ -309,6 +310,16 @@ namespace TDR.Tools.Export
                 if (verbose) log?.Invoke($"  [JSON TexAnim] Parsed {manifest.AnimatedTextures.Count} animated texture script mapping(s)");
             }
 
+            // 4e. Traffic Drones & Paths
+            string droneDesc = !string.IsNullOrWhiteSpace(variantArg) ? $"{trackName}_{variantArg}_DroneDescriptor.txt" : $"{trackName}_DroneDescriptor.txt";
+            byte[]? droneData = loader(droneDesc) ?? loader($"{trackName}_DroneDescriptor.txt");
+            if (droneData != null)
+            {
+                int before = manifest.Entities.Count;
+                ParseDrones(droneData, vfs, manifest.Entities, manifest.Paths, cleanTrack);
+                if (verbose) log?.Invoke($"  [JSON Drones] Parsed {manifest.Entities.Count - before} traffic drone placement(s) from '{droneDesc}'");
+            }
+
             // 5. Variants
             PopulateVariants(trackName, variantArg, vfs, manifest.Variants);
             if (verbose) log?.Invoke($"  [JSON Variants] Registered {manifest.Variants.Count} variant entry(ies) in manifesto");
@@ -316,7 +327,8 @@ namespace TDR.Tools.Export
             // 6. Export Single Prefab 3D Models for Engine Mode
             string prefabsDir = Path.Combine(outDir, "prefabs");
             Directory.CreateDirectory(prefabsDir);
-            var prefabExporter = new ObjExporter(vfs, prefabsDir, false, true, verbose, true, true, null, log);
+            string cleanTrackName = TrackDiscovery.GetBaseTrackName(trackName);
+            var prefabExporter = new ObjExporter(vfs, prefabsDir, false, useZeroOriginForPrefabs, verbose, true, true, cleanTrackName, log);
             var exportedPrefabs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             foreach (var entity in manifest.Entities)
@@ -336,7 +348,6 @@ namespace TDR.Tools.Export
             }
             if (verbose) log?.Invoke($"  [JSON Prefabs] Exported {exportedPrefabs.Count} single prefab 3D model(s) to 'EXPORT/prefabs/'");
 
-            string cleanTrackName = TrackDiscovery.GetBaseTrackName(trackName);
             string jsonFileName = !string.IsNullOrWhiteSpace(variantArg) 
                 ? $"{cleanTrackName}_{variantArg.ToLower()}.json" 
                 : $"{cleanTrackName}.json";
@@ -746,6 +757,73 @@ if json_files:
                 {
                     Consoft = $"{trackName}_{key}_consoft.obj"
                 };
+            }
+        }
+
+        private static void ParseDrones(byte[] droneData, PakManager vfs, List<SceneEntity> entities, List<ScenePath> paths, string cleanTrackName)
+        {
+            string[] descLines = Encoding.ASCII.GetString(droneData).Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
+            var droneRequests = new List<(string Name, int Count)>();
+            foreach (string line in descLines)
+            {
+                string clean = line.Contains("//") ? line[..line.IndexOf("//")].Trim() : line.Trim();
+                if (string.IsNullOrWhiteSpace(clean)) continue;
+                string[] parts = clean.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length >= 2 && int.TryParse(parts[1], out int count) && count > 0)
+                {
+                    droneRequests.Add((parts[0].Trim('"'), count));
+                }
+            }
+
+            if (droneRequests.Count == 0) return;
+
+            var roadSplines = SplineResolver.ResolveRoadSplines(vfs, cleanTrackName);
+
+            foreach (var spline in roadSplines)
+            {
+                var pointsList = new List<float[]>();
+                foreach (var pt in spline.Points)
+                {
+                    pointsList.Add(new[] { pt.X, pt.Y, pt.Z });
+                }
+
+                paths.Add(new ScenePath
+                {
+                    Id = spline.Name,
+                    Category = "drone_path",
+                    ClosedLoop = true,
+                    Points = pointsList
+                });
+            }
+
+            int totalDrones = droneRequests.Sum(r => r.Count);
+            var spawnMatrices = SplineResolver.GenerateSpawnMatrices(roadSplines, totalDrones);
+
+            int spawnIdx = 0;
+            foreach (var req in droneRequests)
+            {
+                string baseName = req.Name
+                    .Replace("MAIN_NULL_PED", "", StringComparison.OrdinalIgnoreCase)
+                    .Replace("MAIN_NULL", "", StringComparison.OrdinalIgnoreCase)
+                    .Replace("_PED", "", StringComparison.OrdinalIgnoreCase)
+                    .Trim('_');
+
+                for (int i = 0; i < req.Count; i++)
+                {
+                    Matrix4x4 spawnMat = spawnMatrices[spawnIdx % spawnMatrices.Count];
+                    spawnIdx++;
+
+                    var q = Quaternion.CreateFromRotationMatrix(spawnMat);
+
+                    entities.Add(new SceneEntity
+                    {
+                        Id = $"Drone_{baseName}_{i + 1:D2}",
+                        Category = "drone",
+                        Prefab = $"prefabs/{baseName}.obj",
+                        Position = new[] { spawnMat.M41, spawnMat.M42, spawnMat.M43 },
+                        Rotation = new[] { q.X, q.Y, q.Z, q.W }
+                    });
+                }
             }
         }
     }

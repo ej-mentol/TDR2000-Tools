@@ -47,6 +47,22 @@ namespace TDR.Tools.Views
             }
         }
 
+        private void OnExpandAllClick(object? sender, RoutedEventArgs e)
+        {
+            if (DataContext is ConvertTrackModalViewModel vm)
+            {
+                vm.SetAllHieNodesExpanded(vm.HieTreeNodes, true);
+            }
+        }
+
+        private void OnCollapseAllClick(object? sender, RoutedEventArgs e)
+        {
+            if (DataContext is ConvertTrackModalViewModel vm)
+            {
+                vm.SetAllHieNodesExpanded(vm.HieTreeNodes, false);
+            }
+        }
+
         private async void OnBrowseOutputFolderClick(object? sender, RoutedEventArgs e)
         {
             var topLevel = TopLevel.GetTopLevel(this);

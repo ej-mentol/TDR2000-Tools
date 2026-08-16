@@ -14,7 +14,7 @@ using TDR.Tools.Views;
 
 namespace TDR.Tools
 {
-    public partial class MainWindow : Window
+    public partial class MainWindow : Window, IDisposable
     {
         private readonly MainViewModel _vm;
 
@@ -55,6 +55,18 @@ namespace TDR.Tools
             DestinationGrid?.AddHandler(PointerPressedEvent, OnDestinationPointerPressed, RoutingStrategies.Tunnel);
             DestinationTreeView?.AddHandler(PointerPressedEvent, OnDestinationPointerPressed, RoutingStrategies.Tunnel);
             DestinationTreeView?.AddHandler(PointerMovedEvent, OnDestinationPointerMoved, RoutingStrategies.Tunnel);
+        }
+
+        protected override void OnClosed(EventArgs e)
+        {
+            base.OnClosed(e);
+            Dispose();
+        }
+
+        public void Dispose()
+        {
+            _vm.Dispose();
+            GC.SuppressFinalize(this);
         }
 
         private void OnClosePreviewClick(object? sender, RoutedEventArgs e)
@@ -1159,55 +1171,39 @@ namespace TDR.Tools
             if (clipboard != null)
             {
                 await clipboard.SetTextAsync(text);
-                _vm.LogSession("[+] Copied all log lines to clipboard.");
             }
         }
 
         private async void OnCopyWarningsLogLinesClick(object? sender, RoutedEventArgs e)
         {
             string text = Services.LogService.Instance.GetWarningsText();
-            if (string.IsNullOrWhiteSpace(text))
-            {
-                _vm.LogSession("[INFO] No warnings found in log history.");
-                return;
-            }
+            if (string.IsNullOrWhiteSpace(text)) return;
             var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
             if (clipboard != null)
             {
                 await clipboard.SetTextAsync(text);
-                _vm.LogSession($"[+] Copied {text.Split(Environment.NewLine).Length} warning lines to clipboard.");
             }
         }
 
         private async void OnCopyErrorsLogLinesClick(object? sender, RoutedEventArgs e)
         {
             string text = Services.LogService.Instance.GetErrorsText();
-            if (string.IsNullOrWhiteSpace(text))
-            {
-                _vm.LogSession("[INFO] No error lines found in log history.");
-                return;
-            }
+            if (string.IsNullOrWhiteSpace(text)) return;
             var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
             if (clipboard != null)
             {
                 await clipboard.SetTextAsync(text);
-                _vm.LogSession($"[+] Copied {text.Split(Environment.NewLine).Length} error lines to clipboard.");
             }
         }
 
         private async void OnCopySummariesLogLinesClick(object? sender, RoutedEventArgs e)
         {
             string text = Services.LogService.Instance.GetSummariesText();
-            if (string.IsNullOrWhiteSpace(text))
-            {
-                _vm.LogSession("[INFO] No export tree summary entries found in log history.");
-                return;
-            }
+            if (string.IsNullOrWhiteSpace(text)) return;
             var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
             if (clipboard != null)
             {
                 await clipboard.SetTextAsync(text);
-                _vm.LogSession("[+] Copied export summaries & trees to clipboard.");
             }
         }
 

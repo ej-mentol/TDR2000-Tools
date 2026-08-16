@@ -16,7 +16,8 @@ namespace TDR.Tools.ViewModels
             ObservableCollection<FileNodeViewModel> targetNodes,
             Func<string, bool> isTrackValidator,
             string searchQuery = "",
-            bool showDirFiles = false)
+            bool showDirFiles = false,
+            Action<string>? logSession = null)
         {
             targetNodes.Clear();
 
@@ -138,6 +139,25 @@ namespace TDR.Tools.ViewModels
             }
 
             // 2. Validate Track Badges on Archive and Folder Nodes
+            var confirmedTrackFolders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var f in vfs.GetFiles())
+            {
+                if (!string.IsNullOrEmpty(f.Name) && TrackDiscovery.IsWeakTrackCandidate(f.Name) && (isTrackValidator == null || isTrackValidator(f.Name)))
+                {
+                    string norm = f.Name.Replace('\\', '/');
+                    var parts = norm.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                    if (parts.Length >= 2 && parts[0].Equals("tracks", StringComparison.OrdinalIgnoreCase))
+                    {
+                        confirmedTrackFolders.Add($"tracks/{parts[1]}");
+                    }
+                    int lastSlash = norm.LastIndexOf('/');
+                    if (lastSlash > 0)
+                    {
+                        confirmedTrackFolders.Add(norm[..lastSlash]);
+                    }
+                }
+            }
+
             foreach (var node in nodeCache.Values)
             {
                 if (node.IsArchive || node.IsDirectory)
@@ -155,28 +175,19 @@ namespace TDR.Tools.ViewModels
                                            TrackDiscovery.IsWeakTrackCandidate($"{node.VirtualPath}/{baseName}.txt") &&
                                            (isTrackValidator == null || isTrackValidator($"{node.VirtualPath}/{baseName}.txt"));
 
-
-
                         if (!isTrackNode && node.IsDirectory)
                         {
                             // Badge escalation guard: only the immediate track folder (tracks/<name>)
                             // gets a badge — never its parents ("tracks/", "assets/", root).
-                            // A valid track folder has VirtualPath of the form "tracks/<trackname>"
-                            // (exactly one slash, first segment is "tracks").
                             string vp = (node.VirtualPath ?? "").Replace('\\', '/').ToLowerInvariant().TrimEnd('/');
                             var vpParts = vp.Split('/', StringSplitOptions.RemoveEmptyEntries);
                             bool isDirectTrackFolder = vpParts.Length == 2 &&
                                                        vpParts[0].Equals("tracks", StringComparison.OrdinalIgnoreCase);
 
-                            if (isDirectTrackFolder)
+                            if (isDirectTrackFolder && node.VirtualPath != null)
                             {
-                                // Check that at least one file inside this folder is a confirmed track descriptor
-                                string prefix = node.VirtualPath!;
-                                isTrackNode = vfs.GetFiles().Any(f =>
-                                    !string.IsNullOrEmpty(f.Name) &&
-                                    f.Name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) &&
-                                    TrackDiscovery.IsWeakTrackCandidate(f.Name) &&
-                                    (isTrackValidator == null || isTrackValidator(f.Name)));
+                                string normVp = node.VirtualPath.Replace('\\', '/');
+                                isTrackNode = confirmedTrackFolders.Contains(normVp);
                             }
                         }
 
@@ -191,25 +202,7 @@ namespace TDR.Tools.ViewModels
                 }
             }
 
-            // 3. Filter by search query if provided
-            bool queryActive = !string.IsNullOrWhiteSpace(searchQuery);
-
-            // Sort root level: 1. Folders (A-Z) -> 2. Archives (A-Z) -> 3. Files (A-Z)
-            var sortedRoot = rootNodesList
-                .OrderBy(n => GetSortPriority(n))
-                .ThenBy(n => n.Name, StringComparer.OrdinalIgnoreCase)
-                .ToList();
-
-            foreach (var node in sortedRoot)
-            {
-                SortChildren(node);
-                if (!queryActive || MatchesSearchQuery(node, searchQuery))
-                {
-                    targetNodes.Add(node);
-                }
-            }
-
-            // 2. Enumerate physical disk directories to ensure complete browser view (prevents locking inside subfolders)
+            // 2. Enumerate physical disk directories and files to ensure complete browser view (prevents locking inside subfolders)
             if (Directory.Exists(canonicalRoot))
             {
                 try
@@ -228,12 +221,9 @@ namespace TDR.Tools.ViewModels
                                 NodeType = FileNodeType.Directory
                             };
                             dirNode.UpdateIcon();
+                            SetupLazyFolderExpansion(dirNode, searchQuery, logSession, showDirFiles);
                             nodeCache[dirName] = dirNode;
-
-                            if (!queryActive || MatchesSearchQuery(dirNode, searchQuery))
-                            {
-                                targetNodes.Add(dirNode);
-                            }
+                            rootNodesList.Add(dirNode);
                         }
                     }
 
@@ -257,11 +247,7 @@ namespace TDR.Tools.ViewModels
                             };
                             fileNode.UpdateIcon();
                             nodeCache[fileName] = fileNode;
-
-                            if (!queryActive || MatchesSearchQuery(fileNode, searchQuery))
-                            {
-                                targetNodes.Add(fileNode);
-                            }
+                            rootNodesList.Add(fileNode);
                         }
                     }
                 }
@@ -272,6 +258,23 @@ namespace TDR.Tools.ViewModels
                 catch (Exception)
                 {
                     // Ignore non-critical disk scan exception
+                }
+            }
+
+            // 3. Filter by search query if provided and sort root level: 1. Folders (A-Z) -> 2. Files and Archives (A-Z)
+            bool queryActive = !string.IsNullOrWhiteSpace(searchQuery);
+
+            var sortedRoot = rootNodesList
+                .OrderBy(n => GetSortPriority(n))
+                .ThenBy(n => n.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            foreach (var node in sortedRoot)
+            {
+                SortChildren(node);
+                if (!queryActive || MatchesSearchQuery(node, searchQuery))
+                {
+                    targetNodes.Add(node);
                 }
             }
         }

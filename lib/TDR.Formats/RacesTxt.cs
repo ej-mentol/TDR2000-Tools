@@ -10,11 +10,17 @@ namespace TDR.PakLib.Formats
     {
         public string Track { get; set; } = string.Empty;
         public string Name { get; set; } = string.Empty;
+        public string? World { get; set; }
+        public string? DisplayName { get; set; }
+        public string? Description { get; set; }
         public int Type { get; set; }
         public bool IsMission { get; set; }
         public string? MissionDesc { get; set; }
         public string? CameraPath { get; set; }
+        public string? CameraInterestPath { get; set; }
         public string? Powerups { get; set; }
+        public string? DronePaths { get; set; }
+        public string? OpponentPaths { get; set; }
     }
 
     public sealed class RacesFile
@@ -61,10 +67,19 @@ namespace TDR.PakLib.Formats
                 if (currentEntry != null)
                 {
                     string[] parts = clean.Split(new[] { ' ', '\t' }, 2, StringSplitOptions.RemoveEmptyEntries);
-                    if (parts.Length < 2) continue;
+                    if (parts.Length == 0) continue;
+
+                    if (parts.Length == 1)
+                    {
+                        if (parts[0].Equals("MISSION", StringComparison.OrdinalIgnoreCase))
+                        {
+                            currentEntry.IsMission = true;
+                        }
+                        continue;
+                    }
 
                     string key = parts[0].ToUpperInvariant();
-                    string val = parts[1].Trim('"');
+                    string val = parts[1].Trim().Trim('"');
 
                     switch (key)
                     {
@@ -73,6 +88,15 @@ namespace TDR.PakLib.Formats
                             break;
                         case "NAME":
                             currentEntry.Name = val;
+                            break;
+                        case "WORLD":
+                            currentEntry.World = val;
+                            break;
+                        case "DISPLAY_NAME":
+                            currentEntry.DisplayName = val;
+                            break;
+                        case "DESCRIPTION":
+                            currentEntry.Description = val;
                             break;
                         case "TYPE":
                             if (int.TryParse(val, out int tVal)) currentEntry.Type = tVal;
@@ -87,8 +111,17 @@ namespace TDR.PakLib.Formats
                         case "CAMERA_PATH":
                             currentEntry.CameraPath = val;
                             break;
+                        case "CAMERA_INTEREST_PATH":
+                            currentEntry.CameraInterestPath = val;
+                            break;
                         case "POWERUPS":
                             currentEntry.Powerups = val;
+                            break;
+                        case "DRONE_PATHS":
+                            currentEntry.DronePaths = val;
+                            break;
+                        case "OPPONENT_PATHS":
+                            currentEntry.OpponentPaths = val;
                             break;
                     }
                 }

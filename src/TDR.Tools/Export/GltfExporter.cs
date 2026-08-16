@@ -24,6 +24,25 @@ namespace TDR.Tools.Export
         private readonly Action<string>? _logger;
         private readonly HashSet<string>? _selectedHieFiles;
         private readonly Dictionary<string, MSHSContainer> _meshCache = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, TDRHierarchy> _hieCache = new(StringComparer.OrdinalIgnoreCase);
+
+        private TDRHierarchy? GetOrLoadHierarchy(string hieName, string? archivePath, Func<string, byte[]?> loader)
+        {
+            string cacheKey = string.IsNullOrEmpty(archivePath) ? hieName : $"{archivePath}#{hieName}";
+            if (_hieCache.TryGetValue(cacheKey, out var cached)) return cached;
+            byte[]? hieData = loader(hieName);
+            if (hieData == null || hieData.Length == 0) return null;
+            try
+            {
+                var hie = TDRHierarchy.Load(hieData, hieName);
+                _hieCache[cacheKey] = hie;
+                return hie;
+            }
+            catch
+            {
+                return null;
+            }
+        }
 
         public GltfExporter(PakManager vfs, string exportDir, bool useLocalCoords = false, bool verbose = false, string? trackContext = null, Action<string>? logger = null, bool convertTexturesToPng = true, IEnumerable<string>? selectedHieFiles = null)
         {
@@ -58,10 +77,14 @@ namespace TDR.Tools.Export
             });
         }
 
-        private void Log(string msg)
+        private bool IsVerboseEnabled => _verbose || Services.LogService.Instance.IsEnabled(Services.LogLevel.Debug);
+
+        private void Log(string msg, Services.LogLevel level = Services.LogLevel.Info)
         {
+            if (level == Services.LogLevel.Debug && !IsVerboseEnabled) return;
+
             if (_logger != null) _logger(msg);
-            else Services.LogService.Instance.Info(msg);
+            else Services.LogService.Instance.Log(level, msg);
         }
 
         public bool ExportLevelToGltf(byte[] levelData, string levelName, string outputGltfPath, bool includeMovables = true, Action<int, string>? progressCallback = null)
@@ -81,6 +104,8 @@ namespace TDR.Tools.Export
             using var bw = new BinaryWriter(binStream);
 
             var materialMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            var imageMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            var textureMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             var meshMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
             var rootNode = new GltfNode { Name = levelName };
@@ -110,10 +135,21 @@ namespace TDR.Tools.Export
                 string? texFileName = ResolveTextureFile(texName, archivePath);
                 if (texFileName != null)
                 {
-                    int imgIdx = gltf.Images.Count;
-                    gltf.Images.Add(new GltfImage { Uri = texFileName });
-                    gltf.Textures.Add(new GltfTexture { Source = imgIdx });
-                    mat.PbrMetallicRoughness.BaseColorTexture = new GltfTextureInfo { Index = imgIdx };
+                    if (!imageMap.TryGetValue(texFileName, out int imgIdx))
+                    {
+                        imgIdx = gltf.Images.Count;
+                        gltf.Images.Add(new GltfImage { Uri = texFileName });
+                        imageMap[texFileName] = imgIdx;
+                    }
+
+                    if (!textureMap.TryGetValue(texFileName, out int texIdx))
+                    {
+                        texIdx = gltf.Textures.Count;
+                        gltf.Textures.Add(new GltfTexture { Source = imgIdx });
+                        textureMap[texFileName] = texIdx;
+                    }
+
+                    mat.PbrMetallicRoughness.BaseColorTexture = new GltfTextureInfo { Index = texIdx };
 
                     // Set AlphaMode for materials with alpha textures (e.g. tree2b, foliage, glass)
                     if (texFileName.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ||
@@ -144,9 +180,9 @@ namespace TDR.Tools.Export
                 foreach (string hieName in terrainHies)
                 {
                     if (hieName.Contains("sky", StringComparison.OrdinalIgnoreCase)) continue;
-                    byte[]? preBytes = _vfs.LoadFileContext(hieName, _trackContext ?? levelName);
-                    if (preBytes == null || preBytes.Length == 0) continue;
-                    var preHie = TDRHierarchy.Load(preBytes, hieName);
+                    string? archivePath = _vfs.GetArchivePath(hieName);
+                    var preHie = GetOrLoadHierarchy(hieName, archivePath, name => _vfs.LoadFileContext(name, _trackContext ?? levelName));
+                    if (preHie == null) continue;
                     var preTris = GroundSnapUtil.ExtractBaseTriangles(preHie, (path) => _vfs.LoadFileContext(path, _trackContext ?? levelName));
                     foreach (var tri in preTris)
                     {
@@ -163,27 +199,109 @@ namespace TDR.Tools.Export
                 }
             }
 
-            // 1. Bake Static Level HIE Hierarchies
+            var instancedHies = new HashSet<string>(assets.HieInstances.Select(inst => inst.HieName), StringComparer.OrdinalIgnoreCase);
+
+            // 1. Bake Static Top-Level Level HIE Hierarchies (terrain, sky, water, etc.)
             int totalHies = assets.HieFiles.Count;
             for (int i = 0; i < totalHies; i++)
             {
                 string hieName = assets.HieFiles[i];
                 if (!IsHieSelected(hieName)) continue;
+                if (instancedHies.Contains(hieName)) continue; // Processed with actual instance matrices below
 
                 int pct = (int)((float)(i + 1) / (totalHies + 1) * 80.0f);
                 progressCallback?.Invoke(pct, $"Processing glTF mesh ({i + 1}/{totalHies}): {hieName}");
 
-                byte[]? hieBytes = _vfs.LoadFileContext(hieName, _trackContext ?? levelName);
-                if (hieBytes == null || hieBytes.Length == 0) continue;
-
-                var hie = TDRHierarchy.Load(hieBytes, hieName);
                 string? archivePath = _vfs.GetArchivePath(hieName);
+                string meshKey = string.IsNullOrEmpty(archivePath) ? hieName : $"{archivePath}#{hieName}";
 
-                if (hie.Root != null)
+                if (!meshMap.TryGetValue(meshKey, out int gltfMeshIdx))
+                {
+                    byte[]? hieBytes = _vfs.LoadFileContext(hieName, _trackContext ?? levelName);
+                    if (hieBytes != null && hieBytes.Length > 0)
+                    {
+                        var hie = GetOrLoadHierarchy(hieName, archivePath, _ => hieBytes);
+                        if (hie != null)
+                        {
+                            gltfMeshIdx = BuildGltfMeshFromHie(hie, gltf, archivePath, bw, GetOrAddMaterial);
+                            if (gltfMeshIdx >= 0) meshMap[meshKey] = gltfMeshIdx;
+                        }
+                    }
+                }
+
+                if (gltfMeshIdx >= 0)
                 {
                     Matrix4x4 startMatrix = assets.HieInitialTransforms.TryGetValue(hieName, out var initMat) ? initMat : Matrix4x4.Identity;
-                    int layerNodeIdx = AddHieNodeToGltf(hie.Root, startMatrix, hie, gltf, archivePath, bw, GetOrAddMaterial, meshMap, globalOrigin);
-                    rootNode.Children.Add(layerNodeIdx);
+                    if (_useLocalCoords && globalOrigin.HasValue)
+                    {
+                        startMatrix.M41 -= globalOrigin.Value.X;
+                        startMatrix.M42 -= globalOrigin.Value.Y;
+                        startMatrix.M43 -= globalOrigin.Value.Z;
+                    }
+                    string layerName = Path.GetFileNameWithoutExtension(hieName);
+                    var layerNode = new GltfNode
+                    {
+                        Name = layerName,
+                        Mesh = gltfMeshIdx,
+                        Matrix = ToGltfMatrix(startMatrix)
+                    };
+                    int nodeIdx = gltf.Nodes.Count;
+                    gltf.Nodes.Add(layerNode);
+                    rootNode.Children.Add(nodeIdx);
+                }
+            }
+
+            // 1b. Bake Instanced HIEs (Breakables, Trees, Consoft, Dingables with explicit sub-descriptor placements)
+            if (assets.HieInstances.Count > 0)
+            {
+                var instCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                foreach (var inst in assets.HieInstances)
+                {
+                    string hieName = inst.HieName;
+                    if (!IsHieSelected(hieName)) continue;
+
+                    string? archivePath = _vfs.GetArchivePath(hieName);
+                    string meshKey = string.IsNullOrEmpty(archivePath) ? hieName : $"{archivePath}#{hieName}";
+
+                    if (!meshMap.TryGetValue(meshKey, out int gltfMeshIdx))
+                    {
+                        byte[]? hieBytes = _vfs.LoadFileContext(hieName, _trackContext ?? levelName);
+                        if (hieBytes != null && hieBytes.Length > 0)
+                        {
+                            var hie = GetOrLoadHierarchy(hieName, archivePath, _ => hieBytes);
+                            if (hie != null)
+                            {
+                                gltfMeshIdx = BuildGltfMeshFromHie(hie, gltf, archivePath, bw, GetOrAddMaterial);
+                                if (gltfMeshIdx >= 0) meshMap[meshKey] = gltfMeshIdx;
+                            }
+                        }
+                    }
+
+                    if (gltfMeshIdx >= 0)
+                    {
+                        string modelBaseName = Path.GetFileNameWithoutExtension(hieName);
+                        int instIdx = instCounts.GetValueOrDefault(modelBaseName, 0) + 1;
+                        instCounts[modelBaseName] = instIdx;
+                        string instanceId = $"{modelBaseName}_{instIdx:D3}";
+
+                        Matrix4x4 instMat = inst.Transform;
+                        if (_useLocalCoords && globalOrigin.HasValue)
+                        {
+                            instMat.M41 -= globalOrigin.Value.X;
+                            instMat.M42 -= globalOrigin.Value.Y;
+                            instMat.M43 -= globalOrigin.Value.Z;
+                        }
+
+                        var instNode = new GltfNode
+                        {
+                            Name = instanceId,
+                            Mesh = gltfMeshIdx,
+                            Matrix = ToGltfMatrix(instMat)
+                        };
+                        int nodeIdx = gltf.Nodes.Count;
+                        gltf.Nodes.Add(instNode);
+                        rootNode.Children.Add(nodeIdx);
+                    }
                 }
             }
 
@@ -221,7 +339,6 @@ namespace TDR.Tools.Export
 
                         string hieName = parts[0].Trim('"');
                         if (!hieName.EndsWith(".hie", StringComparison.OrdinalIgnoreCase)) hieName += ".hie";
-                        if (!IsHieSelected(hieName)) continue;
 
                         if (!float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float px) ||
                             !float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float py) ||
@@ -239,32 +356,36 @@ namespace TDR.Tools.Export
                         instCounts[modelBaseName] = instIdx;
                         string instanceId = $"{modelBaseName}_{instIdx:D3}";
 
-                        if (!meshMap.TryGetValue(hieName, out int gltfMeshIdx))
+                        string? archivePath = _vfs.GetArchivePath(hieName);
+                        string meshKey = string.IsNullOrEmpty(archivePath) ? hieName : $"{archivePath}#{hieName}";
+
+                        if (!meshMap.TryGetValue(meshKey, out int gltfMeshIdx))
                         {
-                            byte[]? hieData = _vfs.LoadFileContext(hieName, _trackContext ?? cleanTrackName);
-                            if (hieData != null)
+                            var hie = GetOrLoadHierarchy(hieName, archivePath, name => _vfs.LoadFileContext(name, _trackContext ?? cleanTrackName));
+                            if (hie != null)
                             {
-                                var hie = TDRHierarchy.Load(hieData, hieName);
-                                string? archivePath = _vfs.GetArchivePath(hieName);
                                 gltfMeshIdx = BuildGltfMeshFromHie(hie, gltf, archivePath, bw, GetOrAddMaterial);
-                                if (gltfMeshIdx >= 0) meshMap[hieName] = gltfMeshIdx;
+                                if (gltfMeshIdx >= 0) meshMap[meshKey] = gltfMeshIdx;
                             }
                         }
 
                         if (_useLocalCoords && globalOrigin.HasValue)
                         {
+                            px -= globalOrigin.Value.X;
                             py -= globalOrigin.Value.Y;
+                            pz -= globalOrigin.Value.Z;
                         }
 
                         if (gltfMeshIdx >= 0)
                         {
+                            Matrix4x4 rot = Matrix4x4.CreateFromQuaternion(new Quaternion(qx, qy, qz, qw));
+                            Matrix4x4 movMat = rot with { M41 = px, M42 = py, M43 = pz };
                             int propNodeIdx = gltf.Nodes.Count;
                             var propNode = new GltfNode
                             {
                                 Name = instanceId,
                                 Mesh = gltfMeshIdx,
-                                Translation = new[] { px, py, pz },
-                                Rotation = new[] { qx, qy, qz, qw }
+                                Matrix = ToGltfMatrix(movMat)
                             };
                             gltf.Nodes.Add(propNode);
                             rootNode.Children.Add(propNodeIdx);
@@ -286,13 +407,25 @@ namespace TDR.Tools.Export
                 if (!pupNames.Contains(race1Pup, StringComparer.OrdinalIgnoreCase) && _vfs.FileExists(race1Pup))
                     pupNames.Add(race1Pup);
 
-                foreach (string pName in pupNames)
+                foreach (string pupFile in pupNames)
                 {
-                    byte[]? pupData = _vfs.LoadFileContext(pName, _trackContext ?? cleanBaseTrack);
+                    byte[]? pupData = _vfs.LoadFileContext(pupFile, _trackContext ?? cleanBaseTrack);
                     if (pupData != null)
                     {
-                        AppendPowerupsToGltf(pupData, gltf, rootNode, meshMap, bw, cleanBaseTrack, GetOrAddMaterial);
+                        AppendPowerupsToGltf(pupData, gltf, rootNode, meshMap, bw, cleanBaseTrack, GetOrAddMaterial, globalOrigin);
                     }
+                }
+
+                // 3. Bake Traffic Drones (DRONE_DESCRIPTOR) into glTF scene
+                var droneDescs = new List<string>(assets.DroneDescriptors);
+                string defaultDrone = $"{cleanBaseTrack}_DroneDescriptor.txt";
+                if (!droneDescs.Contains(defaultDrone, StringComparer.OrdinalIgnoreCase) && _vfs.FileExists(defaultDrone))
+                {
+                    droneDescs.Add(defaultDrone);
+                }
+                if (droneDescs.Count > 0)
+                {
+                    AppendDronesToGltf(droneDescs, gltf, rootNode, meshMap, bw, cleanBaseTrack, GetOrAddMaterial, globalOrigin);
                 }
             }
 
@@ -304,8 +437,122 @@ namespace TDR.Tools.Export
             var jsonOptions = new JsonSerializerOptions { WriteIndented = true, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
             File.WriteAllText(outputGltfPath, JsonSerializer.Serialize(gltf, jsonOptions));
 
-            Log($"    └─ glTF 2.0 Scene Saved: {Path.GetFileName(outputGltfPath)} ({gltf.Nodes.Count} nodes, {gltf.Meshes.Count} meshes)");
+            Log($"    └─ glTF 2.0 Scene Saved: {Path.GetFileName(outputGltfPath)} ({gltf.Nodes.Count} nodes, {gltf.Meshes.Count} meshes)", Services.LogLevel.Summary);
             return true;
+        }
+
+        private void AppendDronesToGltf(
+            List<string> droneDescs,
+            GltfManifest gltf,
+            GltfNode rootNode,
+            Dictionary<string, int> meshMap,
+            BinaryWriter bw,
+            string cleanTrackName,
+            Func<string, string?, int> getMaterial,
+            Vector3? globalOrigin)
+        {
+            if (droneDescs == null || droneDescs.Count == 0) return;
+
+            var droneRequests = new List<(string Name, int Count)>();
+            foreach (string descName in droneDescs)
+            {
+                byte[]? data = _vfs.LoadFileContext(descName, _trackContext ?? cleanTrackName);
+                if (data == null || data.Length == 0) continue;
+
+                string text = Encoding.ASCII.GetString(data);
+                string[] lines = text.Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
+
+                foreach (string rawLine in lines)
+                {
+                    string clean = rawLine.Contains("//") ? rawLine[..rawLine.IndexOf("//")].Trim() : rawLine.Trim();
+                    if (string.IsNullOrWhiteSpace(clean)) continue;
+
+                    string[] parts = clean.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                    if (parts.Length >= 2 && int.TryParse(parts[1], out int count) && count > 0)
+                    {
+                        droneRequests.Add((parts[0].Trim('"'), count));
+                    }
+                }
+            }
+
+            if (droneRequests.Count == 0) return;
+
+            var roadSplines = SplineResolver.ResolveRoadSplines(_vfs, cleanTrackName, _trackContext, msg => Log(msg));
+            int totalDrones = droneRequests.Sum(r => r.Count);
+            var spawnMatrices = SplineResolver.GenerateSpawnMatrices(roadSplines, totalDrones);
+
+            int spawnIdx = 0;
+            foreach (var req in droneRequests)
+            {
+                string clean = req.Name
+                    .Replace("MAIN_NULL_PED", "", StringComparison.OrdinalIgnoreCase)
+                    .Replace("MAIN_NULL", "", StringComparison.OrdinalIgnoreCase)
+                    .Replace("_PED", "", StringComparison.OrdinalIgnoreCase)
+                    .Trim('_');
+
+                var candidates = new[]
+                {
+                    req.Name,
+                    req.Name + ".hie",
+                    $"cars/{req.Name}/{req.Name}.hie",
+                    clean,
+                    clean + ".hie",
+                    $"cars/{clean}/{clean}.hie",
+                    $"drones/{clean}/{clean}.hie"
+                };
+
+                string? resolvedHie = null;
+                byte[]? droneBytes = null;
+                foreach (var cand in candidates)
+                {
+                    droneBytes = _vfs.LoadFile(cand);
+                    if (droneBytes != null && droneBytes.Length > 0)
+                    {
+                        resolvedHie = cand;
+                        break;
+                    }
+                }
+
+                if (droneBytes == null || resolvedHie == null) continue;
+                string? archivePath = _vfs.GetArchivePath(resolvedHie);
+                string meshKey = string.IsNullOrEmpty(archivePath) ? resolvedHie : $"{archivePath}#{resolvedHie}";
+
+                if (!meshMap.TryGetValue(meshKey, out int gltfMeshIdx))
+                {
+                    var hie = GetOrLoadHierarchy(resolvedHie, archivePath, _ => droneBytes);
+                    if (hie != null)
+                    {
+                        gltfMeshIdx = BuildGltfMeshFromHie(hie, gltf, archivePath, bw, getMaterial);
+                        if (gltfMeshIdx >= 0) meshMap[meshKey] = gltfMeshIdx;
+                    }
+                }
+
+                if (gltfMeshIdx >= 0)
+                {
+                    for (int i = 0; i < req.Count; i++)
+                    {
+                        Matrix4x4 spawnMat = spawnMatrices[spawnIdx % spawnMatrices.Count];
+                        spawnIdx++;
+
+                        if (_useLocalCoords && globalOrigin.HasValue)
+                        {
+                            spawnMat.M41 -= globalOrigin.Value.X;
+                            spawnMat.M42 -= globalOrigin.Value.Y;
+                            spawnMat.M43 -= globalOrigin.Value.Z;
+                        }
+
+                        int propNodeIdx = gltf.Nodes.Count;
+                        var propNode = new GltfNode
+                        {
+                            Name = $"Drone_{clean}_{i + 1:D2}",
+                            Mesh = gltfMeshIdx,
+                            Matrix = ToGltfMatrix(spawnMat)
+                        };
+                        gltf.Nodes.Add(propNode);
+                        rootNode.Children.Add(propNodeIdx);
+                    }
+                }
+            }
         }
 
         private void AppendPowerupsToGltf(
@@ -315,7 +562,8 @@ namespace TDR.Tools.Export
             Dictionary<string, int> meshMap,
             BinaryWriter bw,
             string cleanTrackName,
-            Func<string, string?, int> getOrAddMaterial)
+            Func<string, string?, int> getOrAddMaterial,
+            Vector3? globalOrigin = null)
         {
             string text = Encoding.ASCII.GetString(pupData);
             string[] lines = text.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
@@ -349,30 +597,38 @@ namespace TDR.Tools.Export
                 {
                     pupIndex++;
                     string iconHieName = ResolvePowerupIconHie(lastTypeId, lastCommentName);
-                    if (!IsHieSelected(iconHieName)) continue;
                     string cleanComment = lastCommentName.Replace(' ', '_').Replace('!', '_').Replace('.', '_');
                     string instanceId = $"Powerup_{pupIndex:D3}_{cleanComment}";
 
-                    if (!meshMap.TryGetValue(iconHieName, out int gltfMeshIdx))
+                    string? archivePath = _vfs.GetArchivePath(iconHieName);
+                    string meshKey = string.IsNullOrEmpty(archivePath) ? iconHieName : $"{archivePath}#{iconHieName}";
+
+                    if (!meshMap.TryGetValue(meshKey, out int gltfMeshIdx))
                     {
-                        byte[]? hieData = _vfs.LoadFileContext(iconHieName, _trackContext ?? cleanTrackName);
-                        if (hieData != null)
+                        var hie = GetOrLoadHierarchy(iconHieName, archivePath, name => _vfs.LoadFileContext(name, _trackContext ?? cleanTrackName));
+                        if (hie != null)
                         {
-                            var hie = TDRHierarchy.Load(hieData, iconHieName);
-                            string? archivePath = _vfs.GetArchivePath(iconHieName);
                             gltfMeshIdx = BuildGltfMeshFromHie(hie, gltf, archivePath, bw, getOrAddMaterial);
-                            if (gltfMeshIdx >= 0) meshMap[iconHieName] = gltfMeshIdx;
+                            if (gltfMeshIdx >= 0) meshMap[meshKey] = gltfMeshIdx;
                         }
                     }
 
                     if (gltfMeshIdx >= 0)
                     {
+                        Matrix4x4 pupMat = Matrix4x4.CreateTranslation(px, py, pz);
+                        if (_useLocalCoords && globalOrigin.HasValue)
+                        {
+                            pupMat.M41 -= globalOrigin.Value.X;
+                            pupMat.M42 -= globalOrigin.Value.Y;
+                            pupMat.M43 -= globalOrigin.Value.Z;
+                        }
+
                         int propNodeIdx = gltf.Nodes.Count;
                         var propNode = new GltfNode
                         {
                             Name = instanceId,
                             Mesh = gltfMeshIdx,
-                            Translation = new[] { px, py, pz }
+                            Matrix = ToGltfMatrix(pupMat)
                         };
                         gltf.Nodes.Add(propNode);
                         rootNode.Children.Add(propNodeIdx);
@@ -381,131 +637,35 @@ namespace TDR.Tools.Export
             }
         }
 
-        private static string ResolvePowerupIconHie(int typeId, string name)
+        private static string ResolvePowerupIconHie(int typeId, string name) =>
+            TextureResolver.ResolvePowerupIconHie(typeId, name);
+
+        private static float[] ToGltfMatrix(Matrix4x4 m)
         {
-            // If typeId comes in as raw VB Long uint32 representation (e.g. 1116733440), convert back to float ID
-            if (typeId > 100000)
+            return new[]
             {
-                byte[] bytes = BitConverter.GetBytes(typeId);
-                float floatVal = BitConverter.ToSingle(bytes, 0);
-                if (!float.IsNaN(floatVal) && floatVal >= 0 && floatVal < 500)
-                {
-                    typeId = (int)Math.Round(floatVal);
-                }
-            }
-
-            string lowerName = name.ToLowerInvariant();
-
-            // 1. Mission / Quest / System Special Items (from official TDR2000.exe disassembly)
-            if (lowerName.Contains("arrow")) return "ArrowArrow.hie";
-            if (lowerName.Contains("bigbomb") || lowerName.Contains("big_bomb")) return "BIG_BOMBBomb.hie";
-            if (lowerName.Contains("spike")) return "MortarTailSpike.hie";
-            if (lowerName.Contains("bomb")) return "BombPiececube1.hie";
-            if (lowerName.Contains("fuse")) return "fuseFuse_NULL.hie";
-            if (lowerName.Contains("enginepart") || lowerName.Contains("engine_part")) return "EnginePartobj3.hie";
-            if (lowerName.Contains("moneybag") || lowerName.Contains("money_bag")) return "DingablesMoneyBagPowerup.hie";
-            if (lowerName.Contains("artillery") || lowerName.Contains("shell")) return "DingablesArtilleryShellPow.hie";
-            if (lowerName.Contains("mortar")) return "mortarTail_Render.hie";
-            if (lowerName.Contains("oil") || lowerName.Contains("drum")) return "Oil_DrumDrum_null.hie";
-
-            if (lowerName.Contains("spanner") || lowerName.Contains("repair") || lowerName.Contains("fix"))
-                return "newIconsSPANNER.hie";
-
-            if (lowerName.Contains("cash") || lowerName.Contains("credit") || lowerName.Contains("money"))
-                return "newIconsWADOCASH.hie";
-
-            if (lowerName.Contains("time")) return "newIconsTIME.hie";
-
-            if (lowerName.Contains("zombie") || lowerName.Contains("pedestrian") || lowerName.Contains("flamethrower") ||
-                lowerName.Contains("ray") || lowerName.Contains("dismember"))
-                return "newIconsPEDSIGN.hie";
-
-            if (lowerName.Contains("armour") || lowerName.Contains("defense") || lowerName.Contains("helmet") || lowerName.Contains("invulnerability"))
-                return "newIconsHELMET.hie";
-
-            if (lowerName.Contains("fist") || lowerName.Contains("offensive") || lowerName.Contains("damage"))
-                return "newIconsFIST.hie";
-
-            if (lowerName.Contains("engine") || lowerName.Contains("turbo") || lowerName.Contains("burner") || lowerName.Contains("speed") || lowerName.Contains("hot rod"))
-                return "newIconsENGINE.hie";
-
-            if (lowerName.Contains("apo")) return "newIconsAPOall.hie";
-
-            return typeId switch
-            {
-                1 or 29 or 30 => "newIconsHELMET.hie",
-                2 or 24 or 27 or 28 or 80 => "newIconsENGINE.hie",
-                3 or 36 or 43 => "newIconsFIST.hie",
-                4 or 73 or 74 or 75 => "newIconsSPANNER.hie",
-                5 or 70 or 71 or 72 => "newIconsWADOCASH.hie",
-                64 or 68 => "newIconsTIME.hie",
-                45 or 46 or 47 or 49 or 50 or 51 or 52 or 55 or 56 or 57 or 58 or 62 or 66 or 78 or 93 or 114 or 118 => "newIconsPEDSIGN.hie",
-                94 => "mortarTail_Render.hie",
-                92 => "Oil_DrumDrum_null.hie",
-                _ => "newIconsSPANNER.hie"
+                m.M11, m.M12, m.M13, m.M14,
+                m.M21, m.M22, m.M23, m.M24,
+                m.M31, m.M32, m.M33, m.M34,
+                m.M41, m.M42, m.M43, m.M44
             };
         }
 
-        private int AddHieNodeToGltf(
-            TDRNode node,
-            Matrix4x4 parentMatrix,
-            TDRHierarchy hie,
-            GltfManifest gltf,
-            string? archivePath,
-            BinaryWriter bw,
-            Func<string, string?, int> getMaterial,
-            Dictionary<string, int> meshMap,
-            Vector3? localOrigin = null,
-            HashSet<TDRNode>? visited = null,
-            int depth = 0)
+        private bool TryLoadMesh(string meshName, string? archivePath, out MSHSContainer? container)
         {
-            if (node == null || depth > 200) return -1;
+            string cacheKey = string.IsNullOrEmpty(archivePath) ? meshName : $"{archivePath}#{meshName}";
+            if (_meshCache.TryGetValue(cacheKey, out container)) return container != null;
 
-            visited ??= new HashSet<TDRNode>();
-            if (!visited.Add(node)) return -1;
-
-            Matrix4x4 worldMatrix = node.Transform * parentMatrix;
-
-            int nodeIdx = gltf.Nodes.Count;
-            var gNode = new GltfNode { Name = $"{node.Name}_{node.ID}" };
-
-            if (Matrix4x4.Decompose(worldMatrix, out Vector3 scale, out Quaternion rot, out Vector3 trans))
+            byte[]? meshData = _vfs.LoadFileContext(meshName, archivePath ?? _trackContext);
+            if (meshData != null)
             {
-                if (_useLocalCoords && localOrigin.HasValue && node == hie.Root)
-                {
-                    trans -= localOrigin.Value;
-                }
-                gNode.Translation = new[] { trans.X, trans.Y, trans.Z };
-                gNode.Rotation = new[] { rot.X, rot.Y, rot.Z, rot.W };
-                gNode.Scale = new[] { scale.X, scale.Y, scale.Z };
+                container = MSHSContainer.Load(meshData, meshName);
+                _meshCache[cacheKey] = container;
+                return true;
             }
 
-            gltf.Nodes.Add(gNode);
-
-            if (node.Type == TDRNode.NodeType.Mesh)
-            {
-                string? meshName = hie.Meshes.Count == 1 ? hie.Meshes[0] : (node.Index >= 0 && node.Index < hie.Meshes.Count ? hie.Meshes[node.Index] : null);
-                if (meshName != null)
-                {
-                    int mIdx = BuildGltfMeshFromContainer(meshName, hie, gltf, archivePath, bw, getMaterial);
-                    if (mIdx >= 0) gNode.Mesh = mIdx;
-                }
-            }
-
-            if (node.Child >= 0 && node.Child < hie.Nodes.Count)
-            {
-                var childNode = hie.Nodes[node.Child];
-                int childIdx = AddHieNodeToGltf(childNode, worldMatrix, hie, gltf, archivePath, bw, getMaterial, meshMap, localOrigin, visited, depth + 1);
-                if (childIdx >= 0) gNode.Children.Add(childIdx);
-            }
-
-            if (node.Sibling >= 0 && node.Sibling < hie.Nodes.Count)
-            {
-                var siblingNode = hie.Nodes[node.Sibling];
-                AddHieNodeToGltf(siblingNode, parentMatrix, hie, gltf, archivePath, bw, getMaterial, meshMap, localOrigin, visited, depth + 1);
-            }
-
-            return nodeIdx;
+            container = null;
+            return false;
         }
 
         private int BuildGltfMeshFromHie(
@@ -516,161 +676,245 @@ namespace TDR.Tools.Export
             Func<string, string?, int> getMaterial)
         {
             if (hie.Meshes.Count == 0) return -1;
-            string meshName = hie.Meshes[0];
-            return BuildGltfMeshFromContainer(meshName, hie, gltf, archivePath, bw, getMaterial);
+
+            var gMesh = new GltfMesh { Name = Path.GetFileNameWithoutExtension(hie.Name) };
+            string currentTex = hie.Textures.Count > 0 ? hie.Textures[0].Trim('"') : "Default";
+
+            void ProcessHieNode(TDRNode? node, Matrix4x4 parentMat, ref string activeTex, HashSet<TDRNode> visited, int depth = 0)
+            {
+                if (node == null || depth > 200 || !visited.Add(node)) return;
+
+                Matrix4x4 localMat = node.Transform * parentMat;
+
+                if (node.Type == TDRNode.NodeType.Texture && node.Index >= 0 && node.Index < hie.Textures.Count)
+                {
+                    activeTex = hie.Textures[node.Index].Trim('"');
+                }
+                if (node.Type == TDRNode.NodeType.Material && node.Index >= 0 && node.Index < hie.Materials.Count)
+                {
+                    var mat = hie.Materials[node.Index];
+                    if (mat.TextureIndex >= 0 && mat.TextureIndex < hie.Textures.Count)
+                    {
+                        activeTex = hie.Textures[mat.TextureIndex].Trim('"');
+                    }
+                }
+                if (node.Type == TDRNode.NodeType.Mesh)
+                {
+                    string? meshName = hie.Meshes.Count == 1 ? hie.Meshes[0] : (node.Index >= 0 && node.Index < hie.Meshes.Count ? hie.Meshes[node.Index] : null);
+                    if (meshName != null && TryLoadMesh(meshName, archivePath, out var container) && container != null)
+                    {
+                        int subIndex = hie.Meshes.Count == 1 ? node.Index : -1;
+                        if (subIndex >= 0 && subIndex < container.Meshes.Count)
+                        {
+                            var prim = BuildGltfPrimitive(container.Meshes[subIndex], activeTex, archivePath, gltf, bw, getMaterial);
+                            if (prim != null) gMesh.Primitives.Add(prim);
+                        }
+                        else
+                        {
+                            for (int i = 0; i < container.Meshes.Count; i++)
+                            {
+                                string subTex = (i < hie.Textures.Count) ? hie.Textures[i].Trim('"') : activeTex;
+                                var prim = BuildGltfPrimitive(container.Meshes[i], subTex, archivePath, gltf, bw, getMaterial);
+                                if (prim != null) gMesh.Primitives.Add(prim);
+                            }
+                        }
+                    }
+                }
+
+                foreach (var child in node.Children)
+                {
+                    string childTex = activeTex;
+                    ProcessHieNode(child, localMat, ref childTex, visited, depth + 1);
+                }
+            }
+
+            if (hie.Root != null)
+            {
+                var visited = new HashSet<TDRNode>();
+                ProcessHieNode(hie.Root, Matrix4x4.Identity, ref currentTex, visited);
+            }
+            else
+            {
+                foreach (var meshName in hie.Meshes)
+                {
+                    if (TryLoadMesh(meshName, archivePath, out var container) && container != null)
+                    {
+                        for (int i = 0; i < container.Meshes.Count; i++)
+                        {
+                            string subTex = (i < hie.Textures.Count) ? hie.Textures[i].Trim('"') : currentTex;
+                            var prim = BuildGltfPrimitive(container.Meshes[i], subTex, archivePath, gltf, bw, getMaterial);
+                            if (prim != null) gMesh.Primitives.Add(prim);
+                        }
+                    }
+                }
+            }
+
+            if (gMesh.Primitives.Count == 0) return -1;
+            int meshIdx = gltf.Meshes.Count;
+            gltf.Meshes.Add(gMesh);
+            return meshIdx;
         }
 
-        private int BuildGltfMeshFromContainer(
-            string meshName,
-            TDRHierarchy hie,
-            GltfManifest gltf,
+        private GltfPrimitive? BuildGltfPrimitive(
+            TDRMeshData subMesh,
+            string texName,
             string? archivePath,
+            GltfManifest gltf,
             BinaryWriter bw,
             Func<string, string?, int> getMaterial)
         {
-            if (!_meshCache.TryGetValue(meshName, out var container))
+            if (subMesh == null) return null;
+
+            int matIdx = getMaterial(texName, archivePath);
+
+            var positions = new List<Vector3>();
+            var normals = new List<Vector3>();
+            var uvs = new List<Vector2>();
+            var indices = new List<uint>();
+
+            if (subMesh.Mode == MeshMode.TriIndexedPosition || (subMesh.Positions.Count > 0 && subMesh.Faces.Count > 0))
             {
-                byte[]? meshData = _vfs.LoadFileContext(meshName, _trackContext);
-                if (meshData != null)
+                uint idx = 0;
+                foreach (var face in subMesh.Faces)
                 {
-                    container = MSHSContainer.Load(meshData, meshName);
-                    _meshCache[meshName] = container;
+                    for (int i = 0; i < 3; i++)
+                    {
+                        var vert = face.Vertices[i];
+                        if (vert.PositionIndex < 0 || vert.PositionIndex >= subMesh.Positions.Count) continue;
+
+                        positions.Add(subMesh.Positions[vert.PositionIndex]);
+                        normals.Add(vert.Normal);
+                        uvs.Add(new Vector2(vert.UV.X, vert.UV.Y));
+                        indices.Add(idx++);
+                    }
                 }
             }
-
-            if (container == null) return -1;
-
-            int meshIdx = gltf.Meshes.Count;
-            var gMesh = new GltfMesh { Name = Path.GetFileNameWithoutExtension(meshName) };
-            string defaultTex = hie.Textures.Count > 0 ? hie.Textures[0].Trim('"') : "Default";
-
-            for (int i = 0; i < container.Meshes.Count; i++)
+            else if (subMesh.Vertices.Count > 0 && subMesh.Faces.Count > 0)
             {
-                var subMesh = container.Meshes[i];
-                if (subMesh.Vertices.Count == 0 || subMesh.Faces.Count == 0) continue;
-
-                string texName = (i < hie.Textures.Count) ? hie.Textures[i].Trim('"') : defaultTex;
-                int matIdx = getMaterial(texName, archivePath);
-
-                // Alignment padding to 4 bytes
-                long currentPos = bw.BaseStream.Position;
-                long remainder = currentPos % 4;
-                if (remainder != 0)
-                {
-                    for (int pad = 0; pad < 4 - remainder; pad++) bw.Write((byte)0);
-                }
-
-                // 1. Write Positions
-                long posOffset = bw.BaseStream.Position;
-                float minX = float.MaxValue, minY = float.MaxValue, minZ = float.MaxValue;
-                float maxX = float.MinValue, maxY = float.MinValue, maxZ = float.MinValue;
-
                 foreach (var v in subMesh.Vertices)
                 {
-                    float x = v.Position.X, y = v.Position.Y, z = v.Position.Z;
-                    bw.Write(x); bw.Write(y); bw.Write(z);
-
-                    if (x < minX) minX = x; if (x > maxX) maxX = x;
-                    if (y < minY) minY = y; if (y > maxY) maxY = y;
-                    if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
+                    positions.Add(v.Position);
+                    normals.Add(v.Normal);
+                    uvs.Add(new Vector2(v.UV.X, v.UV.Y));
                 }
-                int posByteLength = (int)(bw.BaseStream.Position - posOffset);
-
-                // 2. Write Normals
-                long normOffset = bw.BaseStream.Position;
-                foreach (var v in subMesh.Vertices)
-                {
-                    bw.Write(v.Normal.X); bw.Write(v.Normal.Y); bw.Write(v.Normal.Z);
-                }
-                int normByteLength = (int)(bw.BaseStream.Position - normOffset);
-
-                // 3. Write UVs
-                long uvOffset = bw.BaseStream.Position;
-                foreach (var v in subMesh.Vertices)
-                {
-                    bw.Write(v.UV.X); bw.Write(1.0f - v.UV.Y);
-                }
-                int uvByteLength = (int)(bw.BaseStream.Position - uvOffset);
-
-                // 4. Write Indices (Triangles)
-                long idxOffset = bw.BaseStream.Position;
-                int indexCount = 0;
                 foreach (var f in subMesh.Faces)
                 {
-                    bw.Write((uint)f.V1);
-                    bw.Write((uint)f.V2);
-                    bw.Write((uint)f.V3);
-                    indexCount += 3;
+                    indices.Add((uint)f.V1);
+                    indices.Add((uint)f.V2);
+                    indices.Add((uint)f.V3);
                 }
-                int idxByteLength = (int)(bw.BaseStream.Position - idxOffset);
-
-                // Register BufferViews
-                int posViewIdx = gltf.BufferViews.Count;
-                gltf.BufferViews.Add(new GltfBufferView { Buffer = 0, ByteOffset = (int)posOffset, ByteLength = posByteLength, Target = 34962 });
-
-                int normViewIdx = gltf.BufferViews.Count;
-                gltf.BufferViews.Add(new GltfBufferView { Buffer = 0, ByteOffset = (int)normOffset, ByteLength = normByteLength, Target = 34962 });
-
-                int uvViewIdx = gltf.BufferViews.Count;
-                gltf.BufferViews.Add(new GltfBufferView { Buffer = 0, ByteOffset = (int)uvOffset, ByteLength = uvByteLength, Target = 34962 });
-
-                int idxViewIdx = gltf.BufferViews.Count;
-                gltf.BufferViews.Add(new GltfBufferView { Buffer = 0, ByteOffset = (int)idxOffset, ByteLength = idxByteLength, Target = 34963 });
-
-                // Register Accessors with REQUIRED MIN and MAX bounds for POSITION
-                int posAccIdx = gltf.Accessors.Count;
-                gltf.Accessors.Add(new GltfAccessor
-                {
-                    BufferView = posViewIdx,
-                    ComponentType = 5126, // FLOAT
-                    Count = subMesh.Vertices.Count,
-                    Type = "VEC3",
-                    Min = new[] { minX, minY, minZ },
-                    Max = new[] { maxX, maxY, maxZ }
-                });
-
-                int normAccIdx = gltf.Accessors.Count;
-                gltf.Accessors.Add(new GltfAccessor
-                {
-                    BufferView = normViewIdx,
-                    ComponentType = 5126,
-                    Count = subMesh.Vertices.Count,
-                    Type = "VEC3"
-                });
-
-                int uvAccIdx = gltf.Accessors.Count;
-                gltf.Accessors.Add(new GltfAccessor
-                {
-                    BufferView = uvViewIdx,
-                    ComponentType = 5126,
-                    Count = subMesh.Vertices.Count,
-                    Type = "VEC2"
-                });
-
-                int idxAccIdx = gltf.Accessors.Count;
-                gltf.Accessors.Add(new GltfAccessor
-                {
-                    BufferView = idxViewIdx,
-                    ComponentType = 5125, // UNSIGNED_INT
-                    Count = indexCount,
-                    Type = "SCALAR"
-                });
-
-                // Primitive definition
-                var prim = new GltfPrimitive
-                {
-                    Indices = idxAccIdx,
-                    Material = matIdx >= 0 ? matIdx : null
-                };
-                prim.Attributes["POSITION"] = posAccIdx;
-                prim.Attributes["NORMAL"] = normAccIdx;
-                prim.Attributes["TEXCOORD_0"] = uvAccIdx;
-
-                gMesh.Primitives.Add(prim);
             }
 
-            gltf.Meshes.Add(gMesh);
-            return meshIdx;
+            if (positions.Count == 0 || indices.Count == 0) return null;
+
+            // Alignment padding to 4 bytes
+            long currentPos = bw.BaseStream.Position;
+            long remainder = currentPos % 4;
+            if (remainder != 0)
+            {
+                for (int pad = 0; pad < 4 - remainder; pad++) bw.Write((byte)0);
+            }
+
+            // 1. Write Positions
+            long posOffset = bw.BaseStream.Position;
+            float minX = float.MaxValue, minY = float.MaxValue, minZ = float.MaxValue;
+            float maxX = float.MinValue, maxY = float.MinValue, maxZ = float.MinValue;
+
+            foreach (var p in positions)
+            {
+                bw.Write(p.X); bw.Write(p.Y); bw.Write(p.Z);
+                if (p.X < minX) minX = p.X; if (p.X > maxX) maxX = p.X;
+                if (p.Y < minY) minY = p.Y; if (p.Y > maxY) maxY = p.Y;
+                if (p.Z < minZ) minZ = p.Z; if (p.Z > maxZ) maxZ = p.Z;
+            }
+            int posByteLength = (int)(bw.BaseStream.Position - posOffset);
+
+            // 2. Write Normals
+            long normOffset = bw.BaseStream.Position;
+            foreach (var n in normals)
+            {
+                bw.Write(n.X); bw.Write(n.Y); bw.Write(n.Z);
+            }
+            int normByteLength = (int)(bw.BaseStream.Position - normOffset);
+
+            // 3. Write UVs
+            long uvOffset = bw.BaseStream.Position;
+            foreach (var uv in uvs)
+            {
+                bw.Write(uv.X); bw.Write(uv.Y);
+            }
+            int uvByteLength = (int)(bw.BaseStream.Position - uvOffset);
+
+            // 4. Write Indices
+            long idxOffset = bw.BaseStream.Position;
+            foreach (var idx in indices)
+            {
+                bw.Write(idx);
+            }
+            int idxByteLength = (int)(bw.BaseStream.Position - idxOffset);
+
+            // Register BufferViews
+            int posViewIdx = gltf.BufferViews.Count;
+            gltf.BufferViews.Add(new GltfBufferView { Buffer = 0, ByteOffset = (int)posOffset, ByteLength = posByteLength, Target = 34962 });
+
+            int normViewIdx = gltf.BufferViews.Count;
+            gltf.BufferViews.Add(new GltfBufferView { Buffer = 0, ByteOffset = (int)normOffset, ByteLength = normByteLength, Target = 34962 });
+
+            int uvViewIdx = gltf.BufferViews.Count;
+            gltf.BufferViews.Add(new GltfBufferView { Buffer = 0, ByteOffset = (int)uvOffset, ByteLength = uvByteLength, Target = 34962 });
+
+            int idxViewIdx = gltf.BufferViews.Count;
+            gltf.BufferViews.Add(new GltfBufferView { Buffer = 0, ByteOffset = (int)idxOffset, ByteLength = idxByteLength, Target = 34963 });
+
+            // Register Accessors
+            int posAccIdx = gltf.Accessors.Count;
+            gltf.Accessors.Add(new GltfAccessor
+            {
+                BufferView = posViewIdx,
+                ComponentType = 5126, // FLOAT
+                Count = positions.Count,
+                Type = "VEC3",
+                Min = new[] { minX, minY, minZ },
+                Max = new[] { maxX, maxY, maxZ }
+            });
+
+            int normAccIdx = gltf.Accessors.Count;
+            gltf.Accessors.Add(new GltfAccessor
+            {
+                BufferView = normViewIdx,
+                ComponentType = 5126,
+                Count = normals.Count,
+                Type = "VEC3"
+            });
+
+            int uvAccIdx = gltf.Accessors.Count;
+            gltf.Accessors.Add(new GltfAccessor
+            {
+                BufferView = uvViewIdx,
+                ComponentType = 5126,
+                Count = uvs.Count,
+                Type = "VEC2"
+            });
+
+            int idxAccIdx = gltf.Accessors.Count;
+            gltf.Accessors.Add(new GltfAccessor
+            {
+                BufferView = idxViewIdx,
+                ComponentType = 5125, // UNSIGNED_INT
+                Count = indices.Count,
+                Type = "SCALAR"
+            });
+
+            var prim = new GltfPrimitive
+            {
+                Indices = idxAccIdx,
+                Material = matIdx >= 0 ? matIdx : null
+            };
+            prim.Attributes["POSITION"] = posAccIdx;
+            prim.Attributes["NORMAL"] = normAccIdx;
+            prim.Attributes["TEXCOORD_0"] = uvAccIdx;
+
+            return prim;
         }
 
         private string? ResolveTextureFile(string texName, string? archivePath)
@@ -767,15 +1011,23 @@ namespace TDR.Tools.Export
         public string Name { get; set; } = string.Empty;
 
         [JsonPropertyName("mesh")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public int? Mesh { get; set; }
 
+        [JsonPropertyName("matrix")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public float[]? Matrix { get; set; }
+
         [JsonPropertyName("translation")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public float[]? Translation { get; set; }
 
         [JsonPropertyName("rotation")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public float[]? Rotation { get; set; }
 
         [JsonPropertyName("scale")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public float[]? Scale { get; set; }
 
         [JsonPropertyName("children")]

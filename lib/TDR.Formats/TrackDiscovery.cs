@@ -41,9 +41,19 @@ namespace TDR.PakLib.Formats
         {
             if (string.IsNullOrWhiteSpace(virtualOrDiskPath)) return false;
             string norm = virtualOrDiskPath.Replace('\\', '/').ToLowerInvariant();
-
             if (!norm.EndsWith(".txt")) return false;
-            if (norm.EndsWith("movabledescriptor.txt") || norm.EndsWith("moveabledescriptor.txt")) return false;
+
+            if (norm.EndsWith("movabledescriptor.txt") ||
+                norm.EndsWith("moveabledescriptor.txt") ||
+                norm.EndsWith("lightsdescriptor.txt") ||
+                norm.EndsWith("breakdescriptor.txt") ||
+                norm.EndsWith("pedsdescriptor.txt") ||
+                norm.EndsWith("dronedescriptor.txt") ||
+                norm.EndsWith("texanimdescriptor.txt") ||
+                norm.EndsWith("ambientsnddescriptor.txt") ||
+                norm.EndsWith("followerpathsdescriptor.txt") ||
+                norm.EndsWith("occludersdescriptor.txt"))
+                return false;
 
             string fileName = Path.GetFileName(norm);
             if (fileName.Contains("race") || fileName.Contains("mission") || fileName.Contains("multiplayer") || fileName.EndsWith("descriptor.txt") || norm.Contains("tracks/") || !norm.Contains('/'))

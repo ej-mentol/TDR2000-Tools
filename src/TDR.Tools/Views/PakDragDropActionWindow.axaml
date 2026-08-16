@@ -31,16 +31,17 @@
             <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10">
                 <Button x:Name="ConvertButton" Content="Convert Track..." Click="OnConvertClick" Width="130" Height="32" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" IsDefault="True" Background="{DynamicResource AccentBrush}" Foreground="#0E0E0E" FontWeight="SemiBold" FontSize="12" CornerRadius="4" ToolTip.Tip="Fastest action: Open 3D Track/Mission Export Options dialog (Press Enter)."/>
                 
-                <Button x:Name="FileOpsButton" Width="130" Height="32" Padding="10,0" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextPrimaryBrush}" FontWeight="SemiBold" FontSize="12" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="1" CornerRadius="4" ToolTip.Tip="Click for copy &amp; unpack operations.">
-                    <Grid ColumnDefinitions="*,Auto" HorizontalAlignment="Stretch">
+                <Button x:Name="FileOpsButton" Height="32" Padding="12,0" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextPrimaryBrush}" FontWeight="SemiBold" FontSize="12" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="1" CornerRadius="4" ToolTip.Tip="Click for copy &amp; unpack operations.">
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Spacing="0">
                         <TextBlock x:Name="FileOpsText" Text="File Ops" VerticalAlignment="Center"/>
-                        <TextBlock Text="▾" Grid.Column="1" Margin="6,0,0,0" VerticalAlignment="Center" Foreground="{DynamicResource TextSecondaryBrush}"/>
-                    </Grid>
+                        <Border Width="1" Height="14" Background="{DynamicResource BorderSubtleBrush}" Margin="8,0,8,0" VerticalAlignment="Center"/>
+                        <TextBlock Text="▾" FontSize="11" VerticalAlignment="Center" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                    </StackPanel>
                     <Button.Flyout>
                         <MenuFlyout>
-                            <MenuItem x:Name="CopyAndUnpackMenuItem" Header="📂 Copy Folder &amp; Unpack PAKs" Click="OnCopyAndUnpackClick"/>
-                            <MenuItem x:Name="CopyOnlyMenuItem" Header="📋 Copy Folder Files Only" Click="OnCopyOnlyClick"/>
-                            <MenuItem x:Name="UnpackOnlyMenuItem" Header="📦 Unpack .PAK Archives Only" Click="OnUnpackOnlyClick"/>
+                            <MenuItem x:Name="CopyAndUnpackMenuItem" Header="Copy Folder &amp; Unpack PAKs" Click="OnCopyAndUnpackClick"/>
+                            <MenuItem x:Name="CopyOnlyMenuItem" Header="Copy Folder Files Only" Click="OnCopyOnlyClick"/>
+                            <MenuItem x:Name="UnpackOnlyMenuItem" Header="Unpack .PAK Archives Only" Click="OnUnpackOnlyClick"/>
                         </MenuFlyout>
                     </Button.Flyout>
                 </Button>

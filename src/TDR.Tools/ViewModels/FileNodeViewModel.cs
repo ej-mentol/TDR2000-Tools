@@ -107,19 +107,37 @@ namespace TDR.Tools.ViewModels
         public bool IsDirectory
         {
             get => _isDirectory;
-            set => SetField(ref _isDirectory, value);
+            set
+            {
+                if (SetField(ref _isDirectory, value))
+                {
+                    UpdateIcon();
+                }
+            }
         }
 
         public bool IsArchive
         {
             get => _isArchive;
-            set => SetField(ref _isArchive, value);
+            set
+            {
+                if (SetField(ref _isArchive, value))
+                {
+                    UpdateIcon();
+                }
+            }
         }
 
         public bool IsTrack
         {
             get => _isTrack;
-            set => SetField(ref _isTrack, value);
+            set
+            {
+                if (SetField(ref _isTrack, value))
+                {
+                    UpdateIcon();
+                }
+            }
         }
 
         public string BadgeText

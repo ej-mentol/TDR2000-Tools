@@ -30,7 +30,6 @@ namespace TDR.Tools.Services
         public bool UseGrouping { get; set; } = true;
         public bool UseLocalCoords { get; set; } = false;
         public bool EnableGroundSnap { get; set; } = false;
-        public bool DumpAll { get; set; } = false;
         public bool VerboseLog { get; set; } = false;
         // DebugMode: timing and diagnostic info in the session log.
         // Separate from VerboseLog (export pipeline only) — this covers VFS index, tree build, discovery.
@@ -46,40 +45,53 @@ namespace TDR.Tools.Services
         // (triggered by search keystrokes, FileSystemWatcher events, etc.). Reading and
         // deserializing the JSON file on each call is wasteful. Cache is invalidated in Save()
         // which is the only place settings ever change at runtime.
+        private static readonly object _lock = new();
         private static AppSettings? _cached;
 
         public static AppSettings Load()
         {
-            if (_cached != null) return _cached;
-            try
+            lock (_lock)
             {
-                if (File.Exists(SettingsFilePath))
+                if (_cached != null) return _cached;
+                try
                 {
-                    string json = File.ReadAllText(SettingsFilePath);
-                    _cached = JsonSerializer.Deserialize<AppSettings>(json) ?? new AppSettings();
-                    return _cached;
+                    if (File.Exists(SettingsFilePath))
+                    {
+                        string json = File.ReadAllText(SettingsFilePath);
+                        _cached = JsonSerializer.Deserialize<AppSettings>(json) ?? new AppSettings();
+                        return _cached;
+                    }
                 }
+                catch (Exception ex)
+                {
+                    LogService.Instance.Warn($"[Settings] Failed to load settings.json: {ex.Message}");
+                }
+                _cached = new AppSettings();
+                return _cached;
             }
-            catch { }
-            _cached = new AppSettings();
-            return _cached;
         }
 
         public void Save()
         {
-            try
+            lock (_lock)
             {
-                string? dir = Path.GetDirectoryName(SettingsFilePath);
-                if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                try
                 {
-                    Directory.CreateDirectory(dir);
+                    string? dir = Path.GetDirectoryName(SettingsFilePath);
+                    if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                    {
+                        Directory.CreateDirectory(dir);
+                    }
+                    string json = JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true });
+                    File.WriteAllText(SettingsFilePath, json);
+                    // Update cache directly to the current state
+                    _cached = this;
                 }
-                string json = JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true });
-                File.WriteAllText(SettingsFilePath, json);
-                // Invalidate cache so the next Load() picks up the freshly written values.
-                _cached = null;
+                catch (Exception ex)
+                {
+                    LogService.Instance.Warn($"[Settings] Failed to save settings.json: {ex.Message}");
+                }
             }
-            catch { }
         }
     }
 }

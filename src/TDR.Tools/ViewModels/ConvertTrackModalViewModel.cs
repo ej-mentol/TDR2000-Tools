@@ -12,8 +12,8 @@ namespace TDR.Tools.ViewModels
 {
     public class HieNodeViewModel : INotifyPropertyChanged
     {
-        private bool _isSelected = true;
-        private bool _isExpanded = true;
+        private bool? _isSelected = true;
+        private bool _isExpanded = false;
         private bool _isVisible = true;
 
         public string Name { get; set; } = string.Empty;
@@ -25,20 +25,22 @@ namespace TDR.Tools.ViewModels
         public HieNodeViewModel? Parent { get; set; }
         public Action? OnSelectionChangedCallback { get; set; }
 
-        public bool IsSelected
+        public bool? IsSelected
         {
             get => _isSelected;
             set
             {
-                if (_isSelected != value)
+                bool? targetValue = value;
+                if (_isSelected != targetValue)
                 {
-                    _isSelected = value;
+                    _isSelected = targetValue;
                     OnPropertyChanged();
 
-                    // Cascade check/uncheck to all children
+                    // Cascade check/uncheck to all children when toggled by user click
+                    bool cascadeValue = targetValue ?? true;
                     foreach (var child in Children)
                     {
-                        child.SetSelectedFromParent(value);
+                        child.SetSelectedFromParent(cascadeValue);
                     }
 
                     // Refresh parent selection state
@@ -64,10 +66,17 @@ namespace TDR.Tools.ViewModels
         internal void UpdateParentSelectedState()
         {
             if (Children.Count == 0) return;
-            bool anyChecked = Children.Any(c => c.IsSelected);
-            if (_isSelected != anyChecked)
+            int checkedCount = Children.Count(c => c.IsSelected == true);
+            int uncheckedCount = Children.Count(c => c.IsSelected == false);
+
+            bool? newState;
+            if (checkedCount == Children.Count) newState = true;
+            else if (uncheckedCount == Children.Count) newState = false;
+            else newState = null; // Partial selection (indeterminate)
+
+            if (_isSelected != newState)
             {
-                _isSelected = anyChecked;
+                _isSelected = newState;
                 OnPropertyChanged(nameof(IsSelected));
                 Parent?.UpdateParentSelectedState();
             }
@@ -104,7 +113,6 @@ namespace TDR.Tools.ViewModels
         private bool _useGrouping = true;
         private bool _useLocalCoords = false;
         private bool _enableGroundSnap = false;
-        private bool _dumpAll = false;
         private bool _verboseLog = false;
         private string _searchHieQuery = string.Empty;
         private string _selectedVariant = PresetAllSupported;
@@ -196,12 +204,6 @@ namespace TDR.Tools.ViewModels
             set { _enableGroundSnap = value; OnPropertyChanged(); }
         }
 
-        public bool DumpAll
-        {
-            get => _dumpAll;
-            set { _dumpAll = value; OnPropertyChanged(); }
-        }
-
         public bool VerboseLog
         {
             get => _verboseLog;
@@ -248,7 +250,6 @@ namespace TDR.Tools.ViewModels
             UseGrouping = settings.UseGrouping;
             UseLocalCoords = settings.UseLocalCoords;
             EnableGroundSnap = settings.EnableGroundSnap;
-            DumpAll = settings.DumpAll;
             VerboseLog = settings.VerboseLog;
         }
 
@@ -276,6 +277,7 @@ namespace TDR.Tools.ViewModels
                 foreach (var parentNode in HieTreeNodes)
                 {
                     ApplyPresetToNode(parentNode, pLower);
+                    parentNode.IsExpanded = parentNode.IsSelected == true || parentNode.Children.Any(c => c.IsSelected == true);
                 }
             }
             finally
@@ -317,19 +319,17 @@ namespace TDR.Tools.ViewModels
                                  (!nLower.Contains("race") && !pathLower.Contains("race"));
                 shouldSelect = isMission && !isBlacklisted;
             }
+            else if (presetLower.StartsWith("geometry only", StringComparison.OrdinalIgnoreCase))
+            {
+                bool isVisualMesh = nLower.Contains("mesh") || nLower.Contains("water") || nLower.Contains("shadow");
+                shouldSelect = isVisualMesh && !isBlacklisted;
+            }
             else
             {
-                // Specific variant (e.g. "Hollowood_Race1" or "Hollowood_Mission1")
-                string cleanVariant = TrackDiscovery.GetBaseTrackName(presetLower);
-                string variantToken = presetLower.Replace(cleanVariant, "").Trim('_', ' ');
-
+                bool isMatch = nLower.Contains(presetLower) || pathLower.Contains(presetLower);
                 bool isBase = !nLower.Contains("race") && !nLower.Contains("mission") &&
                               !pathLower.Contains("race") && !pathLower.Contains("mission");
-
-                bool isSpecificMatch = nLower.Contains(presetLower) || pathLower.Contains(presetLower) ||
-                                       (!string.IsNullOrEmpty(variantToken) && (nLower.Contains(variantToken) || pathLower.Contains(variantToken)));
-
-                shouldSelect = (isBase || isSpecificMatch) && !isBlacklisted;
+                shouldSelect = (isMatch || isBase) && !isBlacklisted;
             }
 
             node.IsSelected = shouldSelect;
@@ -351,6 +351,18 @@ namespace TDR.Tools.ViewModels
             }
         }
 
+        public void SetAllHieNodesExpanded(IEnumerable<HieNodeViewModel> nodes, bool expanded)
+        {
+            foreach (var node in nodes)
+            {
+                node.IsExpanded = expanded;
+                if (node.Children.Count > 0)
+                {
+                    SetAllHieNodesExpanded(node.Children, expanded);
+                }
+            }
+        }
+
         public List<string> GetSelectedHiePaths()
         {
             var result = new List<string>();
@@ -362,7 +374,7 @@ namespace TDR.Tools.ViewModels
         {
             foreach (var node in nodes)
             {
-                if (!node.IsDirectory && node.IsSelected && !string.IsNullOrEmpty(node.VirtualPath))
+                if (!node.IsDirectory && node.IsSelected == true && !string.IsNullOrEmpty(node.VirtualPath))
                 {
                     result.Add(node.VirtualPath);
                 }
@@ -421,7 +433,6 @@ namespace TDR.Tools.ViewModels
             settings.UseGrouping = UseGrouping;
             settings.UseLocalCoords = UseLocalCoords;
             settings.EnableGroundSnap = EnableGroundSnap;
-            settings.DumpAll = DumpAll;
             settings.VerboseLog = VerboseLog;
             settings.Save();
 

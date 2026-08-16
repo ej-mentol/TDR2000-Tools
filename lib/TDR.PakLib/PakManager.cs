@@ -28,7 +28,9 @@ namespace TDR.PakLib
             if (string.IsNullOrWhiteSpace(rootPath) || !Directory.Exists(rootPath))
                 return;
 
-            string[] dirFiles = Directory.GetFiles(rootPath, "*.dir", SearchOption.AllDirectories);
+            var dirFiles = Directory.GetFiles(rootPath, "*.dir", SearchOption.AllDirectories)
+                .OrderBy(f => f, StringComparer.OrdinalIgnoreCase);
+
             foreach (string dirPath in dirFiles)
             {
                 string pakPath = Path.ChangeExtension(dirPath, ".pak");
@@ -57,7 +59,9 @@ namespace TDR.PakLib
                 }
             }
 
-            string[] looseFiles = Directory.GetFiles(rootPath, "*", SearchOption.AllDirectories);
+            var looseFiles = Directory.GetFiles(rootPath, "*", SearchOption.AllDirectories)
+                .OrderBy(f => f, StringComparer.OrdinalIgnoreCase);
+
             foreach (string filePath in looseFiles)
             {
                 string ext = Path.GetExtension(filePath);

@@ -21,7 +21,7 @@ namespace TDR.Tools.ViewModels
         GridTiles
     }
 
-    public class MainViewModel : INotifyPropertyChanged
+    public class MainViewModel : INotifyPropertyChanged, IDisposable
     {
         private PakManager _vfs = new();
         private string _sourceRootPath = string.Empty;
@@ -96,6 +96,8 @@ namespace TDR.Tools.ViewModels
 
         private FileSystemWatcher? _destinationWatcher;
         private System.Threading.Timer? _destinationDebounceTimer;
+        private System.Threading.Timer? _sourceSearchDebounceTimer;
+        private System.Threading.Timer? _destinationSearchDebounceTimer;
         private bool _suppressWatcherEvents = false;
 
         public string SourceRootPath => _sourceRootPath;
@@ -250,11 +252,18 @@ namespace TDR.Tools.ViewModels
             {
                 if (SetField(ref _searchSourceQuery, value))
                 {
-                    RefreshSourceTree();
-                    if (SourceViewMode != FileViewMode.Tree)
+                    _sourceSearchDebounceTimer?.Dispose();
+                    _sourceSearchDebounceTimer = new System.Threading.Timer(_ =>
                     {
-                        RefreshSourceFlatList();
-                    }
+                        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                        {
+                            RefreshSourceTree();
+                            if (SourceViewMode != FileViewMode.Tree)
+                            {
+                                RefreshSourceFlatList();
+                            }
+                        });
+                    }, null, 250, System.Threading.Timeout.Infinite);
                 }
             }
         }
@@ -266,7 +275,14 @@ namespace TDR.Tools.ViewModels
             {
                 if (SetField(ref _searchDestinationQuery, value))
                 {
-                    RefreshDestinationTree();
+                    _destinationSearchDebounceTimer?.Dispose();
+                    _destinationSearchDebounceTimer = new System.Threading.Timer(_ =>
+                    {
+                        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                        {
+                            RefreshDestinationTree();
+                        });
+                    }, null, 250, System.Threading.Timeout.Infinite);
                 }
             }
         }
@@ -330,22 +346,47 @@ namespace TDR.Tools.ViewModels
         {
             Preview = new PreviewViewModel(ReadAllBytesForNode, LogSession);
 
-            LogService.Instance.OnLogAdded += (entry) =>
-            {
-                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
-                {
-                    LogLines.Add(entry.FormattedText);
-                    if (LogLines.Count > 2500)
-                    {
-                        LogLines.RemoveAt(0);
-                    }
-                });
-            };
+            LogService.Instance.OnLogAdded += OnLogEntryAdded;
+            LogService.Instance.OnLogCleared += OnLogServiceCleared;
+        }
 
-            LogService.Instance.OnLogCleared += () =>
+        private void OnLogEntryAdded(LogEntry entry)
+        {
+            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
             {
-                Avalonia.Threading.Dispatcher.UIThread.Post(() => LogLines.Clear());
-            };
+                LogLines.Add(entry.FormattedText);
+                if (LogLines.Count > 2500)
+                {
+                    LogLines.RemoveAt(0);
+                }
+            });
+        }
+
+        private void OnLogServiceCleared()
+        {
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => LogLines.Clear());
+        }
+
+        public void Dispose()
+        {
+            LogService.Instance.OnLogAdded -= OnLogEntryAdded;
+            LogService.Instance.OnLogCleared -= OnLogServiceCleared;
+
+            _sourceSearchDebounceTimer?.Dispose();
+            _sourceSearchDebounceTimer = null;
+
+            _destinationSearchDebounceTimer?.Dispose();
+            _destinationSearchDebounceTimer = null;
+
+            _destinationDebounceTimer?.Dispose();
+            _destinationDebounceTimer = null;
+
+            if (_destinationWatcher != null)
+            {
+                _destinationWatcher.EnableRaisingEvents = false;
+                _destinationWatcher.Dispose();
+                _destinationWatcher = null;
+            }
         }
 
         public void InitializeStartup()
@@ -621,7 +662,7 @@ namespace TDR.Tools.ViewModels
             OnPropertyChanged(nameof(CanDestinationNavigateForward));
         }
 
-        public void SourceNavigateBack()
+        public async void SourceNavigateBack()
         {
             if (_sourceHistoryBack.Count > 0)
             {
@@ -629,14 +670,13 @@ namespace TDR.Tools.ViewModels
                 _sourceHistoryForward.Push(_sourceRootPath);
                 _sourceRootPath = prev;
                 SourcePathText = $"VFS:// {prev}";
-                _vfs.IndexDirectory(prev);
                 LogSession($"Source Navigate Back to '{prev}'");
-                RefreshSourceTree();
+                await IndexDirectory(prev, autoResolveRoot: false);
                 NotifyNavPropertiesChanged();
             }
         }
 
-        public void SourceNavigateForward()
+        public async void SourceNavigateForward()
         {
             if (_sourceHistoryForward.Count > 0)
             {
@@ -644,9 +684,8 @@ namespace TDR.Tools.ViewModels
                 _sourceHistoryBack.Push(_sourceRootPath);
                 _sourceRootPath = next;
                 SourcePathText = $"VFS:// {next}";
-                _vfs.IndexDirectory(next);
                 LogSession($"Source Navigate Forward to '{next}'");
-                RefreshSourceTree();
+                await IndexDirectory(next, autoResolveRoot: false);
                 NotifyNavPropertiesChanged();
             }
         }
@@ -876,13 +915,13 @@ namespace TDR.Tools.ViewModels
                 var sw = System.Diagnostics.Stopwatch.StartNew();
                 _debugWeakCandidates = 0;
                 _debugStrongConfirmed = 0;
-                VfsTreeBuilder.BuildSourceTree(_vfs, _sourceRootPath, SourceNodes, ValidateTrackContent, SearchSourceQuery, settings.ShowDirIndexFiles);
+                VfsTreeBuilder.BuildSourceTree(_vfs, _sourceRootPath, SourceNodes, ValidateTrackContent, SearchSourceQuery, settings.ShowDirIndexFiles, LogSession);
                 sw.Stop();
                 LogSession($"[DEBUG] BuildSourceTree: {sw.ElapsedMilliseconds} ms | weak={_debugWeakCandidates} strong={_debugStrongConfirmed}");
             }
             else
             {
-                VfsTreeBuilder.BuildSourceTree(_vfs, _sourceRootPath, SourceNodes, ValidateTrackContent, SearchSourceQuery, settings.ShowDirIndexFiles);
+                VfsTreeBuilder.BuildSourceTree(_vfs, _sourceRootPath, SourceNodes, ValidateTrackContent, SearchSourceQuery, settings.ShowDirIndexFiles, LogSession);
             }
 
             RestoreExpandedPaths(SourceNodes, expandedPaths);
@@ -1647,7 +1686,17 @@ namespace TDR.Tools.ViewModels
 
         public FileNodeViewModel? CreateNewPakArchive(FileNodeViewModel? parentNode)
         {
-            _ = CreateNewPakArchiveAsync(parentNode);
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await CreateNewPakArchiveAsync(parentNode);
+                }
+                catch (Exception ex)
+                {
+                    LogSession($"[ERROR] CreateNewPakArchive exception: {ex.Message}");
+                }
+            });
             return null;
         }
 
@@ -2004,10 +2053,11 @@ namespace TDR.Tools.ViewModels
                     ExportPngTextures: vm.ExportPngTextures,
                     IncludeMovableProps: vm.IncludeMovableProps,
                     ExportSceneJson: vm.ExportSceneJson,
+                    UseZeroOriginForJsonAssets: vm.UseZeroOriginForJsonAssets,
                     NoMaterials: false,
                     UseLocalCoords: vm.UseLocalCoords,
                     UseGrouping: vm.UseGrouping,
-                    DumpAll: vm.DumpAll,
+                    DumpAll: false,
                     Verbose: vm.VerboseLog,
                     EnableGroundSnap: vm.EnableGroundSnap,
                     SelectedHieFiles: vm.GetSelectedHiePaths()
@@ -2053,7 +2103,7 @@ namespace TDR.Tools.ViewModels
                             // one selected HIE file. VirtualPath of layer root nodes matches the format
                             // expected by GetVariantSuffix (e.g. "Hollowood", "Hollowood_Race1").
                             targetVariants = vm.HieTreeNodes
-                                .Where(n => n.IsDirectory && n.IsSelected)
+                                .Where(n => n.IsDirectory && n.IsSelected != false)
                                 .Select(n => n.VirtualPath)
                                 .ToList();
                             if (targetVariants.Count == 0) targetVariants.Add(vm.TrackName);
@@ -2146,18 +2196,14 @@ namespace TDR.Tools.ViewModels
                 string pathLower = path.ToLowerInvariant();
                 string archiveLower = (file.ArchivePath ?? "").Replace('\\', '/').ToLowerInvariant();
 
-                // 1. Determine physical layer root (Hollowood, Hollowood_Race1, Hollowood_Mission1, etc.)
+                // 1. Determine physical layer root (Hollowood, Hollowood_Race1, Hollowood_Mission1, Hollowood_Mission3, etc.)
                 string layerRootKey = cleanName;
-                if (fLower.Contains("race1") || pathLower.Contains("race1") || archiveLower.Contains("race1"))
-                    layerRootKey = $"{cleanName}_Race1";
-                else if (fLower.Contains("race2") || pathLower.Contains("race2") || archiveLower.Contains("race2"))
-                    layerRootKey = $"{cleanName}_Race2";
-                else if (fLower.Contains("race3") || pathLower.Contains("race3") || archiveLower.Contains("race3"))
-                    layerRootKey = $"{cleanName}_Race3";
-                else if (fLower.Contains("mission1") || pathLower.Contains("mission1") || archiveLower.Contains("mission1"))
-                    layerRootKey = $"{cleanName}_Mission1";
-                else if (fLower.Contains("mission2") || pathLower.Contains("mission2") || archiveLower.Contains("mission2"))
-                    layerRootKey = $"{cleanName}_Mission2";
+                var layerMatch = System.Text.RegularExpressions.Regex.Match($"{fLower} {pathLower} {archiveLower}", @"(race\d+|mission\d+|multiplayer)");
+                if (layerMatch.Success)
+                {
+                    string matchedVariant = System.Globalization.CultureInfo.InvariantCulture.TextInfo.ToTitleCase(layerMatch.Value);
+                    layerRootKey = $"{cleanName}_{matchedVariant}";
+                }
 
                 if (!layerRootNodes.TryGetValue(layerRootKey, out var layerRootNode))
                 {
@@ -2169,12 +2215,11 @@ namespace TDR.Tools.ViewModels
                         VirtualPath = layerRootKey,
                         IsDirectory = true,
                         IsSelected = true,
-                        ShowTopSeparator = modalVm.HieTreeNodes.Count > 0,
+                        ShowTopSeparator = false,
                         NodeType = "TrackLayerRoot",
                         OnSelectionChangedCallback = () => modalVm.NotifyUserTreeToggled()
                     };
                     layerRootNodes[layerRootKey] = layerRootNode;
-                    modalVm.HieTreeNodes.Add(layerRootNode);
                 }
 
                 // 2. Determine physical VFS subfolder inside this layer
@@ -2231,6 +2276,33 @@ namespace TDR.Tools.ViewModels
                     OnSelectionChangedCallback = () => modalVm.NotifyUserTreeToggled()
                 };
                 parentFolderNode.Children.Add(fileNode);
+            }
+
+            // Natural hierarchical sorting: Base Track first, then Races (1..N), Missions (1..N), Multiplayer, Others
+            var sortedLayers = layerRootNodes.Values.OrderBy(node =>
+            {
+                string key = node.VirtualPath;
+                if (key.Equals(cleanName, StringComparison.OrdinalIgnoreCase))
+                    return (0, 0, key);
+
+                var raceMatch = System.Text.RegularExpressions.Regex.Match(key, @"race(\d+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                if (raceMatch.Success && int.TryParse(raceMatch.Groups[1].Value, out int rNum))
+                    return (1, rNum, key);
+
+                var missionMatch = System.Text.RegularExpressions.Regex.Match(key, @"mission(\d+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                if (missionMatch.Success && int.TryParse(missionMatch.Groups[1].Value, out int mNum))
+                    return (2, mNum, key);
+
+                if (key.Contains("multiplayer", StringComparison.OrdinalIgnoreCase))
+                    return (3, 0, key);
+
+                return (4, 0, key);
+            }).ToList();
+
+            for (int i = 0; i < sortedLayers.Count; i++)
+            {
+                sortedLayers[i].ShowTopSeparator = i > 0;
+                modalVm.HieTreeNodes.Add(sortedLayers[i]);
             }
         }
 

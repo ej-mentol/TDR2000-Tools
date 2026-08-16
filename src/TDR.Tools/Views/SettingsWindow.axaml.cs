@@ -12,6 +12,7 @@ namespace TDR.Tools.Views
         {
             InitializeComponent();
             _settings = AppSettings.Load();
+            TrackDiscoveryModeComboBox.SelectionChanged += OnDiscoveryModeChanged;
             LoadSettingsToUI();
         }
 
@@ -33,7 +34,6 @@ namespace TDR.Tools.Views
                 "Heuristic" => 2,
                 _            => 0  // "Auto" is the default
             };
-            TrackDiscoveryModeComboBox.SelectionChanged += OnDiscoveryModeChanged;
             UpdateDiscoveryHint();
 
             ExportObjCheckBox.IsChecked = _settings.ExportObj;
@@ -45,7 +45,6 @@ namespace TDR.Tools.Views
             UseGroupingCheckBox.IsChecked = _settings.UseGrouping;
             UseLocalCoordsCheckBox.IsChecked = _settings.UseLocalCoords;
             EnableGroundSnapCheckBox.IsChecked = _settings.EnableGroundSnap;
-            DumpAllCheckBox.IsChecked = _settings.DumpAll;
             VerboseLogCheckBox.IsChecked = _settings.VerboseLog;
             DebugModeCheckBox.IsChecked = _settings.DebugMode;
         }
@@ -94,7 +93,6 @@ namespace TDR.Tools.Views
             _settings.UseGrouping = UseGroupingCheckBox.IsChecked == true;
             _settings.UseLocalCoords = UseLocalCoordsCheckBox.IsChecked == true;
             _settings.EnableGroundSnap = EnableGroundSnapCheckBox.IsChecked == true;
-            _settings.DumpAll = DumpAllCheckBox.IsChecked == true;
             _settings.VerboseLog = VerboseLogCheckBox.IsChecked == true;
             _settings.DebugMode = DebugModeCheckBox.IsChecked == true;
 

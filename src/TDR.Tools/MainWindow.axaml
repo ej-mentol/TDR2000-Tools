@@ -485,11 +485,11 @@
                             <MenuItem Header="Copy Selected Lines" InputGesture="Ctrl+C" Click="OnCopySelectedLogLinesClick"/>
                             <MenuItem Header="Copy All Log Lines" Click="OnCopyAllLogLinesClick"/>
                             <Separator/>
-                            <MenuItem Header="⚠️ Copy Warnings Only" Click="OnCopyWarningsLogLinesClick"/>
-                            <MenuItem Header="❌ Copy Errors Only" Click="OnCopyErrorsLogLinesClick"/>
-                            <MenuItem Header="📊 Copy Export Trees &amp; Summaries" Click="OnCopySummariesLogLinesClick"/>
+                            <MenuItem Header="Copy Warnings Only" Click="OnCopyWarningsLogLinesClick"/>
+                            <MenuItem Header="Copy Errors Only" Click="OnCopyErrorsLogLinesClick"/>
+                            <MenuItem Header="Copy Export Trees &amp; Summaries" Click="OnCopySummariesLogLinesClick"/>
                             <Separator/>
-                            <MenuItem Header="🧹 Clear Session Log" Click="OnClearLogClick"/>
+                            <MenuItem Header="Clear Session Log" Click="OnClearLogClick"/>
                         </ContextMenu>
                     </ListBox.ContextMenu>
                     <ListBox.ItemTemplate>

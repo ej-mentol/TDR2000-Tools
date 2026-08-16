@@ -13,6 +13,7 @@ namespace TDR.Tools.Export
         bool ExportPngTextures = true,
         bool IncludeMovableProps = true,
         bool ExportSceneJson = false,
+        bool UseZeroOriginForJsonAssets = true,
         bool NoMaterials = false,
         bool UseLocalCoords = false,
         bool UseGrouping = true,
@@ -96,7 +97,7 @@ namespace TDR.Tools.Export
                         options.Verbose,
                         options.UseGrouping,
                         options.IncludeMovableProps,
-                        cleanName,
+                        variantTrackName,
                         log,
                         options.EnableGroundSnap,
                         options.SelectedHieFiles,
@@ -123,7 +124,7 @@ namespace TDR.Tools.Export
 
                 if (descriptorData != null && descriptorData.Length > 0)
                 {
-                    var gltfExporter = new GltfExporter(vfs, outputDir, options.UseLocalCoords, options.Verbose, cleanName, log, options.ExportPngTextures, options.SelectedHieFiles);
+                    var gltfExporter = new GltfExporter(vfs, outputDir, options.UseLocalCoords, options.Verbose, variantTrackName, log, options.ExportPngTextures, options.SelectedHieFiles);
                     string outputGltfPath = Path.Combine(outputDir, variantTrackName + ".gltf");
                     log?.Invoke($"[►] Exporting Modern glTF 2.0 Scene: '{variantTrackName}.gltf'");
                     gltfExporter.ExportLevelToGltf(descriptorData, variantTrackName, outputGltfPath, options.IncludeMovableProps, progressCallback);
@@ -133,13 +134,17 @@ namespace TDR.Tools.Export
             // 1b. DumpAll Brute-force Mode (-da): export all matching .hie files for the track without blacklisting
             if (options.DumpAll)
             {
-                log?.Invoke($"[+] [DUMP-ALL MODE (-da)] Brute-Force Track Mesh Export for '{cleanName}'...");
+                string variantTrackName = !string.IsNullOrWhiteSpace(variantSuffix) ? $"{cleanName}_{variantSuffix}" : cleanName;
+                log?.Invoke($"[+] [DUMP-ALL MODE (-da)] Brute-Force Track Mesh Export for '{variantTrackName}'...");
                 string tPrefix = cleanName.ToLowerInvariant();
                 string trackFolderPrefix = $"tracks/{tPrefix}";
 
                 var matchingHieFiles = vfs.GetFiles()
-                    .Where(f => f.Name.EndsWith(".hie", StringComparison.OrdinalIgnoreCase))
-                    .Where(f => {
+                    .Where(f =>
+                    {
+                        if (!f.Name.EndsWith(".hie", StringComparison.OrdinalIgnoreCase))
+                            return false;
+
                         string normName = f.Name.Replace('\\', '/').ToLowerInvariant();
                         string normArchive = (f.ArchivePath ?? "").Replace('\\', '/').ToLowerInvariant();
                         string fileName = Path.GetFileNameWithoutExtension(f.Name).ToLowerInvariant();
@@ -151,7 +156,18 @@ namespace TDR.Tools.Export
 
                         bool startsWithName = fileName.StartsWith(tPrefix, StringComparison.OrdinalIgnoreCase);
 
-                        return inTrackFolder || startsWithName;
+                        if (!inTrackFolder && !startsWithName) return false;
+
+                        // If a specific variant is selected, exclude other variant files
+                        if (!string.IsNullOrWhiteSpace(variantSuffix))
+                        {
+                            string vSuffixLower = variantSuffix.ToLowerInvariant();
+                            bool isBaseFile = !fileName.Contains("race") && !fileName.Contains("mission");
+                            bool isThisVariantFile = fileName.Contains(vSuffixLower) || normName.Contains(vSuffixLower);
+                            return isBaseFile || isThisVariantFile;
+                        }
+
+                        return true;
                     })
                     .Select(f => f.Name)
                     .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -171,7 +187,7 @@ namespace TDR.Tools.Export
                     options.Verbose,
                     options.UseGrouping,
                     options.IncludeMovableProps,
-                    cleanName,
+                    variantTrackName,
                     log,
                     options.EnableGroundSnap,
                     options.SelectedHieFiles,
@@ -205,6 +221,7 @@ namespace TDR.Tools.Export
                     outputDir,
                     (path) => vfs.LoadFileContext(path, jsonTrackContext),
                     exportResult,
+                    options.UseZeroOriginForJsonAssets,
                     options.Verbose,
                     log
                 );
