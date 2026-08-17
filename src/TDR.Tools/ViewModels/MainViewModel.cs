@@ -243,7 +243,81 @@ namespace TDR.Tools.ViewModels
         public ObservableCollection<FileNodeViewModel> SourceNodes { get; } = new();
         public ObservableCollection<FileNodeViewModel> FlatSourceNodes { get; } = new();
         public ObservableCollection<FileNodeViewModel> DestinationNodes { get; } = new();
-        public ObservableCollection<string> LogLines { get; } = new();
+        public ObservableCollection<LogEntry> LogLines { get; } = new();
+
+        private readonly List<LogEntry> _allLogEntries = new();
+        private string _selectedLogFilter = "All";
+
+        public string SelectedLogFilter
+        {
+            get => _selectedLogFilter;
+            set
+            {
+                if (SetField(ref _selectedLogFilter, value))
+                {
+                    OnPropertyChanged(nameof(LogFilterDisplayText));
+                    ApplyLogFilter();
+                }
+            }
+        }
+
+        public string LogFilterDisplayText => SelectedLogFilter switch
+        {
+            "GLTF" => "Filter: GLTF ▾",
+            "OBJ" => "Filter: OBJ ▾",
+            "Warnings" => "Filter: Warnings & Errors ▾",
+            "Summaries" => "Filter: Summaries ▾",
+            _ => "Filter: All ▾"
+        };
+
+        public void SetLogFilter(string filter)
+        {
+            SelectedLogFilter = filter;
+        }
+
+        private void ApplyLogFilter()
+        {
+            LogLines.Clear();
+            lock (_allLogEntries)
+            {
+                foreach (var entry in _allLogEntries)
+                {
+                    if (MatchesLogFilter(entry, SelectedLogFilter))
+                    {
+                        LogLines.Add(entry);
+                    }
+                }
+            }
+        }
+
+        public static bool MatchesLogFilter(LogEntry entry, string filter)
+        {
+            return filter switch
+            {
+                "GLTF" => entry.Message.Contains("[GLTF]", StringComparison.OrdinalIgnoreCase) ||
+                          entry.Message.Contains("glTF", StringComparison.OrdinalIgnoreCase),
+                "OBJ" => entry.Message.Contains("[OBJ]", StringComparison.OrdinalIgnoreCase) ||
+                         entry.Message.Contains(".obj", StringComparison.OrdinalIgnoreCase) ||
+                         entry.Message.Contains("[MTL", StringComparison.OrdinalIgnoreCase),
+                "Warnings" => entry.Level == LogLevel.Warning || entry.Level == LogLevel.Error ||
+                              entry.Message.Contains("[!]", StringComparison.Ordinal) ||
+                              entry.Message.Contains("[WARN]", StringComparison.OrdinalIgnoreCase) ||
+                              entry.Message.Contains("warning", StringComparison.OrdinalIgnoreCase) ||
+                              entry.Message.Contains("[ERROR]", StringComparison.OrdinalIgnoreCase) ||
+                              entry.Message.Contains("error", StringComparison.OrdinalIgnoreCase) ||
+                              entry.Message.Contains("exception", StringComparison.OrdinalIgnoreCase) ||
+                              entry.Message.Contains("failed", StringComparison.OrdinalIgnoreCase),
+                "Summaries" => entry.Level == LogLevel.Summary ||
+                               entry.Message.Contains("Exported:", StringComparison.OrdinalIgnoreCase) ||
+                               entry.Message.Contains("EXPORT SUMMARY", StringComparison.OrdinalIgnoreCase) ||
+                               entry.Message.Contains("Saved:", StringComparison.OrdinalIgnoreCase) ||
+                               entry.Message.Contains("Summary:", StringComparison.OrdinalIgnoreCase) ||
+                               entry.Message.TrimStart().StartsWith("• Layers") ||
+                               entry.Message.TrimStart().StartsWith("• Props") ||
+                               entry.Message.TrimStart().StartsWith("• Spawns"),
+                _ => true
+            };
+        }
 
         public string SearchSourceQuery
         {
@@ -354,17 +428,36 @@ namespace TDR.Tools.ViewModels
         {
             Avalonia.Threading.Dispatcher.UIThread.Post(() =>
             {
-                LogLines.Add(entry.FormattedText);
-                if (LogLines.Count > 2500)
+                lock (_allLogEntries)
                 {
-                    LogLines.RemoveAt(0);
+                    _allLogEntries.Add(entry);
+                    if (_allLogEntries.Count > 3000)
+                    {
+                        _allLogEntries.RemoveAt(0);
+                    }
+                }
+
+                if (MatchesLogFilter(entry, SelectedLogFilter))
+                {
+                    LogLines.Add(entry);
+                    if (LogLines.Count > 2500)
+                    {
+                        LogLines.RemoveAt(0);
+                    }
                 }
             });
         }
 
         private void OnLogServiceCleared()
         {
-            Avalonia.Threading.Dispatcher.UIThread.Post(() => LogLines.Clear());
+            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            {
+                lock (_allLogEntries)
+                {
+                    _allLogEntries.Clear();
+                }
+                LogLines.Clear();
+            });
         }
 
         public void Dispose()
@@ -514,29 +607,7 @@ namespace TDR.Tools.ViewModels
             await RunWithWatchdogAsync("VFS Directory Indexing", () => Task.Run(() =>
             {
                 var freshVfs = new PakManager();
-                freshVfs.IndexDirectory(rootPath);
-
-                // Ensure parent shared directories / archives (MOVABLEOBJECTS, POWERUPS, SHARED, TEXTURES) are indexed
-                try
-                {
-                    string? parentDir = Path.GetDirectoryName(rootPath);
-                    if (!string.IsNullOrEmpty(parentDir) && Directory.Exists(parentDir))
-                    {
-                        string[] sharedFolders = new[] { "MOVABLEOBJECTS", "POWERUPS", "SHARED", "TEXTURES" };
-                        foreach (string folder in sharedFolders)
-                        {
-                            string folderPak = Path.Combine(parentDir, folder, $"{folder}.pak");
-                            string folderDir = Path.Combine(parentDir, folder);
-                            if (File.Exists(folderPak)) freshVfs.IndexDirectory(folderPak);
-                            else if (Directory.Exists(folderDir)) freshVfs.IndexDirectory(folderDir);
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    LogSession($"[!] Warning during parent shared assets auto-indexing: {ex.Message}");
-                }
-
+                Services.TrackDiscoveryService.IndexWithSharedFolders(freshVfs, rootPath, msg => LogSession(msg));
                 _vfs = freshVfs;
             }),
             () => IsSourceLoading = true,
@@ -1845,13 +1916,23 @@ namespace TDR.Tools.ViewModels
                 return selected;
             }
 
-            if (selected.IsTrack || selected.IsDirectory || selected.IsArchive)
+            if (selected.IsTrack || selected.IsDirectory || selected.IsArchive || selected.Name.EndsWith(".pak", StringComparison.OrdinalIgnoreCase))
             {
                 string baseName = Path.GetFileNameWithoutExtension(selected.Name);
-                var trackChild = selected.Children.FirstOrDefault(c => c.VirtualPath.EndsWith($"{baseName.ToLower()}.txt", StringComparison.OrdinalIgnoreCase))
-                              ?? selected.Children.FirstOrDefault(c => c.IsTrack && c.VirtualPath.EndsWith(".txt", StringComparison.OrdinalIgnoreCase));
+                if (selected.Children.Count > 0)
+                {
+                    var trackChild = selected.Children.FirstOrDefault(c => c.VirtualPath.EndsWith($"{baseName.ToLower()}.txt", StringComparison.OrdinalIgnoreCase))
+                                  ?? selected.Children.FirstOrDefault(c => c.IsTrack && c.VirtualPath.EndsWith(".txt", StringComparison.OrdinalIgnoreCase));
 
-                if (trackChild != null) return trackChild;
+                    if (trackChild != null) return trackChild;
+                }
+
+                string baseTrack = TrackDiscovery.GetBaseTrackName(baseName);
+                if (_vfs.GetFiles().Any(f => f.Name.EndsWith(".txt", StringComparison.OrdinalIgnoreCase) &&
+                    (f.Name.Contains(baseTrack, StringComparison.OrdinalIgnoreCase) || f.Name.Contains(baseName, StringComparison.OrdinalIgnoreCase))))
+                {
+                    return selected;
+                }
             }
 
             return selected.IsTrack ? selected : null;
@@ -2060,7 +2141,9 @@ namespace TDR.Tools.ViewModels
                     DumpAll: false,
                     Verbose: vm.VerboseLog,
                     EnableGroundSnap: vm.EnableGroundSnap,
-                    SelectedHieFiles: vm.GetSelectedHiePaths()
+                    SelectedHieFiles: (vm.SelectedVariant != null && vm.SelectedVariant.Equals(ConvertTrackModalViewModel.PresetCustom, StringComparison.OrdinalIgnoreCase))
+                        ? vm.GetSelectedHiePaths()
+                        : null
                 );
 
                 SetBusy(true, $"Exporting track '{vm.TrackName}'...");

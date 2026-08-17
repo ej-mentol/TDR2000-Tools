@@ -92,6 +92,7 @@ namespace TDR.PakLib.Formats
         public string Name { get; set; } = string.Empty;
         public int Version { get; set; }
         public float AnimationFps { get; set; } = 60.0f;
+        public List<string> LineNames { get; } = new();
         public List<string> Textures { get; } = new();
         public List<TDRMaterial> Materials { get; } = new();
         public List<Matrix4x4> Matrices { get; } = new();
@@ -132,6 +133,24 @@ namespace TDR.PakLib.Formats
                                     i++;
                                 }
                             }
+                        }
+                        break;
+
+                    case "// number of lines":
+                        if (i + 1 < lines.Length) { int count = int.Parse(lines[++i], CultureInfo.InvariantCulture); }
+                        break;
+
+                    case "// line name list":
+                        while (i + 1 < lines.Length)
+                        {
+                            string next = lines[i + 1].Trim();
+                            if (string.IsNullOrWhiteSpace(next)) { i++; continue; }
+                            if (next.StartsWith("//"))
+                            {
+                                if (IsKnownSectionHeader(next)) break;
+                                i++; continue;
+                            }
+                            hie.LineNames.Add(lines[++i].Replace("\"", "").Trim());
                         }
                         break;
 

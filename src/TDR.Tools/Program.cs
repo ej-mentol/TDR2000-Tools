@@ -67,24 +67,7 @@ namespace TDR.Tools
                 }
 
                 Console.WriteLine(statusMessage);
-                VFS.IndexDirectory(assetsRoot);
-
-                try
-                {
-                    string? parentDir = Path.GetDirectoryName(assetsRoot);
-                    if (!string.IsNullOrEmpty(parentDir) && Directory.Exists(parentDir))
-                    {
-                        string[] sharedFolders = new[] { "MOVABLEOBJECTS", "POWERUPS", "SHARED", "TEXTURES" };
-                        foreach (string folder in sharedFolders)
-                        {
-                            string folderPak = Path.Combine(parentDir, folder, $"{folder}.pak");
-                            string folderDir = Path.Combine(parentDir, folder);
-                            if (File.Exists(folderPak)) VFS.IndexDirectory(folderPak);
-                            else if (Directory.Exists(folderDir)) VFS.IndexDirectory(folderDir);
-                        }
-                    }
-                }
-                catch { }
+                TrackDiscoveryService.IndexWithSharedFolders(VFS, assetsRoot);
 
                 string? exportArg = GetArgumentValue(args, "-o", "--output");
                 if (!string.IsNullOrEmpty(exportArg)) ExportDir = exportArg;

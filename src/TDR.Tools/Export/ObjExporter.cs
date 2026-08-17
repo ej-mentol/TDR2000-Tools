@@ -110,7 +110,7 @@ namespace TDR.Tools.Export
             "SKY_SPHERE", "SKY_BOX", "SKY_DOME", "SKY_MESH", "SKY", "SKYDOME", "SKYBOX",
             "BACKGROUND_MESH", "BACKGROUND_HIE", "BACKGROUND_SPHERE", "BACKGROUND_DOME", "BACKGROUND_BOX", "BACKGROUND_TEXTURE", "BACKGROUND",
             "WATER_MESH", "HARDSHADOW_HIE", "BASE_CONSOFT", "CONSOFT",
-            "LEVEL_MESH", "STATIC_MESH", "OCCLUDER_MESH", "TRACK_SELECT_MESH", "SPLASH_SCREEN_MESH"
+            "LEVEL_MESH", "STATIC_MESH", "OCCLUDER_MESH"
         };
 
         // Keywords whose value is always a .txt sub-descriptor (Stage 2 in EXPORT_FORMAT.md)
@@ -119,7 +119,7 @@ namespace TDR.Tools.Export
         {
             "STATIC_MESH_DESCRIPTOR", "BREAKABLES_DESCRIPTOR", "ANIMATED_PROPS",
             "CONSOFT_DESCRIPTOR", "LEVEL_CONSOFT", "ARTICULATED_BRIDGES", "LIGHTS_DESCRIPTOR",
-            "SPECIAL_VOLUMES", "SPECIAL_VOLUMES_0"
+            "SPECIAL_VOLUMES", "SPECIAL_VOLUMES_0", "LEVEL_SCRIPT", "SCRIPT", "MISSION_SCRIPT"
         };
 
         public sealed class HieInstanceInfo
@@ -138,15 +138,144 @@ namespace TDR.Tools.Export
             public Dictionary<string, Matrix4x4> HieInitialTransforms { get; } = new(StringComparer.OrdinalIgnoreCase);
         }
 
-        /// <summary>
-        /// Parses a sub-descriptor file (e.g. StaticMeshDescriptor.txt, BreakablesDescriptor.txt).
-        /// Parses instance placements (X, Y, Z, QX, QY, QZ, QW) for trees, breakables, and props.
-        /// </summary>
-        private void ParseSubDescriptorHieFiles(byte[] descriptorBytes, HashSet<string> visitedDescriptors, DescriptorAssets assets, Matrix4x4 parentMatrix)
+        private static List<string> ExtractLineNamesFromHie(byte[] hieBytes)
         {
-            if (descriptorBytes == null || descriptorBytes.Length == 0) return;
+            var list = new List<string>();
+            if (hieBytes == null || hieBytes.Length == 0) return list;
+            string text = Encoding.ASCII.GetString(hieBytes);
+            var lines = text.Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
+            for (int i = 0; i < lines.Length; i++)
+            {
+                if (lines[i].Trim().Equals("// line name list", StringComparison.OrdinalIgnoreCase))
+                {
+                    while (i + 1 < lines.Length)
+                    {
+                        string next = lines[++i].Trim();
+                        if (next.StartsWith("//")) break;
+                        string clean = next.Replace("\"", "").Trim();
+                        if (!string.IsNullOrWhiteSpace(clean)) list.Add(clean);
+                    }
+                    break;
+                }
+            }
+            return list;
+        }
 
-            string text = Encoding.ASCII.GetString(descriptorBytes);
+        /// <summary>
+        /// Recursively parses sub-descriptor .txt files to discover .hie mesh files and sub-instances.
+        /// </summary>
+        public void ParseSubDescriptorHieFiles(
+            byte[] subDescriptorBytes,
+            HashSet<string> visitedDescriptors,
+            DescriptorAssets assets,
+            Matrix4x4 parentMatrix)
+        {
+            if (subDescriptorBytes == null || subDescriptorBytes.Length == 0) return;
+
+            string text = Encoding.ASCII.GetString(subDescriptorBytes);
+            // Check if this sub-descriptor describes a spline-following prop (e.g. DocksTrain1.hie along New_DOCKSChoo_Choo1.hie)
+            var hieCandidates = new List<string>();
+            var linCandidates = new List<string>();
+
+            foreach (string rawLine in text.Split('\n'))
+            {
+                string line = rawLine;
+                int commentIdx = line.IndexOf("//", StringComparison.Ordinal);
+                if (commentIdx >= 0) line = line[..commentIdx];
+                string trimmed = line.Trim();
+                if (string.IsNullOrWhiteSpace(trimmed)) continue;
+
+                string[] tokens = trimmed.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                foreach (string rawToken in tokens)
+                {
+                    string entry = rawToken.Trim('"');
+                    if (string.IsNullOrWhiteSpace(entry)) continue;
+
+                    if (entry.EndsWith(".hie", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (!hieCandidates.Contains(entry, StringComparer.OrdinalIgnoreCase))
+                            hieCandidates.Add(entry);
+                    }
+                    else if (entry.EndsWith(".lin", StringComparison.OrdinalIgnoreCase) || entry.EndsWith(".lins", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (!linCandidates.Contains(entry, StringComparer.OrdinalIgnoreCase))
+                            linCandidates.Add(entry);
+                    }
+                }
+            }
+
+            // If we have a model .hie and a spline reference (.lin or spline-container .hie), calculate spawn matrix from spline point 0
+            if (hieCandidates.Count > 0 && (hieCandidates.Count > 1 || linCandidates.Count > 0))
+            {
+                string? modelHie = null;
+                TDRSpline? propSpline = null;
+
+                // 1. Try to load direct .lin file
+                foreach (string linName in linCandidates)
+                {
+                    byte[]? linBytes = _vfs.LoadFileContext(linName, _trackContext);
+                    if (linBytes != null && linBytes.Length > 0)
+                    {
+                        var container = TDRSplineContainer.Load(linBytes, linName);
+                        var sp = container.Splines.FirstOrDefault(s => s.Points.Count >= 2);
+                        if (sp != null)
+                        {
+                            propSpline = sp;
+                            break;
+                        }
+                    }
+                }
+
+                // 2. Try to inspect .hie candidates for mesh model vs spline container
+                foreach (string hieCandidate in hieCandidates)
+                {
+                    byte[]? hieBytes = _vfs.LoadFileContext(hieCandidate, _trackContext);
+                    if (hieBytes != null && hieBytes.Length > 0)
+                    {
+                        var hie = TDRHierarchy.Load(hieBytes, hieCandidate);
+                        if (hie.Meshes.Count > 0)
+                        {
+                            modelHie = hieCandidate;
+                        }
+                        else if (propSpline == null)
+                        {
+                            // Spline-container .hie (e.g. New_DOCKSChoo_Choo1.hie)
+                            var lineNames = ExtractLineNamesFromHie(hieBytes);
+
+                            foreach (var node in hie.Nodes)
+                            {
+                                if (node.Type == TDRNode.NodeType.Spline && lineNames.Count > 0 && node.Index < lineNames.Count)
+                                {
+                                    string splineFileName = lineNames[node.Index];
+                                    byte[]? spBytes = _vfs.LoadFileContext(splineFileName, _trackContext);
+                                    if (spBytes != null && spBytes.Length > 0)
+                                    {
+                                        var container = TDRSplineContainer.Load(spBytes, splineFileName);
+                                        var sp = container.Splines.FirstOrDefault(s => s.Points.Count >= 2);
+                                        if (sp != null)
+                                        {
+                                            propSpline = sp;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (modelHie != null && propSpline != null && propSpline.Points.Count > 0)
+                {
+                    Matrix4x4 spawnMat = propSpline.GetSpawnMatrix(0, 0f) * parentMatrix;
+                    assets.HieInstances.Add(new HieInstanceInfo
+                    {
+                        HieName = modelHie,
+                        Transform = spawnMat
+                    });
+                    assets.HieInitialTransforms[modelHie] = spawnMat;
+                }
+            }
+
             foreach (string rawLine in text.Split('\n'))
             {
                 string line = rawLine;
@@ -158,12 +287,9 @@ namespace TDR.Tools.Export
                 string[] tokens = trimmed.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
                 if (tokens.Length == 0) continue;
 
-                string entry = tokens[0].Trim('"');
-                if (string.IsNullOrWhiteSpace(entry)) continue;
-
                 Matrix4x4 localTransform = Matrix4x4.Identity;
                 int coordStart = -1;
-                for (int i = 1; i <= tokens.Length - 3; i++)
+                for (int i = 0; i <= tokens.Length - 3; i++)
                 {
                     if (float.TryParse(tokens[i], NumberStyles.Float, CultureInfo.InvariantCulture, out _) &&
                         float.TryParse(tokens[i + 1], NumberStyles.Float, CultureInfo.InvariantCulture, out _) &&
@@ -174,7 +300,7 @@ namespace TDR.Tools.Export
                     }
                 }
 
-                if (coordStart >= 1)
+                if (coordStart >= 0)
                 {
                     float.TryParse(tokens[coordStart], NumberStyles.Float, CultureInfo.InvariantCulture, out float px);
                     float.TryParse(tokens[coordStart + 1], NumberStyles.Float, CultureInfo.InvariantCulture, out float py);
@@ -196,26 +322,34 @@ namespace TDR.Tools.Export
 
                 Matrix4x4 worldTransform = localTransform * parentMatrix;
 
-                if (entry.EndsWith(".hie", StringComparison.OrdinalIgnoreCase))
+                foreach (string rawToken in tokens)
                 {
-                    if (!assets.HieFiles.Contains(entry, StringComparer.OrdinalIgnoreCase))
-                        assets.HieFiles.Add(entry);
+                    string entry = rawToken.Trim('"');
+                    if (string.IsNullOrWhiteSpace(entry)) continue;
 
-                    if (coordStart >= 1)
+                    if (entry.EndsWith(".hie", StringComparison.OrdinalIgnoreCase))
                     {
-                        assets.HieInstances.Add(new HieInstanceInfo
+                        if (coordStart >= 0)
                         {
-                            HieName = entry,
-                            Transform = worldTransform
-                        });
+                            assets.HieInstances.Add(new HieInstanceInfo
+                            {
+                                HieName = entry,
+                                Transform = worldTransform
+                            });
+                        }
+                        else
+                        {
+                            if (!assets.HieFiles.Contains(entry, StringComparer.OrdinalIgnoreCase))
+                                assets.HieFiles.Add(entry);
+                        }
                     }
-                }
-                else if (entry.EndsWith(".txt", StringComparison.OrdinalIgnoreCase) && visitedDescriptors.Add(entry))
-                {
-                    byte[]? subBytes = _vfs.LoadFileContext(entry, _trackContext);
-                    if (subBytes != null && subBytes.Length > 0)
+                    else if (entry.EndsWith(".txt", StringComparison.OrdinalIgnoreCase) && visitedDescriptors.Add(entry))
                     {
-                        ParseSubDescriptorHieFiles(subBytes, visitedDescriptors, assets, worldTransform);
+                        byte[]? subBytes = _vfs.LoadFileContext(entry, _trackContext);
+                        if (subBytes != null && subBytes.Length > 0)
+                        {
+                            ParseSubDescriptorHieFiles(subBytes, visitedDescriptors, assets, worldTransform);
+                        }
                     }
                 }
             }
@@ -346,7 +480,9 @@ namespace TDR.Tools.Export
                             string normArchive = (file.ArchivePath ?? "").ToLowerInvariant().Replace("_", "");
                             if (fn.Contains(cleanTrackKey) || normArchive.Contains(cleanTrackKey))
                             {
-                                if (IsHieSelected(file.Name) && !result.HieFiles.Contains(file.Name, StringComparer.OrdinalIgnoreCase))
+                                string simpleName = Path.GetFileName(file.Name);
+                                bool alreadyAdded = result.HieFiles.Any(h => Path.GetFileName(h).Equals(simpleName, StringComparison.OrdinalIgnoreCase));
+                                if (IsHieSelected(file.Name) && !alreadyAdded)
                                 {
                                     result.HieFiles.Add(file.Name);
                                 }
@@ -507,8 +643,16 @@ namespace TDR.Tools.Export
 
                             foreach (string hieName in snapHies)
                             {
-                                if (hieName.Contains("sky", StringComparison.OrdinalIgnoreCase))
+                                // Exclude sky dome, water surface, collision boxes and fog triggers
+                                if (hieName.Contains("sky", StringComparison.OrdinalIgnoreCase) ||
+                                    hieName.Contains("water", StringComparison.OrdinalIgnoreCase) ||
+                                    hieName.Contains("ocean", StringComparison.OrdinalIgnoreCase) ||
+                                    hieName.Contains("river", StringComparison.OrdinalIgnoreCase) ||
+                                    hieName.Contains("scol", StringComparison.OrdinalIgnoreCase) ||
+                                    hieName.Contains("trigger", StringComparison.OrdinalIgnoreCase))
+                                {
                                     continue;
+                                }
 
                                 var hie = GetOrLoadHierarchy(hieName, name => _vfs.LoadFileContext(name, _trackContext ?? levelName));
                                 if (hie != null)
@@ -576,7 +720,7 @@ namespace TDR.Tools.Export
                         if (droneDescs.Count > 0)
                         {
                             if (_verbose) Log($"[+] Baking Traffic Drones ({droneDescs.Count} descriptor(s)) into combined scene...");
-                            AppendDronesToWriter(droneDescs, w, textures, ref v, ref vt, ref vn, (path) => _vfs.LoadFileContext(path, _trackContext ?? cleanTrackName), cleanTrackName, bakedDroneCounts);
+                            AppendDronesToWriter(droneDescs, w, textures, ref v, ref vt, ref vn, (path) => _vfs.LoadFileContext(path, _trackContext ?? cleanTrackName), cleanTrackName, bakedDroneCounts, baseTriangles);
                         }
                     }
                 }
@@ -620,6 +764,9 @@ namespace TDR.Tools.Export
                 {
                     if (IsVerboseEnabled) Log($"    [OBJ Export] Level '{levelName}' yielded 0 vertices — empty OBJ file skipped.", Services.LogLevel.Debug);
                 }
+
+                // 5. Generate debug spline visualization OBJ (_splines_debug.obj) with all waypoints and lines
+                ExportSplineDebugObj(levelName, outputObjPath);
             }
             finally
             {
@@ -687,9 +834,8 @@ namespace TDR.Tools.Export
                         {
                             var subMesh = container.Meshes[i];
                             string subTex = (i < hie.Textures.Count) ? hie.Textures[i].Trim('"') : defaultTex;
-
-                            w.WriteLine($"usemtl {subTex}");
-                            textures.TryAdd(subTex, sourceArchivePath);
+                            string canonicalMat = RegisterAndGetCanonicalTexture(subTex, sourceArchivePath, textures);
+                            w.WriteLine($"usemtl {canonicalMat}");
 
                             WriteSubMesh(subMesh, Matrix4x4.Identity, w, ref v, ref vt, ref vn);
                         }
@@ -767,9 +913,8 @@ namespace TDR.Tools.Export
                                 {
                                     var subMesh = container.Meshes[i];
                                     string subTex = (i < hie.Textures.Count) ? hie.Textures[i].Trim('"') : defaultTex;
-
-                                    w.WriteLine($"usemtl {subTex}");
-                                    textures.TryAdd(subTex, sourceArchivePath);
+                                    string canonicalMat = RegisterAndGetCanonicalTexture(subTex, sourceArchivePath, textures);
+                                    w.WriteLine($"usemtl {canonicalMat}");
 
                                     WriteSubMesh(subMesh, Matrix4x4.Identity, w, ref v, ref vt, ref vn);
                                 }
@@ -807,23 +952,17 @@ namespace TDR.Tools.Export
 
             // Derive snap distances from the actual terrain Y range so that objects intentionally
             // placed above ground (rooftops, balconies, hanging props) are not falsely pulled down.
-            // An object can drop at most the full terrain height span before the snap gives up.
-            float snapMaxDrop = 500f;   // safe fallback if baseTriangles is empty
-            float snapRayStart = 50f;
+            float snapMaxDrop = 500f;
+            float snapRayStart = 25.0f;
+            float? floorLimitY = null;
             if (_enableGroundSnap && baseTriangles != null && baseTriangles.Count > 0)
             {
-                float minTY = float.MaxValue, maxTY = float.MinValue;
-                foreach (var tri in baseTriangles)
-                {
-                    if (tri.A.Y < minTY) minTY = tri.A.Y; if (tri.A.Y > maxTY) maxTY = tri.A.Y;
-                    if (tri.B.Y < minTY) minTY = tri.B.Y; if (tri.B.Y > maxTY) maxTY = tri.B.Y;
-                    if (tri.C.Y < minTY) minTY = tri.C.Y; if (tri.C.Y > maxTY) maxTY = tri.C.Y;
-                }
+                GroundSnapUtil.ComputeTerrainBounds(baseTriangles, out float minTY, out float maxTY);
                 float range = maxTY - minTY;
                 if (range > 0f)
                 {
-                    snapMaxDrop  = range;                             // full terrain height = max allowed drop
-                    snapRayStart = Math.Max(50f, range * 0.05f);     // 5% of terrain height above object
+                    snapMaxDrop = range + 50.0f;
+                    floorLimitY = minTY - 1.0f;
                 }
             }
 
@@ -850,19 +989,28 @@ namespace TDR.Tools.Export
                     continue;
                 }
 
-                // EXPERIMENTAL GROUND SNAP BEGIN
+                Matrix4x4 rotation = Matrix4x4.CreateFromQuaternion(new Quaternion(qx, qy, qz, qw));
+                Matrix4x4 worldMatrix = rotation with { M41 = px, M42 = py, M43 = pz };
+
+                // EXPERIMENTAL GROUND SNAP WITH SLOPE ALIGNMENT BEGIN
                 if (_enableGroundSnap && baseTriangles != null && baseTriangles.Count > 0)
                 {
                     Vector3 origPos = new Vector3(px, py, pz);
-                    Vector3 snappedPos = GroundSnapUtil.SnapPointToSurface(origPos, baseTriangles, maxDropDistance: snapMaxDrop, rayStartHeight: snapRayStart);
+                    var (snappedPos, alignedMat) = GroundSnapUtil.SnapAndAlignToSurface(
+                        origPos,
+                        worldMatrix,
+                        baseTriangles,
+                        contactRadius: 0.75f,
+                        maxDropDistance: snapMaxDrop,
+                        rayStartHeight: snapRayStart,
+                        floorLimitY: floorLimitY
+                    );
+                    worldMatrix = alignedMat;
                     px = snappedPos.X;
                     py = snappedPos.Y;
                     pz = snappedPos.Z;
                 }
                 // EXPERIMENTAL GROUND SNAP END
-
-                Matrix4x4 rotation = Matrix4x4.CreateFromQuaternion(new Quaternion(qx, qy, qz, qw));
-                Matrix4x4 worldMatrix = rotation with { M41 = px, M42 = py, M43 = pz };
 
                 string modelBaseName = Path.GetFileNameWithoutExtension(hieName);
                 int instIdx = instanceCounts.GetValueOrDefault(modelBaseName, 0) + 1;
@@ -888,7 +1036,7 @@ namespace TDR.Tools.Export
                     string defaultTex = "Default";
                     // _localOrigin is NOT reset per movable: the global origin from ExportLevelToObj
                     // keeps movables positioned correctly relative to the terrain.
-                    ProcessNode(hie.Root, worldMatrix, ref defaultTex, hie, textures, w, ref v, ref vt, ref vn, movableArchive);
+                    ProcessNode(hie.Root, worldMatrix, ref defaultTex, hie, textures, w, ref v, ref vt, ref vn, movableArchive, null, 0, instanceId);
                 }
                 else if (hie != null && hie.Meshes.Count > 0)
                 {
@@ -914,8 +1062,8 @@ namespace TDR.Tools.Export
                                 drawMatrix.M42 -= _localOrigin.Value.Y;
                                 drawMatrix.M43 -= _localOrigin.Value.Z;
                             }
-                            w.WriteLine($"usemtl {defaultTex}");
-                            textures.TryAdd(defaultTex, movableArchive);
+                            string canonicalMat = RegisterAndGetCanonicalTexture(defaultTex, movableArchive, textures);
+                            w.WriteLine($"usemtl {canonicalMat}");
                             for (int i = 0; i < container.Meshes.Count; i++)
                             {
                                 WriteSubMesh(container.Meshes[i], drawMatrix, w, ref v, ref vt, ref vn);
@@ -1007,6 +1155,7 @@ namespace TDR.Tools.Export
             int v = 1, vt = 1, vn = 1;
             var textures = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
             var instanceCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            var spawnedLocations = new List<(string Model, Vector3 Pos)>();
             try
             {
                 using (var w = new StreamWriter(tempObj))
@@ -1037,13 +1186,22 @@ namespace TDR.Tools.Export
                             continue;
                         }
 
+                        // Spatial deduplication: prevent exact same model from spawning at exact same position across cumulative descriptors
+                        string modelBaseName = Path.GetFileNameWithoutExtension(hieName);
+                        var rawPos = new Vector3(px, py, pz);
+                        if (spawnedLocations.Any(loc => loc.Model.Equals(modelBaseName, StringComparison.OrdinalIgnoreCase) &&
+                                                        Vector3.DistanceSquared(loc.Pos, rawPos) < 0.01f))
+                        {
+                            continue;
+                        }
+                        spawnedLocations.Add((modelBaseName, rawPos));
+
                         Matrix4x4 rotation = Matrix4x4.CreateFromQuaternion(new Quaternion(qx, qy, qz, qw));
                         Matrix4x4 worldMatrix = _useLocalCoords ? rotation : rotation with
                         {
                             M41 = px, M42 = py, M43 = pz
                         };
 
-                        string modelBaseName = Path.GetFileNameWithoutExtension(hieName);
                         int instIdx = instanceCounts.GetValueOrDefault(modelBaseName, 0) + 1;
                         instanceCounts[modelBaseName] = instIdx;
                         string instanceId = $"{modelBaseName}_{instIdx:D3}";
@@ -1099,9 +1257,8 @@ namespace TDR.Tools.Export
                                         {
                                             var subMesh = container.Meshes[i];
                                             string subTex = (i < hie.Textures.Count) ? hie.Textures[i].Trim('"') : defaultTex;
-
-                                            w.WriteLine($"usemtl {subTex}");
-                                            textures.TryAdd(subTex, movableArchive);
+                                            string canonicalMat = RegisterAndGetCanonicalTexture(subTex, movableArchive, textures);
+                                            w.WriteLine($"usemtl {canonicalMat}");
 
                                             WriteSubMesh(subMesh, worldMatrix, w, ref v, ref vt, ref vn);
                                         }
@@ -1318,7 +1475,7 @@ namespace TDR.Tools.Export
                     {
                         string? pedArchive = _vfs.GetArchivePath(pedHieName);
                         string currentTex = "Default";
-                        ProcessNode(hie.Root, worldMatrix, ref currentTex, hie, textures, w, ref v, ref vt, ref vn, pedArchive);
+                        ProcessNode(hie.Root, worldMatrix, ref currentTex, hie, textures, w, ref v, ref vt, ref vn, pedArchive, null, 0, $"Pedestrian_{pedIdx:D3}");
                     }
                 }
             }
@@ -1367,7 +1524,8 @@ namespace TDR.Tools.Export
             ref int v, ref int vt, ref int vn,
             Func<string, byte[]?> loader,
             string cleanTrackName,
-            Dictionary<string, int>? droneCountsCollector = null)
+            Dictionary<string, int>? droneCountsCollector = null,
+            List<GroundSnapUtil.Triangle>? baseTriangles = null)
         {
             if (droneDescs == null || droneDescs.Count == 0) return 0;
 
@@ -1427,6 +1585,15 @@ namespace TDR.Tools.Export
                     Matrix4x4 spawnMat = spawnMatrices[spawnIdx % spawnMatrices.Count];
                     spawnIdx++;
 
+                    if (_enableGroundSnap && baseTriangles != null && baseTriangles.Count > 0)
+                    {
+                        Vector3 origPos = new Vector3(spawnMat.M41, spawnMat.M42, spawnMat.M43);
+                        Vector3 snappedPos = GroundSnapUtil.SnapPointToSurface(origPos, baseTriangles, maxDropDistance: 500f, rayStartHeight: 2.0f);
+                        spawnMat.M41 = snappedPos.X;
+                        spawnMat.M42 = snappedPos.Y + 0.15f;
+                        spawnMat.M43 = snappedPos.Z;
+                    }
+
                     string instanceId = $"Drone_{Path.GetFileNameWithoutExtension(req.Name)}_{i + 1:D2}";
                     if (_useGrouping)
                     {
@@ -1436,7 +1603,7 @@ namespace TDR.Tools.Export
                     }
 
                     string currentTex = "Default";
-                    ProcessNode(hie.Root, spawnMat, ref currentTex, hie, textures, w, ref v, ref vt, ref vn, droneArchive);
+                    ProcessNode(hie.Root, spawnMat, ref currentTex, hie, textures, w, ref v, ref vt, ref vn, droneArchive, null, 0, instanceId);
                     bakedTotal++;
 
                     if (droneCountsCollector != null)
@@ -1462,7 +1629,8 @@ namespace TDR.Tools.Export
             ref int vn,
             string? archivePath = null,
             HashSet<TDRNode>? visited = null,
-            int depth = 0)
+            int depth = 0,
+            string? instancePrefix = null)
         {
             if (node == null || depth > 200) return;
 
@@ -1514,7 +1682,18 @@ namespace TDR.Tools.Export
                         // Directive 'g' creates sub-face groups/materials inside that object.
                         if (_useGrouping)
                         {
-                            w.WriteLine($"o {node.Name}_{node.ID}");
+                            string partName = node.Name.EndsWith($"_{node.ID}", StringComparison.OrdinalIgnoreCase)
+                                ? node.Name
+                                : $"{node.Name}_{node.ID}";
+
+                            if (!string.IsNullOrEmpty(instancePrefix))
+                            {
+                                w.WriteLine($"g {partName}");
+                            }
+                            else
+                            {
+                                w.WriteLine($"o {partName}");
+                            }
                         }
                         Matrix4x4 drawMatrix = worldMatrix;
                         if (_useLocalCoords)
@@ -1526,8 +1705,8 @@ namespace TDR.Tools.Export
                             drawMatrix.M43 -= _localOrigin.Value.Z;
                         }
 
-                        w.WriteLine($"usemtl {currentTexture}");
-                        textureSet.TryAdd(currentTexture, archivePath);
+                        string canonicalMat = RegisterAndGetCanonicalTexture(currentTexture, archivePath, textureSet);
+                        w.WriteLine($"usemtl {canonicalMat}");
 
                         int subIndex = hie.Meshes.Count == 1 ? node.Index : -1;
                         if (subIndex >= 0 && subIndex < container.Meshes.Count)
@@ -1547,7 +1726,7 @@ namespace TDR.Tools.Export
 
             foreach (var child in node.Children)
             {
-                ProcessNode(child, worldMatrix, ref currentTexture, hie, textureSet, w, ref v, ref vt, ref vn, archivePath, visited, depth + 1);
+                ProcessNode(child, worldMatrix, ref currentTexture, hie, textureSet, w, ref v, ref vt, ref vn, archivePath, visited, depth + 1, instancePrefix);
             }
         }
 
@@ -1715,21 +1894,58 @@ namespace TDR.Tools.Export
             }
         }
 
+        private static string RegisterAndGetCanonicalTexture(string textureName, string? archivePath, Dictionary<string, string?> textureSet)
+        {
+            if (string.IsNullOrWhiteSpace(textureName)) return "Default";
+
+            foreach (var existing in textureSet.Keys)
+            {
+                if (existing.Equals(textureName, StringComparison.OrdinalIgnoreCase))
+                {
+                    return existing;
+                }
+            }
+
+            textureSet[textureName] = archivePath;
+            return textureName;
+        }
+
         private string SaveTextureWithFormat(byte[] rawData, string originalFileName, string targetDir)
         {
-            if (_convertTexturesToPng && originalFileName.EndsWith(".tga", StringComparison.OrdinalIgnoreCase))
+            string baseStem = Path.GetFileNameWithoutExtension(originalFileName);
+            string ext = Path.GetExtension(originalFileName);
+            string targetBaseName = baseStem;
+
+            string testPath = Path.Combine(targetDir, originalFileName);
+            if (File.Exists(testPath))
             {
-                string pngName = Path.ChangeExtension(originalFileName, ".png");
-                string pngPath = Path.Combine(targetDir, pngName);
-                if (TgaDecoder.SaveTgaAsPng(rawData, pngPath))
+                byte[] existingBytes = File.ReadAllBytes(testPath);
+                if (existingBytes.Length != rawData.Length || !existingBytes.AsSpan().SequenceEqual(rawData))
                 {
+                    string hash = GetMd5(rawData).Substring(0, 6).ToLowerInvariant();
+                    targetBaseName = $"{baseStem}_{hash}";
+                }
+            }
+
+            if (_convertTexturesToPng && ext.EndsWith(".tga", StringComparison.OrdinalIgnoreCase))
+            {
+                string pngName = $"{targetBaseName}.png";
+                string pngPath = Path.Combine(targetDir, pngName);
+                if (File.Exists(pngPath) || TgaDecoder.SaveTgaAsPng(rawData, pngPath))
+                {
+                    string staleTga = Path.Combine(targetDir, $"{targetBaseName}.tga");
+                    if (File.Exists(staleTga))
+                    {
+                        try { File.Delete(staleTga); } catch { }
+                    }
                     return pngName;
                 }
             }
 
-            string rawPath = Path.Combine(targetDir, originalFileName);
-            File.WriteAllBytes(rawPath, rawData);
-            return originalFileName;
+            string rawName = $"{targetBaseName}{ext}";
+            string rawPath = Path.Combine(targetDir, rawName);
+            if (!File.Exists(rawPath)) File.WriteAllBytes(rawPath, rawData);
+            return rawName;
         }
 
         private static string GetMd5(byte[] data)
@@ -1739,6 +1955,59 @@ namespace TDR.Tools.Export
             var sb = new StringBuilder(hash.Length * 2);
             foreach (byte b in hash) sb.Append(b.ToString("x2"));
             return sb.ToString();
+        }
+
+        private void ExportSplineDebugObj(string levelName, string baseObjPath)
+        {
+            try
+            {
+                string cleanTrack = TrackDiscovery.GetBaseTrackName(levelName);
+                string outDir = Path.GetDirectoryName(baseObjPath) ?? _exportDir;
+                string debugObjPath = Path.Combine(outDir, $"{cleanTrack}_splines_debug.obj");
+
+                // Collect road and track splines
+                var splines = SplineResolver.ResolveRoadSplines(_vfs, cleanTrack, _trackContext);
+                if (splines.Count == 0) return;
+
+                using var sw = new StreamWriter(debugObjPath, false, Encoding.ASCII);
+                sw.WriteLine($"# TDR2000 Spline Debug Visualization for {levelName}");
+                sw.WriteLine($"# Total Splines: {splines.Count}");
+
+                int vOffset = 1;
+                for (int s = 0; s < splines.Count; s++)
+                {
+                    var sp = splines[s];
+                    if (sp.Points.Count < 2) continue;
+
+                    string spName = string.IsNullOrWhiteSpace(sp.Name) ? $"Spline_{s:D2}" : sp.Name;
+                    sw.WriteLine($"o {spName}");
+                    sw.WriteLine($"g {spName}");
+
+                    int startV = vOffset;
+                    foreach (var pt in sp.Points)
+                    {
+                        sw.WriteLine($"v {F(pt.X)} {F(pt.Y)} {F(pt.Z)}");
+                        vOffset++;
+                    }
+
+                    // Write line segments: l v1 v2 v3 ...
+                    sw.Write("l");
+                    for (int vi = startV; vi < vOffset; vi++)
+                    {
+                        sw.Write($" {vi}");
+                    }
+                    sw.WriteLine();
+                }
+
+                if (IsVerboseEnabled)
+                {
+                    Log($"[+] Exported spline debug visualization: {Path.GetFileName(debugObjPath)} ({splines.Count} splines)");
+                }
+            }
+            catch (Exception ex)
+            {
+                if (IsVerboseEnabled) Log($"    [!] Warning: Failed to export spline debug OBJ: {ex.Message}");
+            }
         }
 
         private static string F(float val) => val.ToString("0.000000", CultureInfo.InvariantCulture);

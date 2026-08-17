@@ -19,15 +19,32 @@ namespace TDR.Tools.Services
         public DateTime Timestamp { get; }
         public LogLevel Level { get; }
         public string Message { get; }
+        public string? TrackTag { get; set; }
+        public string? VariantTag { get; set; }
 
-        public LogEntry(LogLevel level, string message)
+        public LogEntry(LogLevel level, string message, string? trackTag = null, string? variantTag = null)
         {
             Timestamp = DateTime.Now;
             Level = level;
             Message = message;
+            TrackTag = trackTag;
+            VariantTag = variantTag;
         }
 
+        public string TimeText => $"[{Timestamp:HH:mm:ss}]";
         public string FormattedText => $"[{Timestamp:HH:mm:ss}] {Message}";
+
+        public string ForegroundBrush => Level switch
+        {
+            LogLevel.Error => "#E06C75",    // Calm muted red
+            LogLevel.Warning => "#E5C07B",  // Soft amber
+            LogLevel.Summary => "#98C379",  // Subtle mint/green
+            LogLevel.Debug => "#5C6370",    // Muted grey
+            _ => Message.Contains("[GLTF]", StringComparison.OrdinalIgnoreCase) ? "#61AFEF" : // Calm cyan/blue
+                 Message.Contains("[OBJ]", StringComparison.OrdinalIgnoreCase) ? "#C678DD" :  // Soft purple
+                 Message.Contains("[MTL", StringComparison.OrdinalIgnoreCase) ? "#D19A66" :
+                 Message.Contains("[+]") ? "#98C379" : "#ABB2BF"                              // Default calm light grey
+        };
 
         public override string ToString() => FormattedText;
     }
@@ -43,7 +60,10 @@ namespace TDR.Tools.Services
 
         private readonly object _lock = new();
         private readonly Queue<LogEntry> _entries = new();
-        private const int MaxHistoryCount = 2500;
+        private const int MaxHistoryCount = 5000;
+
+        public string? CurrentTrackContext { get; set; }
+        public string? CurrentVariantContext { get; set; }
 
         private bool _isDebugEnabled;
         public bool IsDebugEnabled
@@ -61,11 +81,11 @@ namespace TDR.Tools.Services
         public event Action<LogEntry>? OnLogAdded;
         public event Action? OnLogCleared;
 
-        public void Log(LogLevel level, string message)
+        public void Log(LogLevel level, string message, string? trackTag = null, string? variantTag = null)
         {
             if (!IsEnabled(level) || string.IsNullOrWhiteSpace(message)) return;
 
-            var entry = new LogEntry(level, message);
+            var entry = new LogEntry(level, message, trackTag ?? CurrentTrackContext, variantTag ?? CurrentVariantContext);
             lock (_lock)
             {
                 _entries.Enqueue(entry);

@@ -1,31 +1,16 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Numerics;
 using TDR.PakLib;
 using TDR.PakLib.Formats;
+using TDR.Tools.Services;
 
 namespace TDR.Tools.Export
 {
     public static class SplineResolver
     {
-        /// <summary>
-        /// Verified track name aliases mapping base level names to internal asset prefixes.
-        /// - hollowood: "FilmStudioTraffic_Paths_1.pak"
-        /// - backofbeyond: "outback"
-        /// - docksmd: "New_DOCKSDrone_Paths.pak"
-        /// - militarymd: "MilitaryDrone_Paths.pak"
-        /// - policestate: "New_PoliceDrone_Path.pak"
-        /// </summary>
-        private static readonly Dictionary<string, string[]> TrackAliases = new(StringComparer.OrdinalIgnoreCase)
-        {
-            ["hollowood"] = new[] { "filmstudio", "film_studio" },
-            ["backofbeyond"] = new[] { "outback" },
-            ["docksmd"] = new[] { "docks" },
-            ["militarymd"] = new[] { "military" },
-            ["policestate"] = new[] { "police" }
-        };
-
         private static readonly string[] ExcludedKeywords = new[]
         {
             "camera", "energy", "ped", "shark", "gorilla", "kong", "look"
@@ -67,18 +52,8 @@ namespace TDR.Tools.Export
                 if (!isSplineExt) continue;
 
                 // Check track match directly or via aliases dictionary
-                bool matchesTrack = fn.Contains(trackBase) || archiveLower.Contains(trackBase);
-                if (!matchesTrack && TrackAliases.TryGetValue(trackBase, out string[]? aliases))
-                {
-                    foreach (string alias in aliases)
-                    {
-                        if (fn.Contains(alias) || archiveLower.Contains(alias))
-                        {
-                            matchesTrack = true;
-                            break;
-                        }
-                    }
-                }
+                bool matchesTrack = TrackDiscoveryService.IsTrackOrAliasMatch(fn, trackBase) ||
+                                    TrackDiscoveryService.IsTrackOrAliasMatch(archiveLower, trackBase);
 
                 if (!matchesTrack) continue;
 
@@ -114,7 +89,7 @@ namespace TDR.Tools.Export
         }
 
         /// <summary>
-        /// Generates evenly distributed spawn matrices along the waypoints of available road splines.
+        /// Generates evenly distributed, collision-free spawn matrices along the continuous length of available road splines.
         /// </summary>
         public static List<Matrix4x4> GenerateSpawnMatrices(List<TDRSpline> splines, int requestedCount)
         {
@@ -126,30 +101,125 @@ namespace TDR.Tools.Export
             }
 
             int targetCount = Math.Max(1, requestedCount);
-            int slotsPerSpline = Math.Max(1, (int)Math.Ceiling((double)targetCount / splines.Count));
 
-            foreach (var spline in splines)
+            var validSplines = splines.Where(s => s.Points.Count >= 2).ToList();
+            if (validSplines.Count == 0)
             {
-                int ptCount = spline.Points.Count;
-                if (ptCount < 2)
+                foreach (var s in splines)
                 {
-                    spawnMatrices.Add(spline.GetSpawnMatrix(0));
-                    continue;
+                    if (s.Points.Count > 0) spawnMatrices.Add(s.GetSpawnMatrix(0));
+                }
+                if (spawnMatrices.Count == 0) spawnMatrices.Add(Matrix4x4.Identity);
+                return spawnMatrices;
+            }
+
+            var splineLengths = new List<float>();
+            float totalLength = 0f;
+            foreach (var sp in validSplines)
+            {
+                float len = 0f;
+                for (int i = 0; i < sp.Points.Count - 1; i++)
+                {
+                    len += Vector3.Distance(sp.Points[i], sp.Points[i + 1]);
+                }
+                splineLengths.Add(len);
+                totalLength += len;
+            }
+
+            // Distribute vehicle spawn slots proportionally along splines with minimum distance check
+            float minSeparation = 10.0f; // Minimum 10 meters between vehicle centres to prevent stacking
+            var spawnedPositions = new List<Vector3>();
+
+            for (int sIdx = 0; sIdx < validSplines.Count; sIdx++)
+            {
+                var spline = validSplines[sIdx];
+                float spLen = splineLengths[sIdx];
+                if (spLen < 1.0f) continue;
+
+                int splineSlots = Math.Max(1, (int)Math.Round((double)spLen / Math.Max(1.0f, totalLength) * targetCount));
+                float stepDist = spLen / (splineSlots + 1);
+
+                for (int slot = 1; slot <= splineSlots; slot++)
+                {
+                    float targetDist = slot * stepDist;
+                    Matrix4x4 mat = SampleSplineAtDistance(spline, targetDist);
+                    Vector3 pos = new Vector3(mat.M41, mat.M42, mat.M43);
+
+                    // Collision check with already spawned points
+                    bool tooClose = spawnedPositions.Any(p => Vector3.Distance(p, pos) < minSeparation);
+                    if (!tooClose)
+                    {
+                        spawnedPositions.Add(pos);
+                        spawnMatrices.Add(mat);
+                        if (spawnMatrices.Count >= targetCount) break;
+                    }
                 }
 
-                int step = Math.Max(1, ptCount / slotsPerSpline);
-                for (int ptIdx = 0; ptIdx < ptCount; ptIdx += step)
+                if (spawnMatrices.Count >= targetCount) break;
+            }
+
+            // If more slots needed, fill with fallback waypoint positions ensuring min separation
+            if (spawnMatrices.Count < targetCount)
+            {
+                foreach (var spline in validSplines)
                 {
-                    spawnMatrices.Add(spline.GetSpawnMatrix(ptIdx));
+                    for (int i = 0; i < spline.Points.Count; i++)
+                    {
+                        Matrix4x4 mat = spline.GetSpawnMatrix(i);
+                        Vector3 pos = new Vector3(mat.M41, mat.M42, mat.M43);
+                        if (!spawnedPositions.Any(p => Vector3.Distance(p, pos) < 5.0f))
+                        {
+                            spawnedPositions.Add(pos);
+                            spawnMatrices.Add(mat);
+                            if (spawnMatrices.Count >= targetCount) break;
+                        }
+                    }
+                    if (spawnMatrices.Count >= targetCount) break;
                 }
             }
 
-            if (spawnMatrices.Count == 0)
-            {
-                spawnMatrices.Add(Matrix4x4.Identity);
-            }
-
+            if (spawnMatrices.Count == 0) spawnMatrices.Add(Matrix4x4.Identity);
             return spawnMatrices;
+        }
+
+        private static Matrix4x4 SampleSplineAtDistance(TDRSpline spline, float distance, float yOffset = 0.35f)
+        {
+            if (spline.Points.Count == 0) return Matrix4x4.Identity;
+            if (spline.Points.Count == 1) return spline.GetSpawnMatrix(0, yOffset);
+
+            float accumulated = 0f;
+            for (int i = 0; i < spline.Points.Count - 1; i++)
+            {
+                Vector3 p0 = spline.Points[i];
+                Vector3 p1 = spline.Points[i + 1];
+                float segLen = Vector3.Distance(p0, p1);
+
+                if (accumulated + segLen >= distance || i == spline.Points.Count - 2)
+                {
+                    float t = segLen > 0.0001f ? Math.Clamp((distance - accumulated) / segLen, 0f, 1f) : 0f;
+                    Vector3 pos = Vector3.Lerp(p0, p1, t);
+                    pos.Y += yOffset;
+
+                    Vector3 forward = segLen > 0.0001f ? Vector3.Normalize(p1 - p0) : Vector3.UnitZ;
+                    Vector3 up = Vector3.UnitY;
+                    Vector3 right = Vector3.Cross(forward, up);
+                    if (right.LengthSquared() < 0.0001f) right = Vector3.UnitX;
+                    else right = Vector3.Normalize(right);
+
+                    Vector3 realUp = Vector3.Normalize(Vector3.Cross(right, forward));
+
+                    return new Matrix4x4(
+                        right.X,    right.Y,    right.Z,    0f,
+                        realUp.X,   realUp.Y,   realUp.Z,   0f,
+                        -forward.X, -forward.Y, -forward.Z, 0f,
+                        pos.X,      pos.Y,      pos.Z,      1f
+                    );
+                }
+
+                accumulated += segLen;
+            }
+
+            return spline.GetSpawnMatrix(spline.Points.Count - 1, yOffset);
         }
     }
 }

@@ -119,7 +119,9 @@ namespace TDR.PakLib.Formats
             }
 
             bool hasPaks = Directory.GetFiles(assetsPath, "*.pak", SearchOption.AllDirectories).Length > 0;
-            bool hasTracksDir = Directory.Exists(Path.Combine(assetsPath, "tracks")) || Directory.Exists(Path.Combine(assetsPath, "TRACKS"));
+            bool hasTracksDir = Directory.Exists(Path.Combine(assetsPath, "tracks")) ||
+                                Directory.Exists(Path.Combine(assetsPath, "Tracks")) ||
+                                Directory.Exists(Path.Combine(assetsPath, "TRACKS"));
 
             if (!hasPaks && !hasTracksDir)
             {

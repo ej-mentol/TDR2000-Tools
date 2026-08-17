@@ -1147,10 +1147,16 @@ namespace TDR.Tools
             _vm.LogLines.Clear();
         }
 
+        private void OnLogFilterAllClick(object? sender, RoutedEventArgs e) => _vm.SetLogFilter("All");
+        private void OnLogFilterGltfClick(object? sender, RoutedEventArgs e) => _vm.SetLogFilter("GLTF");
+        private void OnLogFilterObjClick(object? sender, RoutedEventArgs e) => _vm.SetLogFilter("OBJ");
+        private void OnLogFilterWarningsClick(object? sender, RoutedEventArgs e) => _vm.SetLogFilter("Warnings");
+        private void OnLogFilterSummariesClick(object? sender, RoutedEventArgs e) => _vm.SetLogFilter("Summaries");
+
         private async void OnCopySelectedLogLinesClick(object? sender, RoutedEventArgs e)
         {
             if (LogListBox?.SelectedItems == null || LogListBox.SelectedItems.Count == 0) return;
-            var lines = LogListBox.SelectedItems.OfType<string>();
+            var lines = LogListBox.SelectedItems.OfType<Services.LogEntry>().Select(x => x.FormattedText);
             string text = string.Join(Environment.NewLine, lines);
             var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
             if (clipboard != null)
@@ -1164,7 +1170,7 @@ namespace TDR.Tools
             string text = Services.LogService.Instance.GetAllText();
             if (string.IsNullOrEmpty(text) && _vm.LogLines.Count > 0)
             {
-                text = string.Join(Environment.NewLine, _vm.LogLines);
+                text = string.Join(Environment.NewLine, _vm.LogLines.Select(x => x.FormattedText));
             }
             if (string.IsNullOrEmpty(text)) return;
             var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
@@ -1176,7 +1182,7 @@ namespace TDR.Tools
 
         private async void OnCopyWarningsLogLinesClick(object? sender, RoutedEventArgs e)
         {
-            string text = Services.LogService.Instance.GetWarningsText();
+            string text = Services.LogService.Instance.GetFilteredText(e => MainViewModel.MatchesLogFilter(e, "Warnings"));
             if (string.IsNullOrWhiteSpace(text)) return;
             var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
             if (clipboard != null)
@@ -1187,7 +1193,10 @@ namespace TDR.Tools
 
         private async void OnCopyErrorsLogLinesClick(object? sender, RoutedEventArgs e)
         {
-            string text = Services.LogService.Instance.GetErrorsText();
+            string text = Services.LogService.Instance.GetFilteredText(e => e.Level == Services.LogLevel.Error ||
+                                                                            e.Message.Contains("[ERROR]", StringComparison.OrdinalIgnoreCase) ||
+                                                                            e.Message.Contains("exception", StringComparison.OrdinalIgnoreCase) ||
+                                                                            e.Message.Contains("failed", StringComparison.OrdinalIgnoreCase));
             if (string.IsNullOrWhiteSpace(text)) return;
             var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
             if (clipboard != null)
@@ -1198,7 +1207,7 @@ namespace TDR.Tools
 
         private async void OnCopySummariesLogLinesClick(object? sender, RoutedEventArgs e)
         {
-            string text = Services.LogService.Instance.GetSummariesText();
+            string text = Services.LogService.Instance.GetFilteredText(e => MainViewModel.MatchesLogFilter(e, "Summaries"));
             if (string.IsNullOrWhiteSpace(text)) return;
             var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
             if (clipboard != null)

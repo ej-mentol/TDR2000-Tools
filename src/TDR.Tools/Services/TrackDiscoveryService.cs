@@ -17,6 +17,42 @@ namespace TDR.Tools.Services
 
     public static class TrackDiscoveryService
     {
+        /// <summary>
+        /// Verified track name aliases mapping base level names to internal asset prefixes used by Torus Games.
+        /// - hollowood: "FilmStudioTraffic_Paths_1.pak", "filmstudio", "film_studio"
+        /// - backofbeyond: "outback"
+        /// - docksmd: "docks", "New_DOCKSDrone_Paths.pak"
+        /// - militarymd: "military", "MilitaryDrone_Paths.pak"
+        /// - policestate: "police", "New_PoliceDrone_Path.pak"
+        /// </summary>
+        public static readonly Dictionary<string, string[]> TrackAliases = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["hollowood"] = new[] { "filmstudio", "film_studio" },
+            ["backofbeyond"] = new[] { "outback" },
+            ["docksmd"] = new[] { "docks" },
+            ["militarymd"] = new[] { "military" },
+            ["policestate"] = new[] { "police" }
+        };
+
+        public static bool IsTrackOrAliasMatch(string pathOrName, string mainTrack)
+        {
+            if (string.IsNullOrEmpty(pathOrName) || string.IsNullOrEmpty(mainTrack)) return false;
+            string norm = pathOrName.Replace('\\', '/').ToLowerInvariant().Replace("_", "");
+            string cleanMain = mainTrack.ToLowerInvariant().Replace("_", "");
+
+            if (norm.Contains(cleanMain)) return true;
+
+            if (TrackAliases.TryGetValue(mainTrack.ToLowerInvariant(), out var aliases))
+            {
+                foreach (var alias in aliases)
+                {
+                    if (norm.Contains(alias.Replace("_", ""))) return true;
+                }
+            }
+
+            return false;
+        }
+
         public static bool IsGameAssetsDirectory(string path)
         {
             if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path)) return false;
@@ -62,6 +98,43 @@ namespace TDR.Tools.Services
             }
 
             return fullPath;
+        }
+
+        public static void IndexWithSharedFolders(PakManager vfs, string rootPath, Action<string>? log = null)
+        {
+            if (string.IsNullOrWhiteSpace(rootPath) || !Directory.Exists(rootPath))
+                return;
+
+            vfs.IndexDirectory(rootPath);
+
+            try
+            {
+                string? parentDir = Path.GetDirectoryName(rootPath);
+                if (!string.IsNullOrEmpty(parentDir) && Directory.Exists(parentDir))
+                {
+                    string[] sharedFolders = new[] { "MOVABLEOBJECTS", "POWERUPS", "SHARED", "TEXTURES", "ATTRIBUTES" };
+                    var indexedDirs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    string? searchDir = parentDir;
+                    for (int depth = 0; depth < 2 && !string.IsNullOrEmpty(searchDir) && Directory.Exists(searchDir); depth++)
+                    {
+                        foreach (string folder in sharedFolders)
+                        {
+                            string folderDir = Path.Combine(searchDir, folder);
+                            if (Directory.Exists(folderDir) &&
+                                !folderDir.StartsWith(rootPath, StringComparison.OrdinalIgnoreCase) &&
+                                indexedDirs.Add(Path.GetFullPath(folderDir)))
+                            {
+                                vfs.IndexDirectory(folderDir);
+                            }
+                        }
+                        searchDir = Path.GetDirectoryName(searchDir);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                log?.Invoke($"[!] Warning during parent shared assets auto-indexing: {ex.Message}");
+            }
         }
 
         public static List<TrackInfo> DiscoverTracks(PakManager vfs, string rootPath)

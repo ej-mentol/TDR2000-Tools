@@ -4,6 +4,8 @@ using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using TDR.PakLib;
+using TDR.PakLib.Formats;
+using TDR.Tools.Services;
 
 namespace TDR.Tools.Export
 {
@@ -97,11 +99,13 @@ namespace TDR.Tools.Export
             string normArchive = (archivePath ?? "").Replace('\\', '/').ToLowerInvariant();
             string normFile = (filePath ?? "").Replace('\\', '/').ToLowerInvariant();
 
-            bool isTrackAsset = normArchive.Contains("tracks/") || normFile.Contains("tracks/");
+            bool isTrackAsset = normArchive.Contains("tracks/") || normFile.Contains("tracks/") ||
+                                normArchive.Contains("/tracks") || normFile.Contains("/tracks") ||
+                                normArchive.Contains("tracks\\") || normFile.Contains("tracks\\");
             if (!isTrackAsset) return false;
 
-            string cleanMain = mainTrack.Replace("_", "");
-            bool isCurrentTrack = normArchive.Replace("_", "").Contains(cleanMain) || normFile.Replace("_", "").Contains(cleanMain);
+            bool isCurrentTrack = TrackDiscoveryService.IsTrackOrAliasMatch(normArchive, mainTrack) ||
+                                  TrackDiscoveryService.IsTrackOrAliasMatch(normFile, mainTrack);
 
             return !isCurrentTrack;
         }
@@ -137,11 +141,14 @@ namespace TDR.Tools.Export
                 : null;
             if (matchTier1B != null) return new MatchResult(matchTier1B, "Tier 1B (Same PAK Directory)");
 
-            // 2. Same Track Level
+            // 2. Same Track Level (including aliases like docks for docksmd, and base track hollowood for hollowood_race1)
+            string baseTrack = TrackDiscovery.GetBaseTrackName(mainTrack).ToLowerInvariant();
             PakManager.IndexedFile? matchTier2 = !string.IsNullOrEmpty(mainTrack)
                 ? vfsFiles.Where(f => NameMatch(f.Name, materialName, allowStrippedFallback: false) &&
-                      ((f.ArchivePath ?? "").ToLowerInvariant().Replace("_", "").Contains(mainTrack.Replace("_", "")) ||
-                       f.Name.ToLowerInvariant().Replace("_", "").Contains(mainTrack.Replace("_", ""))))
+                      (TrackDiscoveryService.IsTrackOrAliasMatch(f.ArchivePath, mainTrack) ||
+                       TrackDiscoveryService.IsTrackOrAliasMatch(f.Name, mainTrack) ||
+                       (!string.IsNullOrEmpty(baseTrack) && (TrackDiscoveryService.IsTrackOrAliasMatch(f.ArchivePath, baseTrack) ||
+                                                             TrackDiscoveryService.IsTrackOrAliasMatch(f.Name, baseTrack)))))
                       .OrderByDescending(f => GetTextureResolutionArea(f.Name))
                       .ThenByDescending(f => f.Name.Contains("_32"))
                       .ThenByDescending(f => f.Name.Contains("_24"))

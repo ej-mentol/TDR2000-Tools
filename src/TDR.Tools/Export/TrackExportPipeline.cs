@@ -74,10 +74,13 @@ namespace TDR.Tools.Export
                 options = options with { ExportObj = true };
             }
 
+            string cleanName = TrackDiscovery.GetBaseTrackName(trackName);
+            Services.LogService.Instance.CurrentTrackContext = cleanName;
+            Services.LogService.Instance.CurrentVariantContext = variantSuffix ?? "Base";
+
             log($"[+] Starting Track Export Pipeline for '{trackName}' (Variant: {variantSuffix ?? "Base"}) → '{outputDir}'");
             Directory.CreateDirectory(outputDir);
 
-            string cleanName = TrackDiscovery.GetBaseTrackName(trackName);
             TrackExportResult? exportResult = null;
 
             // 1. OBJ Export (Standard Descriptor Pipeline with Keyword Blacklisting/Filtering)
@@ -124,7 +127,7 @@ namespace TDR.Tools.Export
 
                 if (descriptorData != null && descriptorData.Length > 0)
                 {
-                    var gltfExporter = new GltfExporter(vfs, outputDir, options.UseLocalCoords, options.Verbose, variantTrackName, log, options.ExportPngTextures, options.SelectedHieFiles);
+                    var gltfExporter = new GltfExporter(vfs, outputDir, options.UseLocalCoords, options.Verbose, variantTrackName, log, options.ExportPngTextures, options.SelectedHieFiles, options.EnableGroundSnap);
                     string outputGltfPath = Path.Combine(outputDir, variantTrackName + ".gltf");
                     log?.Invoke($"[►] Exporting Modern glTF 2.0 Scene: '{variantTrackName}.gltf'");
                     gltfExporter.ExportLevelToGltf(descriptorData, variantTrackName, outputGltfPath, options.IncludeMovableProps, progressCallback);

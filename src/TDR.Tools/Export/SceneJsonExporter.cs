@@ -241,83 +241,82 @@ namespace TDR.Tools.Export
             }
 
             // 2. Lights
-            byte[]? lightsData = loader($"{trackName}_LightsDescriptor.txt");
-            if (lightsData != null)
+            var lightsRes = LoadDescriptorByKeyOrFallback(loader, trackTxtData, "LIGHTS_DESCRIPTOR", trackName, "LightsDescriptor.txt");
+            if (lightsRes.Data != null)
             {
-                ParseLights(lightsData, manifest.Lights);
-                if (verbose) log?.Invoke($"  [JSON Lights] Parsed {manifest.Lights.Count} light fixture(s) from '{trackName}_LightsDescriptor.txt'");
+                ParseLights(lightsRes.Data, manifest.Lights);
+                if (verbose) log?.Invoke($"  [JSON Lights] Parsed {manifest.Lights.Count} light fixture(s) from '{lightsRes.ResolvedName}'");
             }
 
             // 2b. 3D Sound Emitters
-            byte[]? sndData = loader($"{trackName}_AmbientSndDescriptor.txt");
-            if (sndData != null)
+            var sndRes = LoadDescriptorByKeyOrFallback(loader, trackTxtData, "AMBIENT_SOUNDS", trackName, "AmbientSndDescriptor.txt");
+            if (sndRes.Data != null)
             {
-                ParseSoundEmitters(sndData, manifest.SoundEmitters);
-                if (verbose) log?.Invoke($"  [JSON Sound Emitters] Parsed {manifest.SoundEmitters.Count} 3D sound emitter(s) from '{trackName}_AmbientSndDescriptor.txt'");
+                ParseSoundEmitters(sndRes.Data, manifest.SoundEmitters);
+                if (verbose) log?.Invoke($"  [JSON Sound Emitters] Parsed {manifest.SoundEmitters.Count} 3D sound emitter(s) from '{sndRes.ResolvedName}'");
             }
 
             // 2c. Surface Physics Materials
-            byte[]? hData = loader($"{trackName}Volumes.h");
-            if (hData != null)
+            var hRes = LoadDescriptorByKeyOrFallback(loader, trackTxtData, "SPECIALV_H_ENVIRONMENTS", trackName, "Volumes.h");
+            if (hRes.Data != null)
             {
-                var mats = TDR.PakLib.Formats.HParser.Parse(hData);
+                var mats = TDR.PakLib.Formats.HParser.Parse(hRes.Data);
                 foreach (var kvp in mats) manifest.SurfaceMaterials[kvp.Key] = kvp.Value;
-                if (verbose) log?.Invoke($"  [JSON Surface Physics] Parsed {mats.Count} surface material physics entry(ies) from '{trackName}Volumes.h'");
+                if (verbose) log?.Invoke($"  [JSON Surface Physics] Parsed {mats.Count} surface material physics entry(ies) from '{hRes.ResolvedName}'");
             }
 
             // 3. Movables
-            byte[]? movablesData = loader($"{trackName}_MoveableDescriptor.txt");
-            if (movablesData != null)
+            var movablesRes = LoadDescriptorByKeyOrFallback(loader, trackTxtData, "MOVABLE_OBJECTS", trackName, "MoveableDescriptor.txt");
+            if (movablesRes.Data != null)
             {
                 int before = manifest.Entities.Count;
-                ParseMovables(movablesData, manifest.Entities);
-                if (verbose) log?.Invoke($"  [JSON Movables] Parsed {manifest.Entities.Count - before} movable entity placement(s)");
+                ParseMovables(movablesRes.Data, manifest.Entities);
+                if (verbose) log?.Invoke($"  [JSON Movables] Parsed {manifest.Entities.Count - before} movable entity placement(s) from '{movablesRes.ResolvedName}'");
             }
 
             // 4. Pedestrians
-            byte[]? pedData = loader($"{trackName}_Ped_Placement.txt");
+            byte[]? pedData = loader($"{trackName}_Ped_Placement.txt") ?? loader($"{trackName}Ped_Placement.txt");
             if (pedData != null)
             {
                 int before = manifest.Entities.Count;
-                byte[]? pedDescData = loader($"{trackName}_PedDescriptor.txt");
-                ParsePedestrians(pedData, pedDescData, manifest.Entities);
+                var pedDescRes = LoadDescriptorByKeyOrFallback(loader, trackTxtData, "PEDS_DESCRIPTOR", trackName, "PedDescriptor.txt");
+                ParsePedestrians(pedData, pedDescRes.Data, manifest.Entities);
                 if (verbose) log?.Invoke($"  [JSON Pedestrians] Parsed {manifest.Entities.Count - before} pedestrian placement(s)");
             }
 
             // 4b. Powerups (.pup)
             string targetPup = !string.IsNullOrWhiteSpace(variantArg) ? $"{trackName}_{variantArg}.pup" : $"{trackName}_Race1.pup";
-            byte[]? pupData = loader(targetPup) ?? loader($"{trackName}.pup");
+            byte[]? pupData = loader(targetPup) ?? loader($"{trackName}.pup") ?? loader($"{trackName}Race1.pup");
             if (pupData != null)
             {
                 int before = manifest.Entities.Count;
                 ParsePowerups(pupData, manifest.Entities);
-                if (verbose) log?.Invoke($"  [JSON Powerups] Parsed {manifest.Entities.Count - before} powerup placement(s) from '{targetPup}'");
+                if (verbose) log?.Invoke($"  [JSON Powerups] Parsed {manifest.Entities.Count - before} powerup placement(s)");
             }
 
             // 4c. Breakables
-            byte[]? breakData = loader($"{trackName}_BreakDescriptor.txt");
-            if (breakData != null)
+            var breakRes = LoadDescriptorByKeyOrFallback(loader, trackTxtData, "BREAKABLES_DESCRIPTOR", trackName, "BreakDescriptor.txt");
+            if (breakRes.Data != null)
             {
-                ParseBreakables(breakData, manifest.Breakables);
-                if (verbose) log?.Invoke($"  [JSON Breakables] Parsed {manifest.Breakables.Count} breakable entry(ies) from '{trackName}_BreakDescriptor.txt'");
+                ParseBreakables(breakRes.Data, manifest.Breakables);
+                if (verbose) log?.Invoke($"  [JSON Breakables] Parsed {manifest.Breakables.Count} breakable entry(ies) from '{breakRes.ResolvedName}'");
             }
 
             // 4d. Animated Textures
-            byte[]? animTexData = loader($"{trackName}_TexAnimDescriptor.txt");
-            if (animTexData != null)
+            var animTexRes = LoadDescriptorByKeyOrFallback(loader, trackTxtData, "TEXTURE_ANIM_DESCRIPTOR", trackName, "TexAnimDescriptor.txt");
+            if (animTexRes.Data != null)
             {
-                ParseAnimatedTextures(animTexData, manifest.AnimatedTextures);
-                if (verbose) log?.Invoke($"  [JSON TexAnim] Parsed {manifest.AnimatedTextures.Count} animated texture script mapping(s)");
+                ParseAnimatedTextures(animTexRes.Data, manifest.AnimatedTextures);
+                if (verbose) log?.Invoke($"  [JSON TexAnim] Parsed {manifest.AnimatedTextures.Count} animated texture script mapping(s) from '{animTexRes.ResolvedName}'");
             }
 
             // 4e. Traffic Drones & Paths
-            string droneDesc = !string.IsNullOrWhiteSpace(variantArg) ? $"{trackName}_{variantArg}_DroneDescriptor.txt" : $"{trackName}_DroneDescriptor.txt";
-            byte[]? droneData = loader(droneDesc) ?? loader($"{trackName}_DroneDescriptor.txt");
-            if (droneData != null)
+            var droneRes = LoadDescriptorByKeyOrFallback(loader, trackTxtData, "DRONE_DESCRIPTOR", trackName, "DroneDescriptor.txt");
+            if (droneRes.Data != null)
             {
                 int before = manifest.Entities.Count;
-                ParseDrones(droneData, vfs, manifest.Entities, manifest.Paths, cleanTrack);
-                if (verbose) log?.Invoke($"  [JSON Drones] Parsed {manifest.Entities.Count - before} traffic drone placement(s) from '{droneDesc}'");
+                ParseDrones(droneRes.Data, vfs, manifest.Entities, manifest.Paths, cleanTrack);
+                if (verbose) log?.Invoke($"  [JSON Drones] Parsed {manifest.Entities.Count - before} traffic drone placement(s) from '{droneRes.ResolvedName}'");
             }
 
             // 5. Variants
@@ -825,6 +824,55 @@ if json_files:
                     });
                 }
             }
+        }
+
+        private static string? GetDescriptorValue(byte[]? txtData, string keyword)
+        {
+            if (txtData == null || txtData.Length == 0) return null;
+            string text = Encoding.UTF8.GetString(txtData).TrimStart('\uFEFF');
+            using var sr = new StringReader(text);
+            string? line;
+            while ((line = sr.ReadLine()) != null)
+            {
+                int commentIdx = line.IndexOf("//", StringComparison.Ordinal);
+                if (commentIdx >= 0) line = line[..commentIdx];
+                string trimmed = line.Trim();
+                if (string.IsNullOrWhiteSpace(trimmed)) continue;
+
+                string[] parts = trimmed.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length >= 2 && parts[0].Equals(keyword, StringComparison.OrdinalIgnoreCase))
+                {
+                    return parts[1].Trim('"');
+                }
+            }
+            return null;
+        }
+
+        private static (byte[]? Data, string ResolvedName) LoadDescriptorByKeyOrFallback(
+            Func<string, byte[]?> loader,
+            byte[]? masterTxtData,
+            string keyword,
+            string trackName,
+            string descriptorSuffix)
+        {
+            string? explicitName = GetDescriptorValue(masterTxtData, keyword);
+            if (!string.IsNullOrWhiteSpace(explicitName))
+            {
+                byte[]? data = loader(explicitName);
+                if (data != null) return (data, explicitName);
+            }
+
+            // Fallback 1: {trackName}_{descriptorSuffix} (e.g. 1920s_Volumes.h)
+            string fallbackWithUnderscore = $"{trackName}_{descriptorSuffix}";
+            byte[]? fbData1 = loader(fallbackWithUnderscore);
+            if (fbData1 != null) return (fbData1, fallbackWithUnderscore);
+
+            // Fallback 2: {trackName}{descriptorSuffix} (e.g. 1920sVolumes.h)
+            string fallbackMerged = $"{trackName}{descriptorSuffix}";
+            byte[]? fbData2 = loader(fallbackMerged);
+            if (fbData2 != null) return (fbData2, fallbackMerged);
+
+            return (null, explicitName ?? fallbackWithUnderscore);
         }
     }
 }

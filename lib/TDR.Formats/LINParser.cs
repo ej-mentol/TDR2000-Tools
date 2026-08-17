@@ -15,26 +15,30 @@ namespace TDR.PakLib.Formats
         /// <summary>
         /// Calculates a placement Matrix4x4 positioned at Points[pointIndex] oriented towards the next point.
         /// </summary>
-        public Matrix4x4 GetSpawnMatrix(int pointIndex = 0)
+        public Matrix4x4 GetSpawnMatrix(int pointIndex = 0, float yOffset = 0.35f)
         {
             if (Points.Count == 0) return Matrix4x4.Identity;
 
             int idx0 = Math.Clamp(pointIndex, 0, Points.Count - 1);
             Vector3 pos = Points[idx0];
+            pos.Y += yOffset;
 
             Vector3 forward;
             if (idx0 < Points.Count - 1)
             {
-                forward = Points[idx0 + 1] - pos;
+                forward = Points[idx0 + 1] - Points[idx0];
             }
             else if (idx0 > 0)
             {
-                forward = pos - Points[idx0 - 1];
+                forward = Points[idx0] - Points[idx0 - 1];
             }
             else
             {
                 forward = Vector3.UnitZ;
             }
+
+            // Keep vehicle and train upright by projecting forward tangent onto horizontal XZ plane
+            forward.Y = 0f;
 
             if (forward.LengthSquared() < 0.0001f)
             {
@@ -45,24 +49,19 @@ namespace TDR.PakLib.Formats
                 forward = Vector3.Normalize(forward);
             }
 
-            Vector3 up = Vector3.UnitY;
-            Vector3 right = Vector3.Cross(up, forward);
-            if (right.LengthSquared() < 0.0001f)
-            {
-                right = Vector3.UnitX;
-            }
-            else
-            {
-                right = Vector3.Normalize(right);
-            }
+            Vector3 realUp = Vector3.UnitY;
+            Vector3 right = Vector3.Normalize(Vector3.Cross(forward, realUp));
 
-            Vector3 realUp = Vector3.Normalize(Vector3.Cross(forward, right));
-
+            // TDR2000 vehicle models have Front = -Z, Right = +X, Up = +Y.
+            // Basis mapping:
+            // Local +X -> right
+            // Local +Y -> realUp
+            // Local -Z -> forward (Local +Z -> -forward)
             return new Matrix4x4(
-                right.X,   right.Y,   right.Z,   0f,
-                realUp.X,  realUp.Y,  realUp.Z,  0f,
-                forward.X, forward.Y, forward.Z, 0f,
-                pos.X,     pos.Y,     pos.Z,     1f
+                right.X,    right.Y,    right.Z,    0f,
+                realUp.X,   realUp.Y,   realUp.Z,   0f,
+                -forward.X, -forward.Y, -forward.Z, 0f,
+                pos.X,      pos.Y,      pos.Z,      1f
             );
         }
 
@@ -85,7 +84,7 @@ namespace TDR.PakLib.Formats
         /// </summary>
         public static TDRSplineContainer Load(byte[] data, string fileName, byte[]? optionsData = null)
         {
-            var container = fileName.EndsWith(".lins", StringComparison.OrdinalIgnoreCase)
+            var container = (fileName.EndsWith(".lins", StringComparison.OrdinalIgnoreCase) || IsBinaryLins(data))
                 ? LoadLins(data, fileName)
                 : LoadLin(data, fileName);
 
@@ -102,6 +101,25 @@ namespace TDR.PakLib.Formats
             }
 
             return container;
+        }
+
+        public static bool IsBinaryLins(byte[]? data)
+        {
+            if (data == null || data.Length < 16) return false;
+            int nameLen = BitConverter.ToInt32(data, 0);
+            if (nameLen <= 0 || nameLen > 256 || data.Length < 4 + nameLen + 4) return false;
+
+            for (int i = 4; i < 4 + nameLen; i++)
+            {
+                byte b = data[i];
+                if (b == 0) break;
+                if (b < 0x20 || b > 0x7E) return false;
+            }
+
+            int numPoints = BitConverter.ToInt32(data, 4 + nameLen);
+            if (numPoints <= 0 || numPoints > 100000) return false;
+
+            return data.Length >= 4 + nameLen + 4 + (numPoints * 12);
         }
 
         /// <summary>
@@ -141,7 +159,7 @@ namespace TDR.PakLib.Formats
                             values[0], values[1], values[2], values[3],
                             values[4], values[5], values[6], values[7],
                             values[8], values[9], values[10], values[11],
-                            values[12], values[13], values[14], values[15] == 0f ? 1f : values[15]
+                            values[12], values[13], values[14], Math.Abs(values[15]) < 1e-5f ? 1f : values[15]
                         );
                     }
                 }
@@ -172,7 +190,11 @@ namespace TDR.PakLib.Formats
                     float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float y) &&
                     float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float z))
                 {
-                    spline.Points.Add(new Vector3(x, y, z));
+                    var pt = new Vector3(x, y, z);
+                    if (spline.Points.Count == 0 || Vector3.DistanceSquared(spline.Points[^1], pt) > 1e-6f)
+                    {
+                        spline.Points.Add(pt);
+                    }
                 }
             }
 
@@ -215,7 +237,11 @@ namespace TDR.PakLib.Formats
                     float x = br.ReadSingle();
                     float y = br.ReadSingle();
                     float z = br.ReadSingle();
-                    spline.Points.Add(new Vector3(x, y, z));
+                    var pt = new Vector3(x, y, z);
+                    if (spline.Points.Count == 0 || Vector3.DistanceSquared(spline.Points[^1], pt) > 1e-6f)
+                    {
+                        spline.Points.Add(pt);
+                    }
                 }
 
                 if (spline.Points.Count > 0)
