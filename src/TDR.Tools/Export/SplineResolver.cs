@@ -13,7 +13,7 @@ namespace TDR.Tools.Export
     {
         private static readonly string[] ExcludedKeywords = new[]
         {
-            "camera", "energy", "ped", "shark", "gorilla", "kong", "look"
+            "camera", "energy", "ped", "shark", "gorilla", "kong", "look", "boat", "tug"
         };
 
         /// <summary>
@@ -182,10 +182,61 @@ namespace TDR.Tools.Export
             return spawnMatrices;
         }
 
+        public static Matrix4x4 ComputeSplineSpawnMatrix(TDRSpline spline, int pointIndex = 0, float yOffset = 0.35f)
+        {
+            if (spline.Points.Count == 0) return Matrix4x4.Identity;
+
+            int idx0 = Math.Clamp(pointIndex, 0, spline.Points.Count - 1);
+            Vector3 pos = spline.Points[idx0];
+            pos.Y += yOffset;
+
+            Vector3 forward;
+            if (idx0 < spline.Points.Count - 1)
+            {
+                forward = spline.Points[idx0 + 1] - spline.Points[idx0];
+            }
+            else if (idx0 > 0)
+            {
+                forward = spline.Points[idx0] - spline.Points[idx0 - 1];
+            }
+            else
+            {
+                forward = Vector3.UnitZ;
+            }
+
+            if (forward.LengthSquared() > 0.0001f)
+                forward = Vector3.Normalize(forward);
+            else
+                forward = Vector3.UnitZ;
+
+            Vector3 up = Vector3.UnitY;
+            Vector3 right = Vector3.Cross(up, forward);
+            if (right.LengthSquared() < 0.0001f)
+            {
+                // Handle vertical/steep climbs and dives without singularity
+                right = Vector3.Cross(Vector3.UnitZ, forward);
+                if (right.LengthSquared() < 0.0001f) right = Vector3.UnitX;
+                else right = Vector3.Normalize(right);
+            }
+            else
+            {
+                right = Vector3.Normalize(right);
+            }
+
+            Vector3 realUp = Vector3.Normalize(Vector3.Cross(forward, right));
+
+            return new Matrix4x4(
+                right.X,   right.Y,   right.Z,   0f,
+                realUp.X,  realUp.Y,  realUp.Z,  0f,
+                forward.X, forward.Y, forward.Z, 0f,
+                pos.X,     pos.Y,     pos.Z,     1f
+            );
+        }
+
         private static Matrix4x4 SampleSplineAtDistance(TDRSpline spline, float distance, float yOffset = 0.35f)
         {
             if (spline.Points.Count == 0) return Matrix4x4.Identity;
-            if (spline.Points.Count == 1) return spline.GetSpawnMatrix(0, yOffset);
+            if (spline.Points.Count == 1) return ComputeSplineSpawnMatrix(spline, 0, yOffset);
 
             float accumulated = 0f;
             for (int i = 0; i < spline.Points.Count - 1; i++)
@@ -202,24 +253,24 @@ namespace TDR.Tools.Export
 
                     Vector3 forward = segLen > 0.0001f ? Vector3.Normalize(p1 - p0) : Vector3.UnitZ;
                     Vector3 up = Vector3.UnitY;
-                    Vector3 right = Vector3.Cross(forward, up);
+                    Vector3 right = Vector3.Cross(up, forward);
                     if (right.LengthSquared() < 0.0001f) right = Vector3.UnitX;
                     else right = Vector3.Normalize(right);
 
-                    Vector3 realUp = Vector3.Normalize(Vector3.Cross(right, forward));
+                    Vector3 realUp = Vector3.Normalize(Vector3.Cross(forward, right));
 
                     return new Matrix4x4(
-                        right.X,    right.Y,    right.Z,    0f,
-                        realUp.X,   realUp.Y,   realUp.Z,   0f,
-                        -forward.X, -forward.Y, -forward.Z, 0f,
-                        pos.X,      pos.Y,      pos.Z,      1f
+                        right.X,   right.Y,   right.Z,   0f,
+                        realUp.X,  realUp.Y,  realUp.Z,  0f,
+                        forward.X, forward.Y, forward.Z, 0f,
+                        pos.X,     pos.Y,     pos.Z,     1f
                     );
                 }
 
                 accumulated += segLen;
             }
 
-            return spline.GetSpawnMatrix(spline.Points.Count - 1, yOffset);
+            return ComputeSplineSpawnMatrix(spline, spline.Points.Count - 1, yOffset);
         }
     }
 }

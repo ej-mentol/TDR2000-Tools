@@ -138,7 +138,7 @@ namespace TDR.Tools.Export
                     {
                         BaseColorFactor = new[] { 1.0f, 1.0f, 1.0f, 1.0f },
                         MetallicFactor = 0.0f,
-                        RoughnessFactor = 0.8f
+                        RoughnessFactor = 1.0f
                     }
                 };
 
@@ -160,36 +160,54 @@ namespace TDR.Tools.Export
 
                     mat.PbrMetallicRoughness.BaseColorTexture = new GltfTextureInfo { Index = texIdx };
 
-                    // Set AlphaMode for materials:
-                    // 1. Smooth Additive Alpha Blending (BLEND + Emissive Unlit) for halos, glows, flares, lens effects
-                    if (texName.Contains("spanner", StringComparison.OrdinalIgnoreCase) ||
-                        texName.Contains("halo", StringComparison.OrdinalIgnoreCase) ||
-                        texName.Contains("glow", StringComparison.OrdinalIgnoreCase) ||
-                        texName.Contains("flare", StringComparison.OrdinalIgnoreCase) ||
-                        texName.Contains("light", StringComparison.OrdinalIgnoreCase) ||
-                        texName.Contains("beam", StringComparison.OrdinalIgnoreCase) ||
-                        texName.Contains("shadow", StringComparison.OrdinalIgnoreCase) ||
-                        texFileName.Contains("spanner", StringComparison.OrdinalIgnoreCase) ||
-                        texFileName.Contains("halo", StringComparison.OrdinalIgnoreCase))
+                    // By default, render DoubleSided for game assets to avoid inverted normal / backface culling issues
+                    mat.DoubleSided = true;
+
+                    // Set AlphaMode & PBR parameters for materials:
+                    // 1. Water & Fluid surfaces: Opaque with clean depth write, single-sided to prevent z-fighting in Blender
+                    if (texName.Contains("water", StringComparison.OrdinalIgnoreCase) ||
+                        texFileName.Contains("water", StringComparison.OrdinalIgnoreCase) ||
+                        texName.Contains("river", StringComparison.OrdinalIgnoreCase) ||
+                        texName.Contains("ocean", StringComparison.OrdinalIgnoreCase) ||
+                        texName.Contains("sea", StringComparison.OrdinalIgnoreCase))
                     {
-                        mat.AlphaMode = "BLEND";
-                        mat.DoubleSided = true;
-                        mat.EmissiveFactor = new[] { 1.0f, 1.0f, 1.0f };
+                        mat.AlphaMode = "OPAQUE";
+                        mat.DoubleSided = false;
                         mat.PbrMetallicRoughness.RoughnessFactor = 1.0f;
                         mat.PbrMetallicRoughness.MetallicFactor = 0.0f;
                     }
-                    // 2. Cutout Alpha (MASK) only for true cutout elements (foliage, wire/chainlink fences, grates)
-                    else if (texFileName.Contains("_32", StringComparison.OrdinalIgnoreCase) &&
-                        (texName.Contains("tree", StringComparison.OrdinalIgnoreCase) ||
-                         texName.Contains("fence", StringComparison.OrdinalIgnoreCase) ||
-                         texName.Contains("leaf", StringComparison.OrdinalIgnoreCase) ||
-                         texName.Contains("rail", StringComparison.OrdinalIgnoreCase) ||
-                         texName.Contains("grate", StringComparison.OrdinalIgnoreCase) ||
-                         texName.Contains("wire", StringComparison.OrdinalIgnoreCase)))
+                    // 2. Smooth Additive Alpha Blending (BLEND + Emissive Unlit) for halos, coronas, glows, flares, powerups, lens effects
+                    else if (texName.Contains("corona", StringComparison.OrdinalIgnoreCase) ||
+                             texFileName.Contains("corona", StringComparison.OrdinalIgnoreCase) ||
+                             texName.Contains("halo", StringComparison.OrdinalIgnoreCase) ||
+                             texName.Contains("glow", StringComparison.OrdinalIgnoreCase) ||
+                             texName.Contains("flare", StringComparison.OrdinalIgnoreCase) ||
+                             texName.Contains("beam", StringComparison.OrdinalIgnoreCase) ||
+                             texName.Contains("powerup", StringComparison.OrdinalIgnoreCase) ||
+                             texFileName.Contains("powerup", StringComparison.OrdinalIgnoreCase) ||
+                             texName.Contains("offen", StringComparison.OrdinalIgnoreCase) ||
+                             texFileName.Contains("offen", StringComparison.OrdinalIgnoreCase) ||
+                             texName.Contains("defen", StringComparison.OrdinalIgnoreCase) ||
+                             texFileName.Contains("defen", StringComparison.OrdinalIgnoreCase) ||
+                             texFileName.Contains("halo", StringComparison.OrdinalIgnoreCase) ||
+                             texFileName.Contains("glow", StringComparison.OrdinalIgnoreCase) ||
+                             texFileName.Contains("flare", StringComparison.OrdinalIgnoreCase))
+                    {
+                        mat.AlphaMode = "BLEND";
+                        mat.EmissiveFactor = new[] { 1.0f, 1.0f, 1.0f };
+                        mat.EmissiveTexture = new GltfTextureInfo { Index = texIdx };
+                        mat.PbrMetallicRoughness.RoughnessFactor = 1.0f;
+                        mat.PbrMetallicRoughness.MetallicFactor = 0.0f;
+                    }
+                    // 3. 32-bit cutout textures (with alpha channel) like foliage, fences, grates, signs
+                    else if (texFileName.Contains("_32", StringComparison.OrdinalIgnoreCase) ||
+                             texName.Contains("sign", StringComparison.OrdinalIgnoreCase) ||
+                             texName.Contains("tree", StringComparison.OrdinalIgnoreCase) ||
+                             texName.Contains("fence", StringComparison.OrdinalIgnoreCase) ||
+                             texName.Contains("grate", StringComparison.OrdinalIgnoreCase))
                     {
                         mat.AlphaMode = "MASK";
-                        mat.AlphaCutoff = 0.1f;
-                        mat.DoubleSided = true;
+                        mat.AlphaCutoff = 0.5f;
                     }
 
                     // Sky Sphere / Sky Dome: make unlit with emissive luminance so it never casts shadows or renders black from inside
@@ -198,7 +216,6 @@ namespace TDR.Tools.Export
                         texName.Contains("cloud", StringComparison.OrdinalIgnoreCase) ||
                         texName.Contains("horizon", StringComparison.OrdinalIgnoreCase))
                     {
-                        mat.DoubleSided = true;
                         mat.EmissiveFactor = new[] { 1.0f, 1.0f, 1.0f };
                         mat.PbrMetallicRoughness.RoughnessFactor = 1.0f;
                         mat.PbrMetallicRoughness.MetallicFactor = 0.0f;
@@ -287,7 +304,16 @@ namespace TDR.Tools.Export
                     {
                         int instIdx = instCounts.GetValueOrDefault(modelBaseName, 0) + 1;
                         instCounts[modelBaseName] = instIdx;
-                        string instanceId = $"{modelBaseName}_{instIdx:D3}";
+
+                        string prefix = "Prop";
+                        if (modelBaseName.Contains("train", StringComparison.OrdinalIgnoreCase))
+                            prefix = "Train";
+                        else if (modelBaseName.Contains("bridge", StringComparison.OrdinalIgnoreCase))
+                            prefix = "Bridge";
+                        else if (modelBaseName.Contains("door", StringComparison.OrdinalIgnoreCase) || modelBaseName.Contains("gate", StringComparison.OrdinalIgnoreCase))
+                            prefix = "Door";
+
+                        string instanceId = $"{prefix}_{modelBaseName}_{instIdx:D3}";
 
                         Matrix4x4 instMat = inst.Transform;
                         if (_useLocalCoords && globalOrigin.HasValue)
@@ -325,7 +351,8 @@ namespace TDR.Tools.Export
                 if (processedHieNames.Contains(hieName) || 
                     processedHieNames.Contains(cleanHieName) ||
                     processedHieNames.Contains(cleanNoExt) ||
-                    assets.HieInstances.Any(inst => Path.GetFileName(inst.HieName).Equals(cleanHieName, StringComparison.OrdinalIgnoreCase)))
+                    assets.HieInstances.Any(inst => Path.GetFileName(inst.HieName).Equals(cleanHieName, StringComparison.OrdinalIgnoreCase) ||
+                                                    Path.GetFileNameWithoutExtension(inst.HieName).Equals(cleanNoExt, StringComparison.OrdinalIgnoreCase)))
                 {
                     continue;
                 }
@@ -354,14 +381,27 @@ namespace TDR.Tools.Export
 
                 if (gltfMeshIdx >= 0)
                 {
-                    Matrix4x4 startMatrix = assets.HieInitialTransforms.TryGetValue(hieName, out var initMat) ? initMat : Matrix4x4.Identity;
+                    Matrix4x4 startMatrix = Matrix4x4.Identity;
+                    if (assets.HieInitialTransforms.TryGetValue(hieName, out var initMat) ||
+                        assets.HieInitialTransforms.TryGetValue(cleanHieName, out initMat) ||
+                        assets.HieInitialTransforms.TryGetValue(cleanNoExt, out initMat))
+                    {
+                        startMatrix = initMat;
+                    }
+
                     if (_useLocalCoords && globalOrigin.HasValue)
                     {
                         startMatrix.M41 -= globalOrigin.Value.X;
                         startMatrix.M42 -= globalOrigin.Value.Y;
                         startMatrix.M43 -= globalOrigin.Value.Z;
                     }
-                    string layerName = Path.GetFileNameWithoutExtension(hieName);
+
+                    string layerName = cleanNoExt;
+                    if (cleanNoExt.Contains("water", StringComparison.OrdinalIgnoreCase))
+                        layerName = $"Environment_Water_{cleanNoExt}";
+                    else if (cleanNoExt.Contains("sky", StringComparison.OrdinalIgnoreCase))
+                        layerName = $"Environment_Sky_{cleanNoExt}";
+
                     var layerNode = new GltfNode
                     {
                         Name = layerName,
@@ -382,15 +422,16 @@ namespace TDR.Tools.Export
             {
                 string cleanTrackName = TrackDiscovery.GetBaseTrackName(levelName);
                 var allMovDescs = new List<string>(assets.MovableDescriptors);
-                string defaultBaseMov = $"{cleanTrackName}_MoveableDescriptor.txt";
-                if (_vfs.FileExists(defaultBaseMov) && !allMovDescs.Contains(defaultBaseMov, StringComparer.OrdinalIgnoreCase))
-                {
-                    allMovDescs.Insert(0, defaultBaseMov);
-                }
                 string defaultVarMov = $"{levelName}_MoveableDescriptor.txt";
+                string defaultBaseMov = $"{cleanTrackName}_MoveableDescriptor.txt";
+
                 if (_vfs.FileExists(defaultVarMov) && !allMovDescs.Contains(defaultVarMov, StringComparer.OrdinalIgnoreCase))
                 {
                     allMovDescs.Add(defaultVarMov);
+                }
+                else if (allMovDescs.Count == 0 && _vfs.FileExists(defaultBaseMov))
+                {
+                    allMovDescs.Add(defaultBaseMov);
                 }
 
                 var instCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
@@ -436,7 +477,7 @@ namespace TDR.Tools.Export
 
                         int instIdx = instCounts.GetValueOrDefault(modelBaseName, 0) + 1;
                         instCounts[modelBaseName] = instIdx;
-                        string instanceId = $"{modelBaseName}_{instIdx:D3}";
+                        string instanceId = $"Movable_{modelBaseName}_{instIdx:D3}";
 
                         string? archivePath = _vfs.GetArchivePath(hieName);
                         string meshKey = string.IsNullOrEmpty(archivePath) ? hieName : $"{archivePath}#{hieName}";
@@ -751,7 +792,7 @@ namespace TDR.Tools.Export
                         int propNodeIdx = gltf.Nodes.Count;
                         var propNode = new GltfNode
                         {
-                            Name = $"Drone_{clean}_{i + 1:D2}",
+                            Name = $"TrafficDrone_{i + 1:D2}_{clean}",
                             Mesh = gltfMeshIdx,
                             Matrix = ToGltfMatrix(spawnMat)
                         };
@@ -946,8 +987,12 @@ namespace TDR.Tools.Export
 
                     string? archivePath = _vfs.GetArchivePath(iconHieName);
                     string meshKey = string.IsNullOrEmpty(archivePath) ? iconHieName : $"{archivePath}#{iconHieName}";
-
-                    if (!meshMap.TryGetValue(meshKey, out int gltfMeshIdx))
+                    int gltfMeshIdx = -1;
+                    if (meshMap.TryGetValue(meshKey, out int cachedIdx))
+                    {
+                        gltfMeshIdx = cachedIdx;
+                    }
+                    else
                     {
                         var hie = GetOrLoadHierarchy(iconHieName, archivePath, name => _vfs.LoadFileContext(name, _trackContext ?? cleanTrackName));
                         if (hie != null)
@@ -1010,8 +1055,7 @@ namespace TDR.Tools.Export
             if (_meshCache.TryGetValue(cacheKey, out container)) return container != null;
 
             byte[]? meshData = (!string.IsNullOrEmpty(archivePath) ? _vfs.LoadFileContext(meshName, archivePath) : null) ??
-                               _vfs.LoadFileContext(meshName, _trackContext) ??
-                               _vfs.LoadFile(meshName);
+                               _vfs.LoadFileContext(meshName, _trackContext);
             if (meshData != null)
             {
                 container = MSHSContainer.Load(meshData, meshName);
@@ -1035,7 +1079,7 @@ namespace TDR.Tools.Export
             var gMesh = new GltfMesh { Name = Path.GetFileNameWithoutExtension(hie.Name) };
             string currentTex = hie.Textures.Count > 0 ? hie.Textures[0].Trim('"') : "Default";
 
-            void ProcessHieNode(TDRNode? node, Matrix4x4 parentMat, ref string activeTex, HashSet<TDRNode> visited, int depth = 0)
+            void ProcessHieNode(TDRNode? node, Matrix4x4 parentMat, string activeTex, HashSet<TDRNode> visited, int depth = 0)
             {
                 if (node == null || depth > 200 || !visited.Add(node)) return;
 
@@ -1080,14 +1124,14 @@ namespace TDR.Tools.Export
 
                 foreach (var child in node.Children)
                 {
-                    ProcessHieNode(child, localMat, ref activeTex, visited, depth + 1);
+                    ProcessHieNode(child, localMat, activeTex, visited, depth + 1);
                 }
             }
 
             if (hie.Root != null)
             {
                 var visited = new HashSet<TDRNode>();
-                ProcessHieNode(hie.Root, Matrix4x4.Identity, ref currentTex, visited);
+                ProcessHieNode(hie.Root, Matrix4x4.Identity, currentTex, visited);
             }
             else
             {
@@ -1131,96 +1175,27 @@ namespace TDR.Tools.Export
             var uvs = new List<Vector2>();
             var indices = new List<int>();
 
-            // Unique vertex mapping: (positionIndex, normal, uv) -> gltf vertex index
-            var vertMap = new Dictionary<(int posIdx, Vector3 norm, Vector2 uv), int>();
+            var stream = new TriangleStream();
+            MeshGeometryReader.AppendTriangles(subMesh, transform, stream);
 
-            if (subMesh.Mode == MeshMode.TriIndexedPosition || (subMesh.Positions.Count > 0 && subMesh.Faces.Count > 0))
+            // Single unified vertex deduplication across all mesh modes
+            var vertMap = new Dictionary<(Vector3 pos, Vector3 norm, Vector2 uv), int>();
+
+            for (int i = 0; i < stream.Vertices.Count; i++)
             {
-                foreach (var face in subMesh.Faces)
+                var vert = stream.Vertices[i];
+                var key = (vert.Position, vert.Normal, vert.UV);
+
+                if (!vertMap.TryGetValue(key, out int vIdx))
                 {
-                    for (int i = 0; i < 3; i++)
-                    {
-                        var vert = face.Vertices[i];
-                        if (vert.PositionIndex < 0 || vert.PositionIndex >= subMesh.Positions.Count) continue;
-
-                        Vector3 rawPos = subMesh.Positions[vert.PositionIndex];
-                        Vector3 rawNorm = vert.Normal;
-                        Vector2 rawUV = new Vector2(vert.UV.X, 1.0f - vert.UV.Y);
-
-                        Vector3 pos = hasTransform ? Vector3.Transform(rawPos, transform) : rawPos;
-                        Vector3 norm = hasTransform ? Vector3.TransformNormal(rawNorm, transform) : rawNorm;
-                        if (norm.LengthSquared() > 0.0001f) norm = Vector3.Normalize(norm);
-
-                        var key = (vert.PositionIndex, norm, rawUV);
-                        if (!vertMap.TryGetValue(key, out int vIdx))
-                        {
-                            vIdx = positions.Count;
-                            positions.Add(pos);
-                            normals.Add(norm);
-                            uvs.Add(rawUV);
-                            vertMap[key] = vIdx;
-                        }
-                        indices.Add(vIdx);
-                    }
+                    vIdx = positions.Count;
+                    positions.Add(vert.Position);
+                    normals.Add(vert.Normal);
+                    uvs.Add(vert.UV);
+                    vertMap[key] = vIdx;
                 }
-            }
-            else if (subMesh.Vertices.Count > 0 && subMesh.Faces.Count > 0)
-            {
-                for (int i = 0; i < subMesh.Vertices.Count; i++)
-                {
-                    var v = subMesh.Vertices[i];
-                    Vector3 norm = hasTransform ? Vector3.TransformNormal(v.Normal, transform) : v.Normal;
-                    if (norm.LengthSquared() > 0.0001f) norm = Vector3.Normalize(norm);
 
-                    positions.Add(hasTransform ? Vector3.Transform(v.Position, transform) : v.Position);
-                    normals.Add(norm);
-                    uvs.Add(new Vector2(v.UV.X, 1.0f - v.UV.Y));
-                }
-                foreach (var f in subMesh.Faces)
-                {
-                    indices.Add(f.V1);
-                    indices.Add(f.V2);
-                    indices.Add(f.V3);
-                }
-            }
-            else if (subMesh.Mode == MeshMode.NGon && subMesh.Faces.Count > 0)
-            {
-                // Triangulate NGon polygons (convex fans: 0, k, k+1) with vertex deduplication
-                var rawVertMap = new Dictionary<(Vector3 pos, Vector3 norm, Vector2 uv), int>();
-
-                foreach (var face in subMesh.Faces)
-                {
-                    if (face.Vertices.Count < 3) continue;
-
-                    var faceIndices = new List<int>(face.Vertices.Count);
-                    for (int i = 0; i < face.Vertices.Count; i++)
-                    {
-                        var vert = face.Vertices[i];
-                        Vector3 pos = hasTransform ? Vector3.Transform(vert.Position, transform) : vert.Position;
-                        Vector3 norm = hasTransform ? Vector3.TransformNormal(vert.Normal, transform) : vert.Normal;
-                        if (norm.LengthSquared() > 0.0001f) norm = Vector3.Normalize(norm);
-                        Vector2 rawUV = new Vector2(vert.UV.X, 1.0f - vert.UV.Y);
-
-                        var key = (pos, norm, rawUV);
-                        if (!rawVertMap.TryGetValue(key, out int vIdx))
-                        {
-                            vIdx = positions.Count;
-                            positions.Add(pos);
-                            normals.Add(norm);
-                            uvs.Add(rawUV);
-                            rawVertMap[key] = vIdx;
-                        }
-                        faceIndices.Add(vIdx);
-                    }
-
-                    // Fan triangulation for N-gons (quads, pentagons, etc.)
-                    for (int k = 1; k < faceIndices.Count - 1; k++)
-                    {
-                        indices.Add(faceIndices[0]);
-                        indices.Add(faceIndices[k]);
-                        indices.Add(faceIndices[k + 1]);
-                    }
-                }
+                indices.Add(vIdx);
             }
 
             if (positions.Count == 0 || indices.Count == 0)
@@ -1286,6 +1261,14 @@ namespace TDR.Tools.Export
                 }
             }
             int idxByteLength = (int)(bw.BaseStream.Position - idxOffset);
+
+            // Pad stream to 4-byte boundary for the next primitive
+            long endPos = bw.BaseStream.Position;
+            long endRem = endPos % 4;
+            if (endRem != 0)
+            {
+                for (int pad = 0; pad < 4 - endRem; pad++) bw.Write((byte)0);
+            }
 
             // Register BufferViews
             int posViewIdx = gltf.BufferViews.Count;
@@ -1353,104 +1336,13 @@ namespace TDR.Tools.Export
 
         private string? ResolveTextureFile(string texName, string? archivePath)
         {
-            var matchResult = TextureResolver.ResolveBestMatch(_vfs, texName, archivePath, _trackContext);
-            PakManager.IndexedFile? match = matchResult?.File;
-            byte[]? data = null;
-
-            if (match != null)
-            {
-                data = (!string.IsNullOrEmpty(archivePath) ? _vfs.LoadFileContext(match.Name, archivePath) : null) ?? _vfs.LoadFile(match);
-            }
-
-            if (data == null)
-            {
-                // Extended suffix fallback matching for shared assets (POWERUPS, SHARED, MOVABLEOBJECTS)
-                string cleanT = texName.Trim('"').Trim().TrimEnd('!');
-                string bangT = cleanT + "!";
-                string[] candidateNames = new[]
-                {
-                    $"{texName}.tga",
-                    $"{bangT}_512x512_32.tga", $"{bangT}_256x256_32.tga", $"{bangT}_256_256_32.tga", $"{bangT}_128x128_32.tga", $"{bangT}_128_128_32.tga", $"{bangT}_64x64_32.tga", $"{bangT}_32x32_32.tga",
-                    $"{cleanT}.tga", $"{cleanT}_32.tga", $"{cleanT}_512x512_32.tga", $"{cleanT}_256x256_32.tga", $"{cleanT}_256_256_32.tga", $"{cleanT}_128x128_32.tga", $"{cleanT}_128_128_32.tga", $"{cleanT}_64x64_32.tga", $"{cleanT}_32x32_32.tga",
-                    $"{bangT}_512x512_8.tga", $"{bangT}_256x256_8.tga", $"{bangT}_256_256_8.tga", $"{bangT}_128x128_8.tga", $"{bangT}_128_128_8.tga", $"{bangT}_64x64_8.tga", $"{bangT}_32x32_8.tga",
-                    $"{cleanT}_512x512_8.tga", $"{cleanT}_256x256_8.tga", $"{cleanT}_256_256_8.tga", $"{cleanT}_128x128_8.tga", $"{cleanT}_128_128_8.tga", $"{cleanT}_64x64_8.tga", $"{cleanT}_32x32_8.tga"
-                };
-
-                foreach (string cand in candidateNames)
-                {
-                    data = (!string.IsNullOrEmpty(archivePath) ? _vfs.LoadFileContext(cand, archivePath) : null) ??
-                           _vfs.LoadFileContext(cand, "POWERUPS") ??
-                           _vfs.LoadFileContext(cand, _trackContext) ??
-                           _vfs.LoadFile(cand);
-                    if (data != null && data.Length > 0)
-                    {
-                        match = new PakManager.IndexedFile
-                        {
-                            Name = cand,
-                            Offset = 0,
-                            Size = (uint)data.Length,
-                            IsLooseFile = false,
-                            ArchivePath = archivePath ?? string.Empty
-                        };
-                        break;
-                    }
-                }
-            }
-
-            if (data == null || match == null) return null;
-
-            string rawFileName = Path.GetFileName(match.Name);
-            string baseStem = Path.GetFileNameWithoutExtension(rawFileName);
-            string ext = Path.GetExtension(rawFileName);
-
-            // Determine if a collision exists with different binary content
-            string targetBaseName = baseStem;
-            string testPath = Path.Combine(_exportDir, rawFileName);
-            if (File.Exists(testPath))
-            {
-                byte[] existingBytes = File.ReadAllBytes(testPath);
-                if (existingBytes.Length != data.Length || !existingBytes.AsSpan().SequenceEqual(data))
-                {
-                    using var md5 = System.Security.Cryptography.MD5.Create();
-                    string hash = Convert.ToHexString(md5.ComputeHash(data)).Substring(0, 6).ToLowerInvariant();
-                    targetBaseName = $"{baseStem}_{hash}";
-                }
-            }
-
-            string finalTgaName = $"{targetBaseName}{ext}";
-            string finalTgaPath = Path.Combine(_exportDir, finalTgaName);
-            if (!File.Exists(finalTgaPath)) File.WriteAllBytes(finalTgaPath, data);
-
-            if (_convertTexturesToPng && ext.Equals(".tga", StringComparison.OrdinalIgnoreCase))
-            {
-                string pngName = $"{targetBaseName}.png";
-                string pngPath = Path.Combine(_exportDir, pngName);
-                if (File.Exists(pngPath) || TgaDecoder.SaveTgaAsPng(data, pngPath))
-                {
-                    return pngName;
-                }
-            }
-
-            return finalTgaName;
+            var texService = new TextureResolutionService(_vfs, _exportDir, _trackContext, _convertTexturesToPng);
+            return texService.ResolveAndSave(texName, archivePath);
         }
 
-        private ObjExporter.DescriptorAssets ParseLevelDescriptorAssets(byte[] levelData)
+        private DescriptorAssets ParseLevelDescriptorAssets(byte[] levelData)
         {
-            var objExporter = new ObjExporter(
-                _vfs,
-                _exportDir,
-                false,
-                false,
-                _verbose,
-                true,
-                true,
-                _trackContext,
-                _logger,
-                false,
-                _selectedHieFiles,
-                _convertTexturesToPng
-            );
-            return objExporter.ParseLevelDescriptorAssets(levelData);
+            return LevelDescriptorParser.ParseLevelDescriptorAssets(_vfs, _trackContext, levelData);
         }
     }
 
@@ -1625,6 +1517,10 @@ namespace TDR.Tools.Export
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public float[]? EmissiveFactor { get; set; }
 
+        [JsonPropertyName("emissiveTexture")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public GltfTextureInfo? EmissiveTexture { get; set; }
+
         [JsonPropertyName("doubleSided")]
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
         public bool DoubleSided { get; set; }
@@ -1646,7 +1542,7 @@ namespace TDR.Tools.Export
         public float MetallicFactor { get; set; } = 0.0f;
 
         [JsonPropertyName("roughnessFactor")]
-        public float RoughnessFactor { get; set; } = 0.8f;
+        public float RoughnessFactor { get; set; } = 1.0f;
     }
 
     public sealed class GltfTextureInfo

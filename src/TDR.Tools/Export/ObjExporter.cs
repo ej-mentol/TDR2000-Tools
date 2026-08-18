@@ -122,44 +122,8 @@ namespace TDR.Tools.Export
             "SPECIAL_VOLUMES", "SPECIAL_VOLUMES_0", "LEVEL_SCRIPT", "SCRIPT", "MISSION_SCRIPT"
         };
 
-        public sealed class HieInstanceInfo
-        {
-            public string HieName { get; set; } = string.Empty;
-            public Matrix4x4 Transform { get; set; } = Matrix4x4.Identity;
-        }
-
-        public sealed class DescriptorAssets
-        {
-            public List<string> HieFiles { get; } = new();
-            public List<HieInstanceInfo> HieInstances { get; } = new();
-            public List<string> MovableDescriptors { get; } = new();
-            public List<string> PedestrianDescriptors { get; } = new();
-            public List<string> DroneDescriptors { get; } = new();
-            public Dictionary<string, Matrix4x4> HieInitialTransforms { get; } = new(StringComparer.OrdinalIgnoreCase);
-        }
-
-        private static List<string> ExtractLineNamesFromHie(byte[] hieBytes)
-        {
-            var list = new List<string>();
-            if (hieBytes == null || hieBytes.Length == 0) return list;
-            string text = Encoding.ASCII.GetString(hieBytes);
-            var lines = text.Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
-            for (int i = 0; i < lines.Length; i++)
-            {
-                if (lines[i].Trim().Equals("// line name list", StringComparison.OrdinalIgnoreCase))
-                {
-                    while (i + 1 < lines.Length)
-                    {
-                        string next = lines[++i].Trim();
-                        if (next.StartsWith("//")) break;
-                        string clean = next.Replace("\"", "").Trim();
-                        if (!string.IsNullOrWhiteSpace(clean)) list.Add(clean);
-                    }
-                    break;
-                }
-            }
-            return list;
-        }
+        public static List<string> ExtractLineNamesFromHie(byte[] hieBytes) =>
+            LevelDescriptorParser.ExtractLineNamesFromHie(hieBytes);
 
         /// <summary>
         /// Recursively parses sub-descriptor .txt files to discover .hie mesh files and sub-instances.
@@ -170,189 +134,7 @@ namespace TDR.Tools.Export
             DescriptorAssets assets,
             Matrix4x4 parentMatrix)
         {
-            if (subDescriptorBytes == null || subDescriptorBytes.Length == 0) return;
-
-            string text = Encoding.ASCII.GetString(subDescriptorBytes);
-            // Check if this sub-descriptor describes a spline-following prop (e.g. DocksTrain1.hie along New_DOCKSChoo_Choo1.hie)
-            var hieCandidates = new List<string>();
-            var linCandidates = new List<string>();
-
-            foreach (string rawLine in text.Split('\n'))
-            {
-                string line = rawLine;
-                int commentIdx = line.IndexOf("//", StringComparison.Ordinal);
-                if (commentIdx >= 0) line = line[..commentIdx];
-                string trimmed = line.Trim();
-                if (string.IsNullOrWhiteSpace(trimmed)) continue;
-
-                string[] tokens = trimmed.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
-                foreach (string rawToken in tokens)
-                {
-                    string entry = rawToken.Trim('"');
-                    if (string.IsNullOrWhiteSpace(entry)) continue;
-
-                    if (entry.EndsWith(".hie", StringComparison.OrdinalIgnoreCase))
-                    {
-                        if (!hieCandidates.Contains(entry, StringComparer.OrdinalIgnoreCase))
-                            hieCandidates.Add(entry);
-                    }
-                    else if (entry.EndsWith(".lin", StringComparison.OrdinalIgnoreCase) || entry.EndsWith(".lins", StringComparison.OrdinalIgnoreCase))
-                    {
-                        if (!linCandidates.Contains(entry, StringComparer.OrdinalIgnoreCase))
-                            linCandidates.Add(entry);
-                    }
-                }
-            }
-
-            // If we have a model .hie and a spline reference (.lin or spline-container .hie), calculate spawn matrix from spline point 0
-            if (hieCandidates.Count > 0 && (hieCandidates.Count > 1 || linCandidates.Count > 0))
-            {
-                string? modelHie = null;
-                TDRSpline? propSpline = null;
-
-                // 1. Try to load direct .lin file
-                foreach (string linName in linCandidates)
-                {
-                    byte[]? linBytes = _vfs.LoadFileContext(linName, _trackContext);
-                    if (linBytes != null && linBytes.Length > 0)
-                    {
-                        var container = TDRSplineContainer.Load(linBytes, linName);
-                        var sp = container.Splines.FirstOrDefault(s => s.Points.Count >= 2);
-                        if (sp != null)
-                        {
-                            propSpline = sp;
-                            break;
-                        }
-                    }
-                }
-
-                // 2. Try to inspect .hie candidates for mesh model vs spline container
-                foreach (string hieCandidate in hieCandidates)
-                {
-                    byte[]? hieBytes = _vfs.LoadFileContext(hieCandidate, _trackContext);
-                    if (hieBytes != null && hieBytes.Length > 0)
-                    {
-                        var hie = TDRHierarchy.Load(hieBytes, hieCandidate);
-                        if (hie.Meshes.Count > 0)
-                        {
-                            modelHie = hieCandidate;
-                        }
-                        else if (propSpline == null)
-                        {
-                            // Spline-container .hie (e.g. New_DOCKSChoo_Choo1.hie)
-                            var lineNames = ExtractLineNamesFromHie(hieBytes);
-
-                            foreach (var node in hie.Nodes)
-                            {
-                                if (node.Type == TDRNode.NodeType.Spline && lineNames.Count > 0 && node.Index < lineNames.Count)
-                                {
-                                    string splineFileName = lineNames[node.Index];
-                                    byte[]? spBytes = _vfs.LoadFileContext(splineFileName, _trackContext);
-                                    if (spBytes != null && spBytes.Length > 0)
-                                    {
-                                        var container = TDRSplineContainer.Load(spBytes, splineFileName);
-                                        var sp = container.Splines.FirstOrDefault(s => s.Points.Count >= 2);
-                                        if (sp != null)
-                                        {
-                                            propSpline = sp;
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if (modelHie != null && propSpline != null && propSpline.Points.Count > 0)
-                {
-                    Matrix4x4 spawnMat = propSpline.GetSpawnMatrix(0, 0f) * parentMatrix;
-                    assets.HieInstances.Add(new HieInstanceInfo
-                    {
-                        HieName = modelHie,
-                        Transform = spawnMat
-                    });
-                    assets.HieInitialTransforms[modelHie] = spawnMat;
-                }
-            }
-
-            foreach (string rawLine in text.Split('\n'))
-            {
-                string line = rawLine;
-                int commentIdx = line.IndexOf("//", StringComparison.Ordinal);
-                if (commentIdx >= 0) line = line[..commentIdx];
-                string trimmed = line.Trim();
-                if (string.IsNullOrWhiteSpace(trimmed)) continue;
-
-                string[] tokens = trimmed.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
-                if (tokens.Length == 0) continue;
-
-                Matrix4x4 localTransform = Matrix4x4.Identity;
-                int coordStart = -1;
-                for (int i = 0; i <= tokens.Length - 3; i++)
-                {
-                    if (float.TryParse(tokens[i], NumberStyles.Float, CultureInfo.InvariantCulture, out _) &&
-                        float.TryParse(tokens[i + 1], NumberStyles.Float, CultureInfo.InvariantCulture, out _) &&
-                        float.TryParse(tokens[i + 2], NumberStyles.Float, CultureInfo.InvariantCulture, out _))
-                    {
-                        coordStart = i;
-                        break;
-                    }
-                }
-
-                if (coordStart >= 0)
-                {
-                    float.TryParse(tokens[coordStart], NumberStyles.Float, CultureInfo.InvariantCulture, out float px);
-                    float.TryParse(tokens[coordStart + 1], NumberStyles.Float, CultureInfo.InvariantCulture, out float py);
-                    float.TryParse(tokens[coordStart + 2], NumberStyles.Float, CultureInfo.InvariantCulture, out float pz);
-
-                    Matrix4x4 rotMat = Matrix4x4.Identity;
-                    if (coordStart + 6 < tokens.Length &&
-                        float.TryParse(tokens[coordStart + 3], NumberStyles.Float, CultureInfo.InvariantCulture, out float qx) &&
-                        float.TryParse(tokens[coordStart + 4], NumberStyles.Float, CultureInfo.InvariantCulture, out float qy) &&
-                        float.TryParse(tokens[coordStart + 5], NumberStyles.Float, CultureInfo.InvariantCulture, out float qz) &&
-                        float.TryParse(tokens[coordStart + 6], NumberStyles.Float, CultureInfo.InvariantCulture, out float qw))
-                    {
-                        var q = new Quaternion(qx, qy, qz, qw);
-                        rotMat = Matrix4x4.CreateFromQuaternion(q);
-                    }
-
-                    localTransform = rotMat * Matrix4x4.CreateTranslation(px, py, pz);
-                }
-
-                Matrix4x4 worldTransform = localTransform * parentMatrix;
-
-                foreach (string rawToken in tokens)
-                {
-                    string entry = rawToken.Trim('"');
-                    if (string.IsNullOrWhiteSpace(entry)) continue;
-
-                    if (entry.EndsWith(".hie", StringComparison.OrdinalIgnoreCase))
-                    {
-                        if (coordStart >= 0)
-                        {
-                            assets.HieInstances.Add(new HieInstanceInfo
-                            {
-                                HieName = entry,
-                                Transform = worldTransform
-                            });
-                        }
-                        else
-                        {
-                            if (!assets.HieFiles.Contains(entry, StringComparer.OrdinalIgnoreCase))
-                                assets.HieFiles.Add(entry);
-                        }
-                    }
-                    else if (entry.EndsWith(".txt", StringComparison.OrdinalIgnoreCase) && visitedDescriptors.Add(entry))
-                    {
-                        byte[]? subBytes = _vfs.LoadFileContext(entry, _trackContext);
-                        if (subBytes != null && subBytes.Length > 0)
-                        {
-                            ParseSubDescriptorHieFiles(subBytes, visitedDescriptors, assets, worldTransform);
-                        }
-                    }
-                }
-            }
+            LevelDescriptorParser.ParseSubDescriptorHieFiles(_vfs, _trackContext, subDescriptorBytes, visitedDescriptors, assets, parentMatrix);
         }
 
         /// <summary>
@@ -361,138 +143,7 @@ namespace TDR.Tools.Export
         /// </summary>
         public DescriptorAssets ParseLevelDescriptorAssets(byte[] descriptorBytes, HashSet<string>? visitedDescriptors = null)
         {
-            visitedDescriptors ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var result = new DescriptorAssets();
-            if (descriptorBytes == null || descriptorBytes.Length == 0) return result;
-
-            string text = Encoding.ASCII.GetString(descriptorBytes);
-            string? pendingWaterMesh = null;
-            float? waterLevel = null;
-
-            foreach (string rawLine in text.Split('\n'))
-            {
-                string line = rawLine;
-                int commentIdx = line.IndexOf("//", StringComparison.Ordinal);
-                if (commentIdx >= 0) line = line[..commentIdx];
-                string trimmed = line.Trim();
-                if (string.IsNullOrWhiteSpace(trimmed)) continue;
-
-                string[] tokens = trimmed.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
-                if (tokens.Length < 2) continue;
-
-                string firstToken = tokens[0].ToUpperInvariant();
-                string secondToken = tokens[1].Trim('"');
-
-                if (firstToken.Equals("WATER_LEVEL", StringComparison.OrdinalIgnoreCase))
-                {
-                    if (float.TryParse(secondToken, NumberStyles.Any, CultureInfo.InvariantCulture, out float wL))
-                    {
-                        waterLevel = wL;
-                    }
-                    continue;
-                }
-
-                if (firstToken.Equals("WATER_MESH", StringComparison.OrdinalIgnoreCase))
-                {
-                    pendingWaterMesh = secondToken;
-                }
-
-                // Stage 3: MOVABLE_OBJECTS & PEDESTRIAN_PLACEMENT → placement descriptor .txt
-                if (firstToken.Equals("MOVABLE_OBJECTS", StringComparison.OrdinalIgnoreCase))
-                {
-                    if (!string.IsNullOrWhiteSpace(secondToken) && !result.MovableDescriptors.Contains(secondToken, StringComparer.OrdinalIgnoreCase))
-                        result.MovableDescriptors.Add(secondToken);
-                    continue;
-                }
-
-                if (firstToken.Equals("PEDS_DESCRIPTOR", StringComparison.OrdinalIgnoreCase) ||
-                    firstToken.Equals("PEDESTRIAN_PLACEMENT", StringComparison.OrdinalIgnoreCase))
-                {
-                    if (!string.IsNullOrWhiteSpace(secondToken) && !result.PedestrianDescriptors.Contains(secondToken, StringComparer.OrdinalIgnoreCase))
-                        result.PedestrianDescriptors.Add(secondToken);
-                    continue;
-                }
-
-                if (firstToken.Equals("DRONE_DESCRIPTOR", StringComparison.OrdinalIgnoreCase))
-                {
-                    if (!string.IsNullOrWhiteSpace(secondToken) && !result.DroneDescriptors.Contains(secondToken, StringComparer.OrdinalIgnoreCase))
-                        result.DroneDescriptors.Add(secondToken);
-                    continue;
-                }
-
-                // Stage 1: Direct .hie or .txt (for BASE_CONSOFT, LEVEL_MESH, STATIC_MESH, etc.)
-                if (!string.IsNullOrWhiteSpace(secondToken) && DirectHieKeywords.Contains(firstToken, StringComparer.OrdinalIgnoreCase))
-                {
-                    if (secondToken.EndsWith(".hie", StringComparison.OrdinalIgnoreCase))
-                    {
-                        if (!result.HieFiles.Contains(secondToken, StringComparer.OrdinalIgnoreCase))
-                            result.HieFiles.Add(secondToken);
-                    }
-                    else if (secondToken.EndsWith(".txt", StringComparison.OrdinalIgnoreCase) && visitedDescriptors.Add(secondToken))
-                    {
-                        byte[]? subBytes = _vfs.LoadFileContext(secondToken, _trackContext);
-                        if (subBytes != null && subBytes.Length > 0)
-                        {
-                            ParseSubDescriptorHieFiles(subBytes, visitedDescriptors, result, Matrix4x4.Identity);
-                        }
-                    }
-                    continue;
-                }
-
-                // Stage 2: Sub-descriptor keywords → always .txt, parsed without keyword filter
-                if (!string.IsNullOrWhiteSpace(secondToken) && SubDescriptorKeywords.Contains(firstToken, StringComparer.OrdinalIgnoreCase))
-                {
-                    if (secondToken.EndsWith(".txt", StringComparison.OrdinalIgnoreCase) && visitedDescriptors.Add(secondToken))
-                    {
-                        byte[]? subBytes = _vfs.LoadFileContext(secondToken, _trackContext);
-                        if (subBytes != null && subBytes.Length > 0)
-                        {
-                            ParseSubDescriptorHieFiles(subBytes, visitedDescriptors, result, Matrix4x4.Identity);
-                        }
-                    }
-                    continue;
-                }
-            }
-
-            if (!string.IsNullOrEmpty(pendingWaterMesh) && waterLevel.HasValue)
-            {
-                result.HieInitialTransforms[pendingWaterMesh] = Matrix4x4.CreateTranslation(0, waterLevel.Value, 0);
-            }
-
-            // Discover variant Consoft / Checkpoint HIE files matching track context (e.g. hollowoodRace1Consoft.hie)
-            string activeTrackContext = (_trackContext ?? string.Empty).ToLowerInvariant();
-            string cleanTrackKey = activeTrackContext.Replace("_", "");
-            bool isBaseTrackOnly = !activeTrackContext.Contains("race") && !activeTrackContext.Contains("mission") && !activeTrackContext.Contains("all");
-
-            if (!string.IsNullOrEmpty(cleanTrackKey))
-            {
-                foreach (var file in _vfs.GetFiles())
-                {
-                    if (file.Name.EndsWith(".hie", StringComparison.OrdinalIgnoreCase))
-                    {
-                        string fn = Path.GetFileNameWithoutExtension(file.Name).ToLowerInvariant();
-                        if (fn.Contains("consoft") || fn.Contains("checkpoint"))
-                        {
-                            // If Base Track Only is requested, skip variant-specific Consoft files (e.g. race1, race2, mission1)
-                            if (isBaseTrackOnly && (fn.Contains("race") || fn.Contains("mission")))
-                                continue;
-
-                            string normArchive = (file.ArchivePath ?? "").ToLowerInvariant().Replace("_", "");
-                            if (fn.Contains(cleanTrackKey) || normArchive.Contains(cleanTrackKey))
-                            {
-                                string simpleName = Path.GetFileName(file.Name);
-                                bool alreadyAdded = result.HieFiles.Any(h => Path.GetFileName(h).Equals(simpleName, StringComparison.OrdinalIgnoreCase));
-                                if (IsHieSelected(file.Name) && !alreadyAdded)
-                                {
-                                    result.HieFiles.Add(file.Name);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            return result;
+            return LevelDescriptorParser.ParseLevelDescriptorAssets(_vfs, _trackContext, descriptorBytes, _selectedHieFiles, visitedDescriptors);
         }
 
         public TrackExportResult ExportLevelToObj(byte[] levelData, string levelName, string outputObjPath, Action<int, string>? progressCallback = null)
@@ -1732,66 +1383,29 @@ namespace TDR.Tools.Export
 
         private void WriteSubMesh(TDRMeshData mesh, Matrix4x4 transform, StreamWriter w, ref int v, ref int vt, ref int vn)
         {
-            switch (mesh.Mode)
+            var stream = new TriangleStream();
+            MeshGeometryReader.AppendTriangles(mesh, transform, stream);
+
+            for (int i = 0; i < stream.Vertices.Count; i += 3)
             {
-                case MeshMode.TriIndexedPosition:
-                    foreach (var face in mesh.Faces)
-                    {
-                        for (int i = 0; i < 3; i++)
-                        {
-                            var vert = face.Vertices[i];
-                            if (vert.PositionIndex < 0 || vert.PositionIndex >= mesh.Positions.Count) continue;
-                            Vector3 pos  = Vector3.Transform(mesh.Positions[vert.PositionIndex], transform);
-                            Vector3 norm = Vector3.TransformNormal(vert.Normal, transform);
+                var v0 = stream.Vertices[i];
+                var v1 = stream.Vertices[i + 1];
+                var v2 = stream.Vertices[i + 2];
 
-                            w.WriteLine($"v {F(pos.X)} {F(pos.Y)} {F(pos.Z)}");
-                            w.WriteLine($"vt {F(vert.UV.X)} {F(1.0f - vert.UV.Y)}");
-                            w.WriteLine($"vn {F(norm.X)} {F(norm.Y)} {F(norm.Z)}");
-                        }
-                        w.WriteLine($"f {v}/{vt}/{vn} {v+1}/{vt+1}/{vn+1} {v+2}/{vt+2}/{vn+2}");
-                        v += 3; vt += 3; vn += 3;
-                    }
-                    break;
+                w.WriteLine($"v {F(v0.Position.X)} {F(v0.Position.Y)} {F(v0.Position.Z)}");
+                w.WriteLine($"vt {F(v0.UV.X)} {F(1.0f - v0.UV.Y)}");
+                w.WriteLine($"vn {F(v0.Normal.X)} {F(v0.Normal.Y)} {F(v0.Normal.Z)}");
 
-                case MeshMode.Tri:
-                    int startV = v;
-                    foreach (var vert in mesh.Vertices)
-                    {
-                        Vector3 pos  = Vector3.Transform(vert.Position, transform);
-                        Vector3 norm = Vector3.TransformNormal(vert.Normal, transform);
+                w.WriteLine($"v {F(v1.Position.X)} {F(v1.Position.Y)} {F(v1.Position.Z)}");
+                w.WriteLine($"vt {F(v1.UV.X)} {F(1.0f - v1.UV.Y)}");
+                w.WriteLine($"vn {F(v1.Normal.X)} {F(v1.Normal.Y)} {F(v1.Normal.Z)}");
 
-                        w.WriteLine($"v {F(pos.X)} {F(pos.Y)} {F(pos.Z)}");
-                        w.WriteLine($"vt {F(vert.UV.X)} {F(1.0f - vert.UV.Y)}");
-                        w.WriteLine($"vn {F(norm.X)} {F(norm.Y)} {F(norm.Z)}");
-                        v++; vt++; vn++;
-                    }
-                    foreach (var face in mesh.Faces)
-                    {
-                        int a = startV + face.V1, b = startV + face.V2, c = startV + face.V3;
-                        w.WriteLine($"f {a}/{a}/{a} {b}/{b}/{b} {c}/{c}/{c}");
-                    }
-                    break;
+                w.WriteLine($"v {F(v2.Position.X)} {F(v2.Position.Y)} {F(v2.Position.Z)}");
+                w.WriteLine($"vt {F(v2.UV.X)} {F(1.0f - v2.UV.Y)}");
+                w.WriteLine($"vn {F(v2.Normal.X)} {F(v2.Normal.Y)} {F(v2.Normal.Z)}");
 
-                case MeshMode.NGon:
-                default:
-                    foreach (var face in mesh.Faces)
-                    {
-                        var faceLine = new StringBuilder("f");
-                        foreach (var vert in face.Vertices)
-                        {
-                            Vector3 pos  = Vector3.Transform(vert.Position, transform);
-                            Vector3 norm = Vector3.TransformNormal(vert.Normal, transform);
-
-                            w.WriteLine($"v {F(pos.X)} {F(pos.Y)} {F(pos.Z)}");
-                            w.WriteLine($"vt {F(vert.UV.X)} {F(1.0f - vert.UV.Y)}");
-                            w.WriteLine($"vn {F(norm.X)} {F(norm.Y)} {F(norm.Z)}");
-
-                            faceLine.Append($" {v}/{vt}/{vn}");
-                            v++; vt++; vn++;
-                        }
-                        w.WriteLine(faceLine.ToString());
-                    }
-                    break;
+                w.WriteLine($"f {v}/{vt}/{vn} {v+1}/{vt+1}/{vn+1} {v+2}/{vt+2}/{vn+2}");
+                v += 3; vt += 3; vn += 3;
             }
         }
 
@@ -1819,19 +1433,12 @@ namespace TDR.Tools.Export
                     Log($"    [MTL RESOLVE] Mat: '{t:<20}' -> {tierName:<25} | {origin}");
                 }
 
-                if (bestMatch != null)
+                string exportFolder = Path.GetDirectoryName(mtlPath) ?? _exportDir;
+                var texService = new TextureResolutionService(_vfs, _exportDir, _trackContext, _convertTexturesToPng);
+                string? savedTexName = texService.ResolveAndSave(t, archivePath, exportFolder);
+
+                if (!string.IsNullOrEmpty(savedTexName))
                 {
-                    string rawTexFileName = Path.GetFileName(bestMatch.Name);
-                    string exportFolder = Path.GetDirectoryName(mtlPath) ?? _exportDir;
-                    byte[]? data = _vfs.LoadFile(bestMatch);
-                    string savedTexName = rawTexFileName;
-
-                    if (data != null)
-                    {
-                        savedTexName = SaveTextureWithFormat(data, rawTexFileName, exportFolder);
-                        if (_verbose) Log($"    [TEX SAVE] Saved '{savedTexName}' -> Archive: '{bestMatch.ArchivePath}'");
-                    }
-
                     mtl.WriteLine($"map_Kd {savedTexName}");
                     mtl.WriteLine($"map_d {savedTexName}");
 
@@ -1840,56 +1447,14 @@ namespace TDR.Tools.Export
                         byte[]? bumpBytes = _vfs.LoadFileContext("bumpfx_0000_128_128_8.tga", "WATER") ?? _vfs.LoadFile("bumpfx_0000_128_128_8.tga");
                         if (bumpBytes != null)
                         {
-                            string bumpName = SaveTextureWithFormat(bumpBytes, "water_bump_0000.tga", exportFolder);
+                            string bumpName = texService.SaveTextureWithFormat(bumpBytes, "water_bump_0000.tga", exportFolder);
                             mtl.WriteLine($"map_Bump -bm 1.0 {bumpName}");
                         }
                     }
                 }
                 else
                 {
-                    // Fallback lookup via _vfs.LoadFile / LoadFileContext for Powerups and global shared textures
-                    string cleanT = t.TrimEnd('!');
-                    string bangT = cleanT + "!";
-                    string[] candidateNames = new[]
-                    {
-                        $"{t}.tga",
-                        $"{bangT}_512x512_32.tga", $"{bangT}_256x256_32.tga", $"{bangT}_256_256_32.tga", $"{bangT}_128x128_32.tga", $"{bangT}_128_128_32.tga", $"{bangT}_64x64_32.tga", $"{bangT}_32x32_32.tga", $"{bangT}_16x16_32.tga", $"{bangT}_8x8_32.tga", $"{bangT}_4x4_32.tga", $"{bangT}_2x2_32.tga", $"{bangT}_1x1_32.tga",
-                        $"{cleanT}.tga", $"{cleanT}_32.tga", $"{cleanT}_512x512_32.tga", $"{cleanT}_256x256_32.tga", $"{cleanT}_256_256_32.tga", $"{cleanT}_128x128_32.tga", $"{cleanT}_128_128_32.tga", $"{cleanT}_64x64_32.tga", $"{cleanT}_32x32_32.tga", $"{cleanT}_16x16_32.tga", $"{cleanT}_8x8_32.tga", $"{cleanT}_4x4_8.tga", $"{cleanT}_2x2_32.tga", $"{cleanT}_1x1_32.tga",
-                        $"{bangT}_512x512_8.tga", $"{bangT}_256x256_8.tga", $"{bangT}_256_256_8.tga", $"{bangT}_128x128_8.tga", $"{bangT}_128_128_8.tga", $"{bangT}_64x64_8.tga", $"{bangT}_32x32_8.tga", $"{bangT}_16x16_8.tga", $"{bangT}_8x8_8.tga", $"{bangT}_4x4_8.tga", $"{bangT}_2x2_8.tga", $"{bangT}_1x1_8.tga",
-                        $"{cleanT}_512x512_8.tga", $"{cleanT}_256x256_8.tga", $"{cleanT}_256_256_8.tga", $"{cleanT}_128x128_8.tga", $"{cleanT}_128_128_8.tga", $"{cleanT}_64x64_8.tga", $"{cleanT}_32x32_8.tga", $"{cleanT}_16x16_8.tga", $"{cleanT}_8x8_8.tga", $"{cleanT}_4x4_8.tga", $"{cleanT}_2x2_8.tga", $"{cleanT}_1x1_8.tga"
-                    };
-
-                    bool foundFallback = false;
-                    foreach (string cand in candidateNames)
-                    {
-                        byte[]? candBytes = _vfs.LoadFileContext(cand, "POWERUPS") ?? _vfs.LoadFile(cand);
-                        if (candBytes != null && candBytes.Length > 0)
-                        {
-                            string rawTexFileName = Path.GetFileName(cand);
-                            string exportFolder = Path.GetDirectoryName(mtlPath) ?? _exportDir;
-                            string savedTexName = SaveTextureWithFormat(candBytes, rawTexFileName, exportFolder);
-
-                            mtl.WriteLine($"map_Kd {savedTexName}");
-                            mtl.WriteLine($"map_d {savedTexName}");
-
-                            if (t.Contains("water", StringComparison.OrdinalIgnoreCase) || t.Contains("bump", StringComparison.OrdinalIgnoreCase))
-                            {
-                                byte[]? bumpBytes = _vfs.LoadFileContext("bumpfx_0000_128_128_8.tga", "WATER") ?? _vfs.LoadFile("bumpfx_0000_128_128_8.tga");
-                                if (bumpBytes != null)
-                                {
-                                    string bumpName = SaveTextureWithFormat(bumpBytes, "water_bump_0000.tga", exportFolder);
-                                    mtl.WriteLine($"map_Bump -bm 1.0 {bumpName}");
-                                }
-                            }
-                            foundFallback = true;
-                            break;
-                        }
-                    }
-
-                    if (!foundFallback)
-                    {
-                        Log($"[MTL WARNING] Texture for material '{t}' not found in VFS context.");
-                    }
+                    Log($"[MTL WARNING] Texture for material '{t}' not found in VFS context.");
                 }
             }
         }
@@ -1910,52 +1475,7 @@ namespace TDR.Tools.Export
             return textureName;
         }
 
-        private string SaveTextureWithFormat(byte[] rawData, string originalFileName, string targetDir)
-        {
-            string baseStem = Path.GetFileNameWithoutExtension(originalFileName);
-            string ext = Path.GetExtension(originalFileName);
-            string targetBaseName = baseStem;
 
-            string testPath = Path.Combine(targetDir, originalFileName);
-            if (File.Exists(testPath))
-            {
-                byte[] existingBytes = File.ReadAllBytes(testPath);
-                if (existingBytes.Length != rawData.Length || !existingBytes.AsSpan().SequenceEqual(rawData))
-                {
-                    string hash = GetMd5(rawData).Substring(0, 6).ToLowerInvariant();
-                    targetBaseName = $"{baseStem}_{hash}";
-                }
-            }
-
-            if (_convertTexturesToPng && ext.EndsWith(".tga", StringComparison.OrdinalIgnoreCase))
-            {
-                string pngName = $"{targetBaseName}.png";
-                string pngPath = Path.Combine(targetDir, pngName);
-                if (File.Exists(pngPath) || TgaDecoder.SaveTgaAsPng(rawData, pngPath))
-                {
-                    string staleTga = Path.Combine(targetDir, $"{targetBaseName}.tga");
-                    if (File.Exists(staleTga))
-                    {
-                        try { File.Delete(staleTga); } catch { }
-                    }
-                    return pngName;
-                }
-            }
-
-            string rawName = $"{targetBaseName}{ext}";
-            string rawPath = Path.Combine(targetDir, rawName);
-            if (!File.Exists(rawPath)) File.WriteAllBytes(rawPath, rawData);
-            return rawName;
-        }
-
-        private static string GetMd5(byte[] data)
-        {
-            using var md5 = MD5.Create();
-            byte[] hash = md5.ComputeHash(data);
-            var sb = new StringBuilder(hash.Length * 2);
-            foreach (byte b in hash) sb.Append(b.ToString("x2"));
-            return sb.ToString();
-        }
 
         private void ExportSplineDebugObj(string levelName, string baseObjPath)
         {

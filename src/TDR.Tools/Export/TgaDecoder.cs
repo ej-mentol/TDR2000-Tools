@@ -211,11 +211,29 @@ namespace TDR.Tools.Export
                     rawPixels = flipped;
                 }
 
+                // If an image has 32-bit depth but ALL pixels have Alpha == 0, the alpha channel was dummy/unused in TDR2000.
+                bool allZeroAlpha = true;
+                for (int p = 3; p < rawPixels.Length; p += 4)
+                {
+                    if (rawPixels[p] != 0)
+                    {
+                        allZeroAlpha = false;
+                        break;
+                    }
+                }
+                if (allZeroAlpha)
+                {
+                    for (int p = 3; p < rawPixels.Length; p += 4)
+                    {
+                        rawPixels[p] = 255;
+                    }
+                }
+
                 var writeable = new WriteableBitmap(
                     new PixelSize(width, height),
                     new Vector(96, 96),
                     PixelFormat.Bgra8888,
-                    AlphaFormat.Premul);
+                    AlphaFormat.Unpremul);
 
                 using (var frameBuffer = writeable.Lock())
                 {
@@ -433,8 +451,27 @@ namespace TDR.Tools.Export
                     rawPixels = flipped;
                 }
 
+                // If an image has 32-bit depth but ALL pixels have Alpha == 0, the alpha channel was dummy/unused in TDR2000.
+                // Promote alpha to 255 so RGB colors are preserved and not destroyed by zero alpha.
+                bool allZeroAlpha = true;
+                for (int p = 3; p < rawPixels.Length; p += 4)
+                {
+                    if (rawPixels[p] != 0)
+                    {
+                        allZeroAlpha = false;
+                        break;
+                    }
+                }
+                if (allZeroAlpha)
+                {
+                    for (int p = 3; p < rawPixels.Length; p += 4)
+                    {
+                        rawPixels[p] = 255;
+                    }
+                }
+
                 using var skBitmap = new SkiaSharp.SKBitmap();
-                var info = new SkiaSharp.SKImageInfo(width, height, SkiaSharp.SKColorType.Bgra8888, SkiaSharp.SKAlphaType.Premul);
+                var info = new SkiaSharp.SKImageInfo(width, height, SkiaSharp.SKColorType.Bgra8888, SkiaSharp.SKAlphaType.Unpremul);
                 if (rawPixels.Length < (long)height * info.RowBytes) return false;
 
                 var handle = System.Runtime.InteropServices.GCHandle.Alloc(rawPixels, System.Runtime.InteropServices.GCHandleType.Pinned);

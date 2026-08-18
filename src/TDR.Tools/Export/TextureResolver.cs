@@ -201,77 +201,100 @@ namespace TDR.Tools.Export
             // 1. Mission / Quest / System Special Items (from official TDR2000.exe disassembly)
             if (lowerName.Contains("arrow")) return "ArrowArrow.hie";
             if (lowerName.Contains("bigbomb") || lowerName.Contains("big_bomb")) return "BIG_BOMBBomb.hie";
-            if (lowerName.Contains("spike")) return "MortarTailSpike.hie";
             if (lowerName.Contains("bomb")) return "BombPiececube1.hie";
             if (lowerName.Contains("fuse")) return "fuseFuse_NULL.hie";
             if (lowerName.Contains("enginepart") || lowerName.Contains("engine_part")) return "EnginePartobj3.hie";
             if (lowerName.Contains("moneybag") || lowerName.Contains("money_bag")) return "DingablesMoneyBagPowerup.hie";
             if (lowerName.Contains("artillery") || lowerName.Contains("shell")) return "DingablesArtilleryShellPow.hie";
-            if (lowerName.Contains("mortar")) return "mortarTail_Render.hie";
             if (lowerName.Contains("oil") || lowerName.Contains("drum")) return "Oil_DrumDrum_null.hie";
 
             // 2. Repair & Spanner -> Spanner Icon (Check early before engine/powerup strings!)
             if (lowerName.Contains("spanner") || lowerName.Contains("repair") || lowerName.Contains("fix"))
                 return "newIconsSPANNER.hie";
 
-            // 3. Money & Cash -> Wadocash Icon
+            // 3. Armor & Defensive & Granite -> Helmet Icon
+            if (lowerName.Contains("armour") || lowerName.Contains("armor") || lowerName.Contains("defen") ||
+                lowerName.Contains("shield") || lowerName.Contains("helmet") || lowerName.Contains("granite") ||
+                lowerName.Contains("solid") || lowerName.Contains("weight") || lowerName.Contains("invulner"))
+                return "newIconsHELMET.hie";
+
+            // 4. Offensive & Fist & Damage & Mortar -> Fist Icon
+            if (lowerName.Contains("fist") || lowerName.Contains("offen") || lowerName.Contains("damage") ||
+                lowerName.Contains("punch") || lowerName.Contains("slaughter") || lowerName.Contains("attack") ||
+                lowerName.Contains("mortar") || lowerName.Contains("gun") || lowerName.Contains("weapon"))
+                return "newIconsFIST.hie";
+
+            // 5. Engine & Turbo & Speed -> Engine Icon
+            if (lowerName.Contains("turbo") || lowerName.Contains("engine") || lowerName.Contains("speed") ||
+                lowerName.Contains("boost") || lowerName.Contains("jump") || lowerName.Contains("hot rod") ||
+                lowerName.Contains("hot_rod") || lowerName.Contains("hotrod") || lowerName.Contains("drive"))
+                return "newIconsENGINE.hie";
+
+            // 6. Money & Cash -> Wadocash Icon
             if (lowerName.Contains("cash") || lowerName.Contains("credit") || lowerName.Contains("money"))
                 return "newIconsWADOCASH.hie";
 
-            // 4. Time Bonus -> Time Icon
+            // 7. Time Bonus -> Time Icon
             if (lowerName.Contains("time")) return "newIconsTIME.hie";
 
-            // 5. Pedestrian Powers & Ray Weapons -> Pedestrian Sign Icon
-            if (lowerName.Contains("zombie") || lowerName.Contains("pedestrian") || lowerName.Contains("flamethrower") ||
-                lowerName.Contains("ray") || lowerName.Contains("dismember"))
+            // 8. Pedestrian Powers & Ray Weapons -> Pedestrian Sign Icon
+            if (lowerName.Contains("zombie") || lowerName.Contains("pedestrian") || lowerName.Contains("ped") ||
+                lowerName.Contains("flamethrower") || lowerName.Contains("ray") || lowerName.Contains("dismember") ||
+                lowerName.Contains("electrif") || lowerName.Contains("suicide"))
                 return "newIconsPEDSIGN.hie";
 
-            // 6. Direct Type ID Table
+            // 9. Random & Mystery & Physics -> Random Icon
+            if (lowerName.Contains("random") || lowerName.Contains("mystery") || lowerName.Contains("bouncy") ||
+                lowerName.Contains("spring") || lowerName.Contains("pinball") || lowerName.Contains("grav") ||
+                lowerName.Contains("grease") || lowerName.Contains("mutant"))
+                return "newIconsRANDOM.hie";
+
+            // 10. Direct Type ID Table (Strictly mapped to authentic newIcons in POWERUPS.pak)
             return typeId switch
             {
-                1 => "newIconsARMOUR.hie",
-                2 => "newIconsPOWER.hie",
-                3 => "newIconsOFFENSIVE.hie",
+                1 => "newIconsHELMET.hie",
+                2 => "newIconsENGINE.hie",
+                3 => "newIconsFIST.hie",
                 4 => "newIconsTIME.hie",
                 5 => "newIconsWADOCASH.hie",
                 6 => "newIconsSPANNER.hie",
-                7 => "newIconsFREE_REPAIRS.hie",
-                8 => "newIconsINSTANT_HANDBRAKE.hie",
+                7 => "newIconsSPANNER.hie",
+                8 => "newIconsHELMET.hie",
                 9 => "newIconsPEDSIGN.hie",
-                10 => "newIconsPED_ELECTRIFIER.hie",
-                11 => "newIconsPED_EXPLODER.hie",
-                12 => "newIconsPED_FLAMETHROWER.hie",
-                13 => "newIconsPED_FORCEFIELD.hie",
-                14 => "newIconsPED_GUN.hie",
-                15 => "newIconsPED_REPULSION.hie",
-                16 => "newIconsTURBO_COP_DISGUISE.hie",
-                17 => "newIconsTURBO_DRIVE.hie",
-                18 => "newIconsTURBO_INVULNERABILITY.hie",
-                19 => "newIconsTURBO_JUMP.hie",
-                20 => "newIconsWALL_CLIMBER.hie",
-                21 => "newIconsBOUNCY_BOUNCY.hie",
-                22 => "newIconsEARTHQUAKE.hie",
-                23 => "newIconsFROZEN_COPS.hie",
-                24 => "newIconsFROZEN_PEDS.hie",
-                25 => "newIconsGOLIATH_MINE.hie",
-                26 => "newIconsGRAVITY_LOW.hie",
-                27 => "newIconsGREASE_WHEELS.hie",
-                28 => "newIconsGRIP_MUTANT_GRAVY.hie",
-                29 => "newIconsHIGH_GRAVITY.hie",
-                30 => "newIconsHOT_ROD.hie",
-                31 => "newIconsJUPITER_WEIGHT.hie",
-                32 => "newIconsKANGAROO_JUMP.hie",
-                33 => "newIconsMEGA_TURBO.hie",
-                34 => "newIconsMINE_EXPLOSIVE.hie",
-                35 => "newIconsMINE_PROPULSION.hie",
-                36 => "newIconsPINBALL_WHEELS.hie",
-                37 => "newIconsROCK_SPRINGS.hie",
-                38 => "newIconsSUICIDE_PEDS.hie",
-                39 => "newIconsTURBO_PEDESTRIANS.hie",
-                40 => "newIconsUNDERWATER_DRIVE.hie",
-                41 => "newIconsWELDED_HANDBRAKE.hie",
-                42 => "newIconsZ_VAPORISER.hie",
-                _ => "newIconsSPANNER.hie"
+                10 => "newIconsPEDSIGN.hie",
+                11 => "newIconsPEDSIGN.hie",
+                12 => "newIconsPEDSIGN.hie",
+                13 => "newIconsPEDSIGN.hie",
+                14 => "newIconsPEDSIGN.hie",
+                15 => "newIconsPEDSIGN.hie",
+                16 => "newIconsENGINE.hie",
+                17 => "newIconsENGINE.hie",
+                18 => "newIconsHELMET.hie",
+                19 => "newIconsENGINE.hie",
+                20 => "newIconsENGINE.hie",
+                21 => "newIconsRANDOM.hie",
+                22 => "newIconsRANDOM.hie",
+                23 => "newIconsHELMET.hie",
+                24 => "newIconsPEDSIGN.hie",
+                25 => "newIconsFIST.hie",
+                26 => "newIconsRANDOM.hie",
+                27 => "newIconsRANDOM.hie",
+                28 => "newIconsRANDOM.hie",
+                29 => "newIconsRANDOM.hie",
+                30 => "newIconsENGINE.hie",
+                31 => "newIconsHELMET.hie",
+                32 => "newIconsENGINE.hie",
+                33 => "newIconsENGINE.hie",
+                34 => "newIconsFIST.hie",
+                35 => "newIconsFIST.hie",
+                36 => "newIconsRANDOM.hie",
+                37 => "newIconsRANDOM.hie",
+                38 => "newIconsHELMET.hie",
+                39 => "newIconsPEDSIGN.hie",
+                40 => "newIconsENGINE.hie",
+                41 => "newIconsHELMET.hie",
+                42 => "newIconsFIST.hie",
+                _ => "newIconsAPOall.hie"
             };
         }
     }

@@ -29,6 +29,15 @@ namespace TDR.Tools.Export
         [JsonPropertyName("skyMesh")]
         public string? SkyMesh { get; set; }
 
+        [JsonPropertyName("originOffset")]
+        public float[]? OriginOffset { get; set; }
+
+        [JsonPropertyName("staticLayers")]
+        public List<string> StaticLayers { get; set; } = new();
+
+        [JsonPropertyName("splines")]
+        public List<SceneSplineTrack> Splines { get; set; } = new();
+
         [JsonPropertyName("environment")]
         public SceneEnvironment Environment { get; set; } = new();
 
@@ -55,6 +64,51 @@ namespace TDR.Tools.Export
 
         [JsonPropertyName("paths")]
         public List<ScenePath> Paths { get; set; } = new();
+    }
+
+    public sealed class SceneSplineNode
+    {
+        [JsonPropertyName("index")]
+        public int Index { get; set; }
+
+        [JsonPropertyName("position")]
+        public float[] Position { get; set; } = new float[3];
+
+        [JsonPropertyName("nextIndex")]
+        public int? NextIndex { get; set; }
+
+        [JsonPropertyName("prevIndex")]
+        public int? PrevIndex { get; set; }
+
+        [JsonPropertyName("distanceToNext")]
+        public float DistanceToNext { get; set; }
+
+        [JsonPropertyName("tangent")]
+        public float[] Tangent { get; set; } = new float[3];
+    }
+
+    public sealed class SceneSplineTrack
+    {
+        [JsonPropertyName("name")]
+        public string Name { get; set; } = string.Empty;
+
+        [JsonPropertyName("file")]
+        public string File { get; set; } = string.Empty;
+
+        [JsonPropertyName("pointCount")]
+        public int PointCount { get; set; }
+
+        [JsonPropertyName("totalLength")]
+        public float TotalLength { get; set; }
+
+        [JsonPropertyName("isClosed")]
+        public bool IsClosed { get; set; }
+
+        [JsonPropertyName("points")]
+        public List<float[]> Points { get; set; } = new();
+
+        [JsonPropertyName("nodes")]
+        public List<SceneSplineNode> Nodes { get; set; } = new();
     }
 
     public sealed class SceneBreakable
@@ -220,7 +274,19 @@ namespace TDR.Tools.Export
 
             if (verbose) log?.Invoke($"--- [STAGE JSON] Scene Manifest Generation ---");
 
-            // 1. Base Environment & Atmosphere (from master txt)
+            // Canonical Level Descriptor & Assets Extraction via LevelDescriptorParser (Single Source of Truth)
+            string trackContext = !string.IsNullOrWhiteSpace(variantArg) ? $"{trackName}_{variantArg}" : trackName;
+            byte[]? descBytes = loader($"{trackContext}.txt") ?? loader($"{trackName}.txt") ?? Array.Empty<byte>();
+            var assets = LevelDescriptorParser.ParseLevelDescriptorAssets(vfs, trackContext, descBytes);
+
+            // 1. Static Geometry Layers
+            foreach (string hieFile in assets.HieFiles)
+            {
+                if (!manifest.StaticLayers.Contains(hieFile, StringComparer.OrdinalIgnoreCase))
+                    manifest.StaticLayers.Add(hieFile);
+            }
+
+            // 2. Base Environment & Atmosphere (from master txt)
             byte[]? trackTxtData = loader($"{trackName}.txt");
             if (trackTxtData != null)
             {
@@ -228,7 +294,7 @@ namespace TDR.Tools.Export
                 if (verbose) log?.Invoke($"  [JSON Env] Parsed base atmosphere parameters from '{trackName}.txt'");
             }
 
-            // 1b. Variant Environment Overrides (if specified)
+            // 2b. Variant Environment Overrides (if specified)
             if (!string.IsNullOrWhiteSpace(variantArg))
             {
                 string variantTxtName = $"{trackName}_{variantArg}.txt";
@@ -240,7 +306,7 @@ namespace TDR.Tools.Export
                 }
             }
 
-            // 2. Lights
+            // 3. Lights
             var lightsRes = LoadDescriptorByKeyOrFallback(loader, trackTxtData, "LIGHTS_DESCRIPTOR", trackName, "LightsDescriptor.txt");
             if (lightsRes.Data != null)
             {
@@ -248,7 +314,7 @@ namespace TDR.Tools.Export
                 if (verbose) log?.Invoke($"  [JSON Lights] Parsed {manifest.Lights.Count} light fixture(s) from '{lightsRes.ResolvedName}'");
             }
 
-            // 2b. 3D Sound Emitters
+            // 3b. 3D Sound Emitters
             var sndRes = LoadDescriptorByKeyOrFallback(loader, trackTxtData, "AMBIENT_SOUNDS", trackName, "AmbientSndDescriptor.txt");
             if (sndRes.Data != null)
             {
@@ -256,7 +322,7 @@ namespace TDR.Tools.Export
                 if (verbose) log?.Invoke($"  [JSON Sound Emitters] Parsed {manifest.SoundEmitters.Count} 3D sound emitter(s) from '{sndRes.ResolvedName}'");
             }
 
-            // 2c. Surface Physics Materials
+            // 3c. Surface Physics Materials
             var hRes = LoadDescriptorByKeyOrFallback(loader, trackTxtData, "SPECIALV_H_ENVIRONMENTS", trackName, "Volumes.h");
             if (hRes.Data != null)
             {
@@ -265,26 +331,62 @@ namespace TDR.Tools.Export
                 if (verbose) log?.Invoke($"  [JSON Surface Physics] Parsed {mats.Count} surface material physics entry(ies) from '{hRes.ResolvedName}'");
             }
 
-            // 3. Movables
-            var movablesRes = LoadDescriptorByKeyOrFallback(loader, trackTxtData, "MOVABLE_OBJECTS", trackName, "MoveableDescriptor.txt");
-            if (movablesRes.Data != null)
+            // 4a. Instanced HIEs (Trains, Sub-descriptor props with explicit matrices)
+            var instCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            foreach (var inst in assets.HieInstances)
             {
-                int before = manifest.Entities.Count;
-                ParseMovables(movablesRes.Data, manifest.Entities);
-                if (verbose) log?.Invoke($"  [JSON Movables] Parsed {manifest.Entities.Count - before} movable entity placement(s) from '{movablesRes.ResolvedName}'");
+                string modelBaseName = Path.GetFileNameWithoutExtension(inst.HieName);
+                int instIdx = instCounts.GetValueOrDefault(modelBaseName, 0) + 1;
+                instCounts[modelBaseName] = instIdx;
+
+                var q = Quaternion.CreateFromRotationMatrix(inst.Transform);
+                manifest.Entities.Add(new SceneEntity
+                {
+                    Id = $"{modelBaseName}_{instIdx:D3}",
+                    Category = "instanced_prop",
+                    Prefab = $"prefabs/{modelBaseName}.obj",
+                    Position = new[] { inst.Transform.M41, inst.Transform.M42, inst.Transform.M43 },
+                    Rotation = new[] { q.X, q.Y, q.Z, q.W }
+                });
             }
 
-            // 4. Pedestrians
+            // 4b. Movables (Cumulative descriptors)
+            var allMovDescs = new List<string>(assets.MovableDescriptors);
+            string defaultVarMov = $"{trackName}_{variantArg}_MoveableDescriptor.txt";
+            string defaultBaseMov = $"{cleanTrack}_MoveableDescriptor.txt";
+            if (!string.IsNullOrWhiteSpace(variantArg) && vfs.FileExists(defaultVarMov) && !allMovDescs.Contains(defaultVarMov, StringComparer.OrdinalIgnoreCase))
+                allMovDescs.Add(defaultVarMov);
+            else if (allMovDescs.Count == 0 && vfs.FileExists(defaultBaseMov))
+                allMovDescs.Add(defaultBaseMov);
+
+            var spawnedMovableLocations = new List<(string Model, Vector3 Pos)>();
+            foreach (string movDesc in allMovDescs)
+            {
+                byte[]? movData = loader(movDesc);
+                if (movData != null)
+                {
+                    int before = manifest.Entities.Count;
+                    ParseMovables(movData, manifest.Entities, spawnedMovableLocations);
+                    if (verbose) log?.Invoke($"  [JSON Movables] Parsed {manifest.Entities.Count - before} movable entity placement(s) from '{movDesc}'");
+                }
+            }
+
+            // 4c. Pedestrians
+            var allPedDescs = new List<string>(assets.PedestrianDescriptors);
+            string defaultPed = $"{cleanTrack}_PedDescriptor.txt";
+            if (!allPedDescs.Contains(defaultPed, StringComparer.OrdinalIgnoreCase) && vfs.FileExists(defaultPed))
+                allPedDescs.Add(defaultPed);
+
             byte[]? pedData = loader($"{trackName}_Ped_Placement.txt") ?? loader($"{trackName}Ped_Placement.txt");
             if (pedData != null)
             {
                 int before = manifest.Entities.Count;
-                var pedDescRes = LoadDescriptorByKeyOrFallback(loader, trackTxtData, "PEDS_DESCRIPTOR", trackName, "PedDescriptor.txt");
-                ParsePedestrians(pedData, pedDescRes.Data, manifest.Entities);
+                byte[]? pedDescData = allPedDescs.Count > 0 ? loader(allPedDescs[0]) : null;
+                ParsePedestrians(pedData, pedDescData, manifest.Entities);
                 if (verbose) log?.Invoke($"  [JSON Pedestrians] Parsed {manifest.Entities.Count - before} pedestrian placement(s)");
             }
 
-            // 4b. Powerups (.pup)
+            // 4d. Powerups (.pup)
             string targetPup = !string.IsNullOrWhiteSpace(variantArg) ? $"{trackName}_{variantArg}.pup" : $"{trackName}_Race1.pup";
             byte[]? pupData = loader(targetPup) ?? loader($"{trackName}.pup") ?? loader($"{trackName}Race1.pup");
             if (pupData != null)
@@ -294,7 +396,7 @@ namespace TDR.Tools.Export
                 if (verbose) log?.Invoke($"  [JSON Powerups] Parsed {manifest.Entities.Count - before} powerup placement(s)");
             }
 
-            // 4c. Breakables
+            // 4e. Breakables
             var breakRes = LoadDescriptorByKeyOrFallback(loader, trackTxtData, "BREAKABLES_DESCRIPTOR", trackName, "BreakDescriptor.txt");
             if (breakRes.Data != null)
             {
@@ -302,7 +404,7 @@ namespace TDR.Tools.Export
                 if (verbose) log?.Invoke($"  [JSON Breakables] Parsed {manifest.Breakables.Count} breakable entry(ies) from '{breakRes.ResolvedName}'");
             }
 
-            // 4d. Animated Textures
+            // 4f. Animated Textures
             var animTexRes = LoadDescriptorByKeyOrFallback(loader, trackTxtData, "TEXTURE_ANIM_DESCRIPTOR", trackName, "TexAnimDescriptor.txt");
             if (animTexRes.Data != null)
             {
@@ -310,13 +412,93 @@ namespace TDR.Tools.Export
                 if (verbose) log?.Invoke($"  [JSON TexAnim] Parsed {manifest.AnimatedTextures.Count} animated texture script mapping(s) from '{animTexRes.ResolvedName}'");
             }
 
-            // 4e. Traffic Drones & Paths
-            var droneRes = LoadDescriptorByKeyOrFallback(loader, trackTxtData, "DRONE_DESCRIPTOR", trackName, "DroneDescriptor.txt");
-            if (droneRes.Data != null)
+            // 4g. Traffic Drones & Comprehensive Spline Export (.lin / .lins)
+            var allDroneDescs = new List<string>(assets.DroneDescriptors);
+            string defaultDrone = $"{cleanTrack}_DroneDescriptor.txt";
+            if (!allDroneDescs.Contains(defaultDrone, StringComparer.OrdinalIgnoreCase) && vfs.FileExists(defaultDrone))
+                allDroneDescs.Add(defaultDrone);
+
+            var roadSplines = SplineResolver.ResolveRoadSplines(vfs, cleanTrack, variantArg != null ? $"{trackName}_{variantArg}" : trackName);
+            foreach (var sp in roadSplines)
             {
-                int before = manifest.Entities.Count;
-                ParseDrones(droneRes.Data, vfs, manifest.Entities, manifest.Paths, cleanTrack);
-                if (verbose) log?.Invoke($"  [JSON Drones] Parsed {manifest.Entities.Count - before} traffic drone placement(s) from '{droneRes.ResolvedName}'");
+                var pointsList = new List<float[]>();
+                var nodesList = new List<SceneSplineNode>();
+                float totalSplineLen = 0f;
+
+                bool isClosed = sp.Points.Count >= 3 && Vector3.Distance(sp.Points[0], sp.Points[^1]) < 2.0f;
+
+                for (int i = 0; i < sp.Points.Count; i++)
+                {
+                    var pt = sp.Points[i];
+                    pointsList.Add(new[] { pt.X, pt.Y, pt.Z });
+
+                    int? nextIdx = (i < sp.Points.Count - 1) ? i + 1 : (isClosed ? 0 : null);
+                    int? prevIdx = (i > 0) ? i - 1 : (isClosed ? sp.Points.Count - 1 : null);
+
+                    float distNext = 0f;
+                    Vector3 forward = Vector3.UnitZ;
+
+                    if (nextIdx.HasValue && nextIdx.Value < sp.Points.Count)
+                    {
+                        var nextPt = sp.Points[nextIdx.Value];
+                        distNext = Vector3.Distance(pt, nextPt);
+                        if (distNext > 1e-4f) forward = Vector3.Normalize(nextPt - pt);
+                    }
+                    else if (prevIdx.HasValue && prevIdx.Value < sp.Points.Count)
+                    {
+                        var prevPt = sp.Points[prevIdx.Value];
+                        float dPrev = Vector3.Distance(prevPt, pt);
+                        if (dPrev > 1e-4f) forward = Vector3.Normalize(pt - prevPt);
+                    }
+
+                    if (i < sp.Points.Count - 1)
+                    {
+                        totalSplineLen += distNext;
+                    }
+
+                    nodesList.Add(new SceneSplineNode
+                    {
+                        Index = i,
+                        Position = new[] { pt.X, pt.Y, pt.Z },
+                        NextIndex = nextIdx,
+                        PrevIndex = prevIdx,
+                        DistanceToNext = distNext,
+                        Tangent = new[] { forward.X, forward.Y, forward.Z }
+                    });
+                }
+
+                manifest.Splines.Add(new SceneSplineTrack
+                {
+                    Name = sp.Name,
+                    File = sp.Name,
+                    PointCount = sp.Points.Count,
+                    TotalLength = totalSplineLen,
+                    IsClosed = isClosed,
+                    Points = pointsList,
+                    Nodes = nodesList
+                });
+
+                manifest.Paths.Add(new ScenePath
+                {
+                    Id = sp.Name,
+                    Category = "spline_path",
+                    ClosedLoop = isClosed,
+                    Points = pointsList
+                });
+            }
+
+            if (allDroneDescs.Count > 0)
+            {
+                foreach (string droneDesc in allDroneDescs)
+                {
+                    byte[]? droneData = loader(droneDesc);
+                    if (droneData != null)
+                    {
+                        int before = manifest.Entities.Count;
+                        ParseDrones(droneData, roadSplines, manifest.Entities);
+                        if (verbose) log?.Invoke($"  [JSON Drones] Parsed {manifest.Entities.Count - before} traffic drone placement(s) from '{droneDesc}'");
+                    }
+                }
             }
 
             // 5. Variants
@@ -533,7 +715,7 @@ if json_files:
             }
         }
 
-        private static void ParseMovables(byte[] data, List<SceneEntity> entities)
+        private static void ParseMovables(byte[] data, List<SceneEntity> entities, List<(string Model, Vector3 Pos)>? spawnedPositions = null)
         {
             string[] lines = Encoding.ASCII.GetString(data).Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
             var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
@@ -548,8 +730,6 @@ if json_files:
 
                 string hieName = parts[0].Trim('"');
                 string modelBaseName = Path.GetFileNameWithoutExtension(hieName);
-                int instIdx = counts.GetValueOrDefault(modelBaseName, 0) + 1;
-                counts[modelBaseName] = instIdx;
 
                 if (!float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float px) ||
                     !float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float py) ||
@@ -561,6 +741,20 @@ if json_files:
                 {
                     continue;
                 }
+
+                var rawPos = new Vector3(px, py, pz);
+                if (spawnedPositions != null)
+                {
+                    if (spawnedPositions.Any(loc => loc.Model.Equals(modelBaseName, StringComparison.OrdinalIgnoreCase) &&
+                                                    Vector3.DistanceSquared(loc.Pos, rawPos) < 0.01f))
+                    {
+                        continue;
+                    }
+                    spawnedPositions.Add((modelBaseName, rawPos));
+                }
+
+                int instIdx = counts.GetValueOrDefault(modelBaseName, 0) + 1;
+                counts[modelBaseName] = instIdx;
 
                 entities.Add(new SceneEntity
                 {
@@ -759,7 +953,7 @@ if json_files:
             }
         }
 
-        private static void ParseDrones(byte[] droneData, PakManager vfs, List<SceneEntity> entities, List<ScenePath> paths, string cleanTrackName)
+        private static void ParseDrones(byte[] droneData, List<TDRSpline> roadSplines, List<SceneEntity> entities)
         {
             string[] descLines = Encoding.ASCII.GetString(droneData).Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
             var droneRequests = new List<(string Name, int Count)>();
@@ -774,26 +968,7 @@ if json_files:
                 }
             }
 
-            if (droneRequests.Count == 0) return;
-
-            var roadSplines = SplineResolver.ResolveRoadSplines(vfs, cleanTrackName);
-
-            foreach (var spline in roadSplines)
-            {
-                var pointsList = new List<float[]>();
-                foreach (var pt in spline.Points)
-                {
-                    pointsList.Add(new[] { pt.X, pt.Y, pt.Z });
-                }
-
-                paths.Add(new ScenePath
-                {
-                    Id = spline.Name,
-                    Category = "drone_path",
-                    ClosedLoop = true,
-                    Points = pointsList
-                });
-            }
+            if (droneRequests.Count == 0 || roadSplines == null || roadSplines.Count == 0) return;
 
             int totalDrones = droneRequests.Sum(r => r.Count);
             var spawnMatrices = SplineResolver.GenerateSpawnMatrices(roadSplines, totalDrones);
