@@ -28,30 +28,119 @@ namespace TDR.Tools.Export
             string trackBase = cleanTrackName.ToLowerInvariant();
             var roadSplines = new List<TDRSpline>();
 
+            // Phase 1: Try resolving via Track Drone Paths HIE Hierarchy (which contains exact intersection placement matrices)
             foreach (var file in vfs.GetFiles())
             {
                 string fn = file.Name.Replace('\\', '/').ToLowerInvariant();
                 string archiveLower = (file.ArchivePath ?? "").Replace('\\', '/').ToLowerInvariant();
 
-                // Exclude non-road splines (cameras, energy beams, monster animations)
+                if (!fn.EndsWith(".hie", StringComparison.OrdinalIgnoreCase)) continue;
+                if (!fn.Contains("drone") && !fn.Contains("path") && !fn.Contains("traffic")) continue;
+
                 bool isExcluded = false;
                 foreach (string keyword in ExcludedKeywords)
                 {
-                    if (fn.Contains(keyword))
-                    {
-                        isExcluded = true;
-                        break;
-                    }
+                    if (fn.Contains(keyword)) { isExcluded = true; break; }
                 }
                 if (isExcluded) continue;
 
-                // Asymmetric extension check: .lins is always a spline package, .lin requires traffic/drone/paths keyword
+                bool matchesTrack = TrackDiscoveryService.IsTrackOrAliasMatch(fn, trackBase) ||
+                                    TrackDiscoveryService.IsTrackOrAliasMatch(archiveLower, trackBase);
+                if (!matchesTrack) continue;
+
+                byte[]? hieBytes = vfs.LoadFile(file.Name);
+                if (hieBytes == null || hieBytes.Length == 0) continue;
+
+                try
+                {
+                    var hie = TDRHierarchy.Load(hieBytes, file.Name);
+                    if (hie.Nodes.Any(n => n.Type == TDRNode.NodeType.Spline))
+                    {
+                        var allSplines = new List<TDRSpline>();
+                        foreach (string lineFileName in hie.LineNames)
+                        {
+                            byte[]? spBytes = vfs.LoadFileContext(lineFileName, trackContext ?? cleanTrackName) ??
+                                              vfs.LoadFile(lineFileName);
+                            if (spBytes != null && spBytes.Length > 0)
+                            {
+                                string optShortName = Path.ChangeExtension(Path.GetFileName(lineFileName), ".txt");
+                                string optFullPath = Path.ChangeExtension(lineFileName, ".txt");
+                                byte[]? optBytes = vfs.LoadFileContext(optShortName, trackContext ?? cleanTrackName) ??
+                                                   vfs.LoadFile(optFullPath) ??
+                                                   vfs.LoadFile(optShortName);
+
+                                var container = TDRSplineContainer.Load(spBytes, lineFileName, optBytes);
+                                allSplines.AddRange(container.Splines);
+                            }
+                        }
+
+                        if (allSplines.Count > 0)
+                        {
+                            var visited = new HashSet<TDRNode>();
+                            void TraverseNode(TDRNode? node, Matrix4x4 parentMatrix)
+                            {
+                                if (node == null || !visited.Add(node)) return;
+                                Matrix4x4 currentMatrix = node.Transform * parentMatrix;
+
+                                if (node.Type == TDRNode.NodeType.Spline && node.Index >= 0 && node.Index < allSplines.Count)
+                                {
+                                    var rawSpline = allSplines[node.Index];
+                                    if (rawSpline.Points.Count >= 2)
+                                    {
+                                        var transformedSpline = new TDRSpline
+                                        {
+                                            Name = $"{rawSpline.Name}_node{node.ID}"
+                                        };
+                                        foreach (var pt in rawSpline.Points)
+                                        {
+                                            transformedSpline.Points.Add(Vector3.Transform(pt, currentMatrix));
+                                        }
+                                        roadSplines.Add(transformedSpline);
+                                    }
+                                }
+
+                                foreach (var child in node.Children)
+                                {
+                                    TraverseNode(child, currentMatrix);
+                                }
+                            }
+
+                            if (hie.Root != null)
+                                TraverseNode(hie.Root, Matrix4x4.Identity);
+                            else
+                            {
+                                foreach (var n in hie.Nodes)
+                                    TraverseNode(n, Matrix4x4.Identity);
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    log?.Invoke($"[WARN] Failed to load hierarchical spline '{file.Name}': {ex.Message}");
+                }
+            }
+
+            if (roadSplines.Count > 0) return roadSplines;
+
+            // Phase 2: Direct .lins / .lin fallback
+            foreach (var file in vfs.GetFiles())
+            {
+                string fn = file.Name.Replace('\\', '/').ToLowerInvariant();
+                string archiveLower = (file.ArchivePath ?? "").Replace('\\', '/').ToLowerInvariant();
+
+                bool isExcluded = false;
+                foreach (string keyword in ExcludedKeywords)
+                {
+                    if (fn.Contains(keyword)) { isExcluded = true; break; }
+                }
+                if (isExcluded) continue;
+
                 bool isSplineExt = fn.EndsWith(".lins", StringComparison.OrdinalIgnoreCase) ||
                                   (fn.EndsWith(".lin", StringComparison.OrdinalIgnoreCase) && (fn.Contains("traffic") || fn.Contains("drone") || fn.Contains("paths")));
 
                 if (!isSplineExt) continue;
 
-                // Check track match directly or via aliases dictionary
                 bool matchesTrack = TrackDiscoveryService.IsTrackOrAliasMatch(fn, trackBase) ||
                                     TrackDiscoveryService.IsTrackOrAliasMatch(archiveLower, trackBase);
 
@@ -62,7 +151,6 @@ namespace TDR.Tools.Export
                 {
                     try
                     {
-                        // 3-tier companion options .txt resolution
                         string optShortName = Path.ChangeExtension(Path.GetFileName(file.Name), ".txt");
                         string optFullPath = Path.ChangeExtension(file.Name, ".txt");
                         byte[]? optBytes = vfs.LoadFileContext(optShortName, trackContext ?? cleanTrackName) ??
@@ -107,7 +195,7 @@ namespace TDR.Tools.Export
             {
                 foreach (var s in splines)
                 {
-                    if (s.Points.Count > 0) spawnMatrices.Add(s.GetSpawnMatrix(0));
+                    if (s.Points.Count > 0) spawnMatrices.Add(ComputeSplineSpawnMatrix(s, 0));
                 }
                 if (spawnMatrices.Count == 0) spawnMatrices.Add(Matrix4x4.Identity);
                 return spawnMatrices;
@@ -165,7 +253,7 @@ namespace TDR.Tools.Export
                 {
                     for (int i = 0; i < spline.Points.Count; i++)
                     {
-                        Matrix4x4 mat = spline.GetSpawnMatrix(i);
+                        Matrix4x4 mat = ComputeSplineSpawnMatrix(spline, i);
                         Vector3 pos = new Vector3(mat.M41, mat.M42, mat.M43);
                         if (!spawnedPositions.Any(p => Vector3.Distance(p, pos) < 5.0f))
                         {
