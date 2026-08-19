@@ -277,6 +277,7 @@ namespace TDR.Tools.Export
                     if (spawnedHieLocations.Any(loc => loc.Model.Equals(modelBaseName, StringComparison.OrdinalIgnoreCase) &&
                                                        Vector3.DistanceSquared(loc.Pos, instPos) < 0.01f))
                     {
+                        if (_verbose) Log($"    [Dedup] Skipped duplicate instance of '{hieName}' at {instPos}");
                         continue;
                     }
                     spawnedHieLocations.Add((modelBaseName, instPos));
@@ -1035,11 +1036,15 @@ namespace TDR.Tools.Export
         private static string ResolvePowerupIconHie(int typeId, string name) =>
             TextureResolver.ResolvePowerupIconHie(typeId, name);
 
+        /// <summary>
+        /// Converts System.Numerics.Matrix4x4 into the glTF 2.0 16-element column-major array.
+        /// NOTE: DO NOT transpose this array. In System.Numerics.Matrix4x4, row 4 (M41, M42, M43)
+        /// stores the translation vector (Tx, Ty, Tz). In glTF 2.0 specification (section 5.23),
+        /// Column 3 (indices 12..14) MUST contain (Tx, Ty, Tz). Outputting M11..M44 in sequential order
+        /// places translation in indices 12..14 and basis vectors in columns 0..2, matching glTF 2.0 1:1.
+        /// </summary>
         private static float[] ToGltfMatrix(Matrix4x4 m)
         {
-            // System.Numerics.Matrix4x4 is row-major vectors with translation in M41, M42, M43.
-            // glTF 2.0 specification requires a 16-element column-major array:
-            // [ Col0 (X-axis), Col1 (Y-axis), Col2 (Z-axis), Col3 (Translation) ]
             return new[]
             {
                 m.M11, m.M12, m.M13, m.M14,

@@ -1266,7 +1266,7 @@ namespace TDR.Tools.ViewModels
                             if (File.Exists(path))
                             {
                                 Utilities.WindowsShell.SendToRecycleBin(path, permanent, confirm: false);
-                                if (File.Exists(path)) File.Delete(path);
+                                if (permanent && File.Exists(path)) File.Delete(path);
 
                                 if (path.EndsWith(".pak", StringComparison.OrdinalIgnoreCase))
                                 {
@@ -1274,7 +1274,7 @@ namespace TDR.Tools.ViewModels
                                     if (File.Exists(matchingDir))
                                     {
                                         Utilities.WindowsShell.SendToRecycleBin(matchingDir, permanent, confirm: false);
-                                        if (File.Exists(matchingDir)) File.Delete(matchingDir);
+                                        if (permanent && File.Exists(matchingDir)) File.Delete(matchingDir);
                                     }
                                 }
                                 else if (path.EndsWith(".dir", StringComparison.OrdinalIgnoreCase))
@@ -1283,7 +1283,7 @@ namespace TDR.Tools.ViewModels
                                     if (File.Exists(matchingPak))
                                     {
                                         Utilities.WindowsShell.SendToRecycleBin(matchingPak, permanent, confirm: false);
-                                        if (File.Exists(matchingPak)) File.Delete(matchingPak);
+                                        if (permanent && File.Exists(matchingPak)) File.Delete(matchingPak);
                                     }
                                 }
                                 LogSession($"Deleted file: '{node.Name}'");
@@ -1291,7 +1291,7 @@ namespace TDR.Tools.ViewModels
                             else if (Directory.Exists(path))
                             {
                                 Utilities.WindowsShell.SendToRecycleBin(path, permanent, confirm: false);
-                                if (Directory.Exists(path))
+                                if (permanent && Directory.Exists(path))
                                 {
                                     Directory.Delete(path, recursive: true);
                                 }
@@ -1419,7 +1419,7 @@ namespace TDR.Tools.ViewModels
                             if (File.Exists(path))
                             {
                                 Utilities.WindowsShell.SendToRecycleBin(path, permanent, confirm: false);
-                                if (File.Exists(path)) File.Delete(path);
+                                if (permanent && File.Exists(path)) File.Delete(path);
 
                                 if (path.EndsWith(".pak", StringComparison.OrdinalIgnoreCase))
                                 {
@@ -1427,7 +1427,7 @@ namespace TDR.Tools.ViewModels
                                     if (File.Exists(matchingDir))
                                     {
                                         Utilities.WindowsShell.SendToRecycleBin(matchingDir, permanent, confirm: false);
-                                        if (File.Exists(matchingDir)) File.Delete(matchingDir);
+                                        if (permanent && File.Exists(matchingDir)) File.Delete(matchingDir);
                                     }
                                 }
                                 else if (path.EndsWith(".dir", StringComparison.OrdinalIgnoreCase))
@@ -1436,7 +1436,7 @@ namespace TDR.Tools.ViewModels
                                     if (File.Exists(matchingPak))
                                     {
                                         Utilities.WindowsShell.SendToRecycleBin(matchingPak, permanent, confirm: false);
-                                        if (File.Exists(matchingPak)) File.Delete(matchingPak);
+                                        if (permanent && File.Exists(matchingPak)) File.Delete(matchingPak);
                                     }
                                 }
                                 LogSession($"Deleted file from Destination: '{node.Name}'");
@@ -1444,7 +1444,7 @@ namespace TDR.Tools.ViewModels
                             else if (Directory.Exists(path))
                             {
                                 Utilities.WindowsShell.SendToRecycleBin(path, permanent, confirm: false);
-                                if (Directory.Exists(path))
+                                if (permanent && Directory.Exists(path))
                                 {
                                     Directory.Delete(path, recursive: true);
                                 }
@@ -1627,8 +1627,11 @@ namespace TDR.Tools.ViewModels
             string pakName = $"{baseName}.pak";
             string pakPath = Path.Combine(parentDir, pakName);
 
+            var targetCollection = ownerFolderNode != null ? ownerFolderNode.Children : SourceNodes;
+
             int counter = 1;
-            while (File.Exists(pakPath) || File.Exists(Path.ChangeExtension(pakPath, ".dir")))
+            while (File.Exists(pakPath) || File.Exists(Path.ChangeExtension(pakPath, ".dir"))
+                   || targetCollection.Any(n => n.Name.Equals(pakName, StringComparison.OrdinalIgnoreCase)))
             {
                 pakName = $"{baseName} {counter}.pak";
                 pakPath = Path.Combine(parentDir, pakName);
@@ -1653,7 +1656,6 @@ namespace TDR.Tools.ViewModels
             };
             draftNode.UpdateIcon();
 
-            var targetCollection = ownerFolderNode != null ? ownerFolderNode.Children : SourceNodes;
             targetCollection.Add(draftNode);
             if (ownerFolderNode != null) ownerFolderNode.IsExpanded = true;
 
@@ -1723,29 +1725,49 @@ namespace TDR.Tools.ViewModels
             // 3. Process dropped VFS nodes from internal tree
             if (vfsNodes != null)
             {
-                foreach (var node in vfsNodes)
+                void CollectVfsFiles(FileNodeViewModel node)
                 {
-                    if (!node.IsDirectory && !node.IsArchive)
+                    if (node.IsDirectory)
                     {
-                        byte[]? data = _vfs.LoadFile(node.VirtualPath);
-                        if (data == null && !string.IsNullOrEmpty(node.AbsolutePath) && File.Exists(node.AbsolutePath))
-                        {
-                            data = File.ReadAllBytes(node.AbsolutePath);
-                        }
-
+                        foreach (var child in node.Children)
+                            CollectVfsFiles(child);
+                    }
+                    else if (!node.IsArchive)
+                    {
+                        byte[]? data = ReadAllBytesForNode(node);
                         if (data != null)
                         {
-                            string rel = Path.GetFileName(node.VirtualPath).ToLowerInvariant();
-                            existingFiles[rel] = data;
-                            LogSession($"  [+] Added VFS file: '{rel}' ({data.Length} bytes)");
+                            string fileName = !string.IsNullOrEmpty(node.VirtualPath)
+                                ? Path.GetFileName(node.VirtualPath)
+                                : (!string.IsNullOrEmpty(node.AbsolutePath)
+                                    ? Path.GetFileName(node.AbsolutePath)
+                                    : node.Name);
+
+                            string rel = fileName.ToLowerInvariant();
+                            if (!string.IsNullOrEmpty(rel))
+                            {
+                                existingFiles[rel] = data;
+                                LogSession($"  [+] Added VFS file: '{rel}' ({data.Length} bytes)");
+                            }
                         }
                     }
+                }
+
+                foreach (var node in vfsNodes)
+                {
+                    CollectVfsFiles(node);
                 }
             }
 
             // 4. Pack & update physical .PAK / .DIR archive on disk
+            if (existingFiles.Count == 0)
+            {
+                LogSession($"[!] No files collected to pack into '{Path.GetFileName(pakPath)}'. Aborting pack to preserve existing archive.");
+                return;
+            }
+
             var fileList = existingFiles.Select(kv => new PakPacker.FileToPack { VirtualPath = kv.Key, Content = kv.Value });
-            bool success = PakPacker.PackFiles(fileList, pakPath, compress: true, LogSession);
+            bool success = PakPacker.PackFiles(fileList, pakPath, compress: true, LogSession, allowEmptyDeletion: false);
 
             if (success)
             {
@@ -1802,14 +1824,17 @@ namespace TDR.Tools.ViewModels
             ClearCollection(FlatSourceNodes);
         }
 
-        public void RenameNode(FileNodeViewModel node, string newName)
+        public bool RenameNode(FileNodeViewModel node, string newName) => RenameNode(node, newName, out _);
+
+        public bool RenameNode(FileNodeViewModel node, string newName, out string errorMsg)
         {
-            if (node == null) return;
-            node.IsEditing = false;
+            errorMsg = string.Empty;
+            if (node == null) return false;
             if (string.IsNullOrWhiteSpace(newName) || newName == node.Name)
             {
                 node.EditName = node.Name;
-                return;
+                node.IsEditing = false;
+                return true;
             }
 
             bool isDestNode = IsNodeInCollection(node, DestinationNodes);
@@ -1819,12 +1844,14 @@ namespace TDR.Tools.ViewModels
                 ? (Path.GetDirectoryName(node.AbsolutePath) ?? defaultRoot)
                 : defaultRoot;
 
-            if (!ValidateFileName(newName, parentDir, node.Name, out string errorMsg))
+            if (!ValidateFileName(newName, parentDir, node.Name, out errorMsg))
             {
                 LogSession($"[!] Rename failed for '{node.Name}': {errorMsg}");
                 node.EditName = node.Name;
-                return;
+                return false;
             }
+
+            node.IsEditing = false;
 
             if (string.IsNullOrEmpty(node.AbsolutePath) || (!File.Exists(node.AbsolutePath) && !Directory.Exists(node.AbsolutePath)))
             {
@@ -1840,7 +1867,7 @@ namespace TDR.Tools.ViewModels
                 if (isDestNode) SelectedDestinationNode = node;
                 else SelectedSourceNode = node;
                 LogSession($"Renamed virtual item -> '{newName}'");
-                return;
+                return true;
             }
 
             string newPath = Path.Combine(parentDir, newName);
@@ -1875,11 +1902,14 @@ namespace TDR.Tools.ViewModels
                 SortNodeCollection(parentColl);
                 if (isDestNode) SelectedDestinationNode = node;
                 else SelectedSourceNode = node;
+                return true;
             }
             catch (Exception ex)
             {
+                errorMsg = ex.Message;
                 LogSession($"[ERROR] Failed to rename '{node.Name}': {ex.Message}");
                 node.EditName = node.Name;
+                return false;
             }
             finally
             {

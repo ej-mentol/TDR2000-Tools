@@ -160,17 +160,23 @@ namespace TDR.Tools
             }
 
             var point = e.GetCurrentPoint(SourceTreeView);
+            var hitNode = (e.Source as Control)?.DataContext as FileNodeViewModel
+                       ?? ((e.Source as Visual)?.GetVisualAncestors()
+                           .OfType<TreeViewItem>()
+                           .FirstOrDefault()?.DataContext as FileNodeViewModel);
+
+            if (hitNode != null)
+            {
+                _vm.SelectedSourceNode = hitNode;
+            }
+            else
+            {
+                _vm.SelectedSourceNode = null;
+                _vm.SelectedSourceNodes.Clear();
+            }
+
             if (point.Properties.IsRightButtonPressed)
             {
-                // On right-click: resolve the node under the pointer via hit-test and select it.
-                var hitNode = (e.Source as Control)?.DataContext as FileNodeViewModel
-                           ?? ((e.Source as Visual)?.GetVisualAncestors()
-                               .OfType<TreeViewItem>()
-                               .FirstOrDefault()?.DataContext as FileNodeViewModel);
-                if (hitNode != null)
-                {
-                    _vm.SelectedSourceNode = hitNode;
-                }
                 _dragStartPoint = point.Position;
                 _isPointerDown = true;
                 _isRightClickDrag = true;
@@ -197,9 +203,14 @@ namespace TDR.Tools
             {
                 _vm.SelectedSourceNode = hitNode;
             }
+            else
+            {
+                _vm.SelectedSourceNode = null;
+                _vm.SelectedSourceNodes.Clear();
+            }
 
             var node = _vm.SelectedSourceNode;
-            if (node == null || node.Name == ".." || node.AbsolutePath == ".." || node.Name.StartsWith(".."))
+            if (node != null && (node.Name == ".." || node.AbsolutePath == ".." || node.Name.StartsWith("..")))
             {
                 e.Cancel = true;
             }
@@ -219,9 +230,14 @@ namespace TDR.Tools
             {
                 _vm.SelectedDestinationNode = hitNode;
             }
+            else
+            {
+                _vm.SelectedDestinationNode = null;
+                _vm.SelectedDestinationNodes.Clear();
+            }
 
             var node = _vm.SelectedDestinationNode;
-            if (node == null || node.Name == ".." || node.AbsolutePath == ".." || node.Name.StartsWith(".."))
+            if (node != null && (node.Name == ".." || node.AbsolutePath == ".." || node.Name.StartsWith("..")))
             {
                 e.Cancel = true;
             }
@@ -301,21 +317,36 @@ namespace TDR.Tools
                 return;
             }
 
-            // Process dragged VFS nodes (from either Source or Destination tree)
+            // 1. Check dragged files from OS file manager (Explorer)
+            var storageItems = e.DataTransfer?.TryGetFiles();
+            List<string>? diskPaths = null;
+            if (storageItems != null)
+            {
+                diskPaths = storageItems
+                    .Select(f => f.Path.LocalPath)
+                    .Where(p => !string.IsNullOrEmpty(p))
+                    .ToList();
+            }
+
+            // 2. Check internal VFS nodes (from Source or Destination tree)
             List<FileNodeViewModel>? vfsNodes = null;
             if (_draggedNode != null)
             {
-                if (_vm.SelectedSourceNodes.Count > 0)
+                if (_vm.SelectedSourceNodes.Count > 0 && _vm.SelectedSourceNodes.Contains(_draggedNode))
                     vfsNodes = _vm.SelectedSourceNodes.ToList();
-                else if (_vm.SelectedDestinationNodes.Count > 0)
+                else if (_vm.SelectedDestinationNodes.Count > 0 && _vm.SelectedDestinationNodes.Contains(_draggedNode))
                     vfsNodes = _vm.SelectedDestinationNodes.ToList();
                 else
                     vfsNodes = new List<FileNodeViewModel> { _draggedNode };
             }
 
-            if (vfsNodes != null && vfsNodes.Count > 0)
+            if ((diskPaths == null || diskPaths.Count == 0) && (vfsNodes == null || vfsNodes.Count == 0))
             {
-                await _vm.AddFilesToArchiveAsync(targetPakNode, fileOrFolderPathsOnDisk: null, vfsNodes: vfsNodes);
+                _vm.LogSession($"[!] Drop onto '{targetPakNode.Name}' ignored: no valid files were dragged.");
+            }
+            else
+            {
+                await _vm.AddFilesToArchiveAsync(targetPakNode, fileOrFolderPathsOnDisk: diskPaths, vfsNodes: vfsNodes);
             }
 
             _draggedNode = null;
@@ -595,17 +626,23 @@ namespace TDR.Tools
 
             var tree = DestinationTreeView ?? (sender as Visual);
             var point = e.GetCurrentPoint(tree);
+            var hitNode = (e.Source as Control)?.DataContext as FileNodeViewModel
+                       ?? ((e.Source as Visual)?.GetVisualAncestors()
+                           .OfType<TreeViewItem>()
+                           .FirstOrDefault()?.DataContext as FileNodeViewModel);
+
+            if (hitNode != null)
+            {
+                _vm.SelectedDestinationNode = hitNode;
+            }
+            else
+            {
+                _vm.SelectedDestinationNode = null;
+                _vm.SelectedDestinationNodes.Clear();
+            }
 
             if (point.Properties.IsRightButtonPressed)
             {
-                var hitNode = (e.Source as Control)?.DataContext as FileNodeViewModel
-                           ?? ((e.Source as Visual)?.GetVisualAncestors()
-                               .OfType<TreeViewItem>()
-                               .FirstOrDefault()?.DataContext as FileNodeViewModel);
-                if (hitNode != null)
-                {
-                    _vm.SelectedDestinationNode = hitNode;
-                }
                 _dragStartPoint = point.Position;
                 _isPointerDown = true;
                 _isRightClickDrag = true;
@@ -679,6 +716,11 @@ namespace TDR.Tools
                 OnPropertiesClick(sender, e);
                 e.Handled = true;
             }
+            else if (e.Key == Key.D && e.KeyModifiers.HasFlag(KeyModifiers.Control))
+            {
+                _vm.Preview.IsPreviewDrawerExpanded = !_vm.Preview.IsPreviewDrawerExpanded;
+                e.Handled = true;
+            }
         }
 
         private FileNodeViewModel? GetActiveSelectedNode()
@@ -710,6 +752,7 @@ namespace TDR.Tools
         {
             if (sender is TextBox textBox)
             {
+                textBox.BringIntoView();
                 textBox.Focus();
                 string text = textBox.Text ?? string.Empty;
                 int extIndex = text.LastIndexOf('.');
@@ -725,7 +768,7 @@ namespace TDR.Tools
             }
         }
 
-        private void OnRenameTextBoxKeyDown(object? sender, KeyEventArgs e)
+        private async void OnRenameTextBoxKeyDown(object? sender, KeyEventArgs e)
         {
             if (sender is TextBox textBox && textBox.DataContext is FileNodeViewModel node)
             {
@@ -739,8 +782,16 @@ namespace TDR.Tools
                 if (e.Key == Key.Enter)
                 {
                     string newName = textBox.Text ?? node.Name;
+                    if (!_vm.RenameNode(node, newName, out string errorMsg))
+                    {
+                        e.Handled = true;
+                        await MessageAlertWindow.ShowAsync(this, "Cannot Rename", errorMsg);
+                        node.IsEditing = true;
+                        textBox.Focus();
+                        return;
+                    }
+
                     node.IsEditing = false;
-                    _vm.RenameNode(node, newName);
                     e.Handled = true;
                     if (_lastFocusedPanel == "Destination") DestinationGrid?.Focus();
                     else SourceTreeView?.Focus();

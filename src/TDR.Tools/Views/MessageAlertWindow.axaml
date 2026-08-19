@@ -1,0 +1,28 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="TDR.Tools.Views.MessageAlertWindow"
+        Title="Alert"
+        Width="420" Height="180"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False"
+        RequestedThemeVariant="Dark"
+        Background="{DynamicResource BgPrimaryBrush}">
+
+    <Border Padding="20" Background="{DynamicResource BgPanelBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="1">
+        <Grid RowDefinitions="Auto,*,Auto">
+            <!-- HEADER / ICON -->
+            <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="12">
+                <PathIcon Data="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" Width="24" Height="24" Foreground="{DynamicResource AccentBrush}" VerticalAlignment="Center"/>
+                <StackPanel VerticalAlignment="Center">
+                    <TextBlock x:Name="TitleTextBlock" Text="Cannot Rename" FontSize="14" FontWeight="Bold" Foreground="{DynamicResource TextPrimaryBrush}"/>
+                    <TextBlock x:Name="MessageTextBlock" Text="A file with this name already exists." FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                </StackPanel>
+            </StackPanel>
+
+            <!-- ACTIONS (OK Button - Default & Cancel on Enter/Escape) -->
+            <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10">
+                <Button Content="OK" Width="90" Height="32" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" IsDefault="True" IsCancel="True" Background="{DynamicResource AccentBrush}" Foreground="#0E0E0E" FontWeight="SemiBold" FontSize="12" CornerRadius="4" Click="OnOkClick"/>
+            </StackPanel>
+        </Grid>
+    </Border>
+</Window>

@@ -238,7 +238,7 @@ namespace TDR.Tools.Export
             if (lowerName.Contains("time")) return "newIconsTIME.hie";
 
             // 8. Pedestrian Powers & Ray Weapons -> Pedestrian Sign Icon
-            if (lowerName.Contains("zombie") || lowerName.Contains("pedestrian") || lowerName.Contains("ped") ||
+            if (lowerName.Contains("zombie") || lowerName.Contains("ped") ||
                 lowerName.Contains("flamethrower") || lowerName.Contains("ray") || lowerName.Contains("dismember") ||
                 lowerName.Contains("electrif") || lowerName.Contains("suicide"))
                 return "newIconsPEDSIGN.hie";

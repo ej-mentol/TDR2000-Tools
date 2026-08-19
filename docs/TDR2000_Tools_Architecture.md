@@ -15,9 +15,13 @@ This document captures empirical reverse-engineering discoveries, format specifi
 ## 2. Binary & Text Format Specifications
 
 ### 2.1 Virtual File System (`PakManager` & TDR Archive Trie)
-- **Trie Index (`.dir` / `.pak`):** TDR2000 archives use a Trie index directory (`.dir`) referencing uncompressed or zIG compressed streams inside `.pak` containers.
+- **Trie Index (`.dir` / `.pak`):** TDR2000 archives use a Trie index directory (`.dir`) referencing uncompressed (`RAW`) or zlib-compressed (`zIG`) streams inside `.pak` containers.
+- **Dual Indexing Architecture:**
+  - `_fullPathIndex: Dictionary<string, IndexedFile>` provides $O(1)$ lookup for exact normalized relative paths (e.g. `tracks/hollowood/hollowood.txt`).
+  - `_fileNameIndex: Dictionary<string, List<IndexedFile>>` stores multi-candidate lists per base filename, avoiding bare-name collision overwrites and enabling $O(K)$ candidate-scoped filtering in `LoadFileContext` instead of $O(N)$ full-VFS scans.
 - **Precedence Rule:** Loose files on disk override packed archive entries (`Loose files win over archive entries`).
-- **Path Resolution:** Relative virtual paths (e.g. `tracks/hollowood/hollowoodmesh.hie`) must be preserved to maintain correct track context rather than flattening everything into a single directory.
+- **Segment-Stack Path Sanitization (`SanitizePath`):** Directory traversal is resolved via an in-memory segment stack. Upward steps (`..`) pop the preceding path component without escaping the VFS root, while preserving legitimate multi-dot file names (`New_DOCKS_spline1..lin`).
+- **zIG Stream Error Handling:** Decompression failures on explicit `zIG` streams throw an `InvalidDataException` caught at the consumer layer, preventing corrupted binary streams from propagating into downstream geometry parsers.
 
 ### 2.2 Hierarchical Model Parser (`.hie`)
 - **Version Variants:**

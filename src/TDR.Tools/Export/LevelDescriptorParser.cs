@@ -275,7 +275,6 @@ namespace TDR.Tools.Export
             PakManager vfs,
             string? trackContext,
             byte[] descriptorBytes,
-            HashSet<string>? selectedHieFiles = null,
             HashSet<string>? visitedDescriptors = null)
         {
             visitedDescriptors ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -299,6 +298,7 @@ namespace TDR.Tools.Export
 
                 string firstToken = tokens[0].ToUpperInvariant();
                 string secondToken = tokens[1].Trim('"');
+                if (string.IsNullOrWhiteSpace(secondToken)) continue;
 
                 if (firstToken.Equals("WATER_LEVEL", StringComparison.OrdinalIgnoreCase))
                 {
@@ -316,11 +316,12 @@ namespace TDR.Tools.Export
                     {
                         result.HieFiles.Add(secondToken);
                     }
+                    continue;
                 }
 
                 if (firstToken.Equals("MOVABLE_OBJECTS", StringComparison.OrdinalIgnoreCase))
                 {
-                    if (!string.IsNullOrWhiteSpace(secondToken) && !result.MovableDescriptors.Contains(secondToken, StringComparer.OrdinalIgnoreCase))
+                    if (!result.MovableDescriptors.Contains(secondToken, StringComparer.OrdinalIgnoreCase))
                         result.MovableDescriptors.Add(secondToken);
                     continue;
                 }
@@ -328,19 +329,19 @@ namespace TDR.Tools.Export
                 if (firstToken.Equals("PEDS_DESCRIPTOR", StringComparison.OrdinalIgnoreCase) ||
                     firstToken.Equals("PEDESTRIAN_PLACEMENT", StringComparison.OrdinalIgnoreCase))
                 {
-                    if (!string.IsNullOrWhiteSpace(secondToken) && !result.PedestrianDescriptors.Contains(secondToken, StringComparer.OrdinalIgnoreCase))
+                    if (!result.PedestrianDescriptors.Contains(secondToken, StringComparer.OrdinalIgnoreCase))
                         result.PedestrianDescriptors.Add(secondToken);
                     continue;
                 }
 
                 if (firstToken.Equals("DRONE_DESCRIPTOR", StringComparison.OrdinalIgnoreCase))
                 {
-                    if (!string.IsNullOrWhiteSpace(secondToken) && !result.DroneDescriptors.Contains(secondToken, StringComparer.OrdinalIgnoreCase))
+                    if (!result.DroneDescriptors.Contains(secondToken, StringComparer.OrdinalIgnoreCase))
                         result.DroneDescriptors.Add(secondToken);
                     continue;
                 }
 
-                if (!string.IsNullOrWhiteSpace(secondToken) && DirectHieKeywords.Contains(firstToken, StringComparer.OrdinalIgnoreCase))
+                if (DirectHieKeywords.Contains(firstToken, StringComparer.OrdinalIgnoreCase))
                 {
                     if (secondToken.EndsWith(".hie", StringComparison.OrdinalIgnoreCase))
                     {
@@ -360,7 +361,7 @@ namespace TDR.Tools.Export
                     continue;
                 }
 
-                if (!string.IsNullOrWhiteSpace(secondToken) && SubDescriptorKeywords.Contains(firstToken, StringComparer.OrdinalIgnoreCase))
+                if (SubDescriptorKeywords.Contains(firstToken, StringComparer.OrdinalIgnoreCase))
                 {
                     if (secondToken.EndsWith(".txt", StringComparison.OrdinalIgnoreCase) && visitedDescriptors.Add(secondToken))
                     {

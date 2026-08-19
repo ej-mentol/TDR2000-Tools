@@ -1,3 +1,4 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 
@@ -39,6 +40,22 @@ namespace TDR.Tools.Views
                 ConvertButton.IsEnabled = false;
                 ConvertButton.IsDefault = false;
                 ToolTip.SetTip(ConvertButton, "Selected archive/folder does not contain a valid 3D Track descriptor.");
+
+                if (Application.Current != null && Application.Current.TryGetResource("AccentBrush", null, out object? accentObj) && accentObj is Avalonia.Media.IBrush brush)
+                {
+                    FileOpsButton.Background = brush;
+                    FileOpsButton.Foreground = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#0E0E0E"));
+                }
+            }
+        }
+
+        protected override void OnKeyDown(Avalonia.Input.KeyEventArgs e)
+        {
+            base.OnKeyDown(e);
+            if (e.Key == Avalonia.Input.Key.Enter && !ConvertButton.IsEnabled)
+            {
+                OnCopyAndUnpackClick(this, e);
+                e.Handled = true;
             }
         }
 

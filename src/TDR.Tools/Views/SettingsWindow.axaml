@@ -11,8 +11,8 @@
     <Grid RowDefinitions="Auto,*,Auto" Margin="20">
         <!-- Title Header -->
         <StackPanel Grid.Row="0" Spacing="6" Margin="0,0,0,16">
-            <TextBlock Text="Application Settings &amp; Defaults" FontSize="16" FontWeight="SemiBold" Foreground="#FFFFFF"/>
-            <TextBlock Text="Configure default drag &amp; drop actions, confirmation dialogs, and export options." FontSize="12" Foreground="#9EB6C8"/>
+            <TextBlock Text="Application Settings &amp; Defaults" FontSize="16" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimaryBrush}"/>
+            <TextBlock Text="Configure default drag &amp; drop actions, confirmation dialogs, and export options." FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}"/>
         </StackPanel>
 
         <!-- Options List -->
@@ -80,7 +80,7 @@
 
         <!-- Action Buttons (Standard Order: Save / Apply | Cancel | Reset) -->
         <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10" Margin="0,16,0,0">
-            <Button Content="Save Settings" Click="OnSaveClick" Background="{DynamicResource AccentBrush}" Foreground="#0E0E0E" FontWeight="SemiBold" FontSize="12" Height="32" Padding="16,0" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="1" CornerRadius="4"/>
+            <Button Content="Save Settings" Click="OnSaveClick" IsDefault="True" Background="{DynamicResource AccentBrush}" Foreground="#0E0E0E" FontWeight="SemiBold" FontSize="12" Height="32" Padding="16,0" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="1" CornerRadius="4"/>
             <Button Content="Cancel" Click="OnCancelClick" IsCancel="True" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextPrimaryBrush}" FontWeight="SemiBold" FontSize="12" Height="32" Padding="14,0" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="1" CornerRadius="4"/>
             <Button Content="Reset Defaults" Click="OnResetClick" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextSecondaryBrush}" FontWeight="SemiBold" FontSize="12" Height="32" Padding="14,0" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="1" CornerRadius="4"/>
         </StackPanel>

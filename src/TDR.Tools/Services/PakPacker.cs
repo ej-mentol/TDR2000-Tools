@@ -45,9 +45,9 @@ namespace TDR.Tools.Services
 
         /// <summary>
         /// Packs in-memory file entries into target .PAK and .DIR files.
-        /// If files list is empty (0 files), physical files on disk are deleted.
+        /// If files list is empty (0 files), physical files on disk are deleted if allowEmptyDeletion is true.
         /// </summary>
-        public static bool PackFiles(IEnumerable<FileToPack> fileEntries, string outputPakPath, bool compress = true, Action<string>? log = null)
+        public static bool PackFiles(IEnumerable<FileToPack> fileEntries, string outputPakPath, bool compress = true, Action<string>? log = null, bool allowEmptyDeletion = true)
         {
             log ??= msg => LogService.Instance.Info(msg);
             var fileList = fileEntries.ToList();
@@ -57,9 +57,14 @@ namespace TDR.Tools.Services
             string pakFile = Path.ChangeExtension(outputPakPath, ".pak");
             string dirFile = Path.ChangeExtension(outputPakPath, ".dir");
 
-            // Lazy creation rule: if 0 files, clean up physical files on disk
+            // Lazy creation rule: if 0 files, clean up physical files on disk (only if allowed)
             if (fileList.Count == 0)
             {
+                if (!allowEmptyDeletion)
+                {
+                    log?.Invoke($"[!] Packing aborted: 0 files to pack and allowEmptyDeletion is false.");
+                    return false;
+                }
                 if (File.Exists(pakFile)) File.Delete(pakFile);
                 if (File.Exists(dirFile)) File.Delete(dirFile);
                 log?.Invoke($"[+] Empty archive state: physical files '{Path.GetFileName(pakFile)}' and '{Path.GetFileName(dirFile)}' removed from disk.");

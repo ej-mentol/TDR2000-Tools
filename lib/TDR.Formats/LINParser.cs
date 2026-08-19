@@ -52,15 +52,11 @@ namespace TDR.PakLib.Formats
             Vector3 realUp = Vector3.UnitY;
             Vector3 right = Vector3.Normalize(Vector3.Cross(forward, realUp));
 
-            // TDR2000 vehicle models have Front = -Z, Right = +X, Up = +Y.
-            // Basis mapping:
-            // Local +X -> right
-            // Local +Y -> realUp
-            // Local -Z -> forward (Local +Z -> -forward)
+            // TDR2000 train & vehicle models are built along the Z-axis (Forward = Z, Right = X, Up = Y)
             return new Matrix4x4(
                 right.X,    right.Y,    right.Z,    0f,
                 realUp.X,   realUp.Y,   realUp.Z,   0f,
-                -forward.X, -forward.Y, -forward.Z, 0f,
+                forward.X,  forward.Y,  forward.Z,  0f,
                 pos.X,      pos.Y,      pos.Z,      1f
             );
         }

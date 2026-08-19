@@ -114,7 +114,6 @@ NodeType 1=Matrix 2=Texture 3=Mesh 4=Expression 5=Material 6=Spline 7=DynamicCol
 
 &#x20; reverse-engineered against real files. If a HIE fails to parse, check here first.
 
-\- Section end detection relies on next line NOT starting with  — an empty
-
-&#x20; line inside a list, or missing trailing  marker, will desync parsing.
-
+\- Section end detection relies on next line NOT starting with // — an empty
+  line inside a list, or missing trailing // marker, will desync parsing.
+- Binary Disassembly Offsets & Subroutines: The internal type IDs, subroutines, and offset assumptions documented here were identified from specific builds/versions of the official TDR2000.exe (e.g. Steam/UK release). Other game editions, patches, demos (e.g. 1920s early prototypes/OEM builds) may have different memory offsets, keyword naming, or structure padding.

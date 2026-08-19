@@ -263,14 +263,76 @@ namespace TDR.Tools.ViewModels
                 return;
             }
 
-            if (node.IsDirectory)
+            if (node.IsDirectory || node.IsArchive)
             {
                 ClosePreview();
                 PreviewTitle = node.Name;
-                PreviewSubTitle = $"Directory · {node.Children.Count} items";
-                PreviewMetadata.Add(new KeyValuePair<string, string>("Type", "Folder / Directory"));
-                PreviewMetadata.Add(new KeyValuePair<string, string>("Items Count", node.Children.Count.ToString()));
-                PreviewMetadata.Add(new KeyValuePair<string, string>("Path", !string.IsNullOrEmpty(node.AbsolutePath) ? node.AbsolutePath : node.VirtualPath));
+                if (node.IsArchive)
+                {
+                    PreviewSubTitle = $"PAK Archive · {node.Children.Count} items · {node.FormattedSize}";
+                    PreviewMetadata.Add(new KeyValuePair<string, string>("Type", "TDR2000 Archive Container (.pak/.dir)"));
+                    PreviewMetadata.Add(new KeyValuePair<string, string>("Inner Files", node.Children.Count.ToString()));
+                    PreviewMetadata.Add(new KeyValuePair<string, string>("Size on Disk", node.FormattedSize));
+
+                    // Calculate Fragmentation if .dir exists
+                    if (!string.IsNullOrEmpty(node.AbsolutePath) && File.Exists(node.AbsolutePath))
+                    {
+                        string dirPath = Path.ChangeExtension(node.AbsolutePath, ".dir");
+                        if (File.Exists(dirPath))
+                        {
+                            try
+                            {
+                                var entries = TDR.PakLib.TDRArchive.ParseTrieIndex(dirPath);
+                                long activePayload = 0;
+                                for (int i = 0; i < entries.Count; i++)
+                                    activePayload += entries[i].Size;
+
+                                long pakSize = new FileInfo(node.AbsolutePath).Length;
+                                long deadSpace = Math.Max(0, pakSize - activePayload);
+                                double fragRatio = pakSize > 0 ? ((double)deadSpace / pakSize) * 100.0 : 0;
+
+                                string payloadStr = activePayload < 1024 * 1024
+                                    ? $"{activePayload / 1024.0:F1} KB"
+                                    : $"{activePayload / (1024.0 * 1024.0):F1} MB";
+
+                                PreviewMetadata.Add(new KeyValuePair<string, string>("Active Payload", payloadStr));
+
+                                if (fragRatio < 1.0 || deadSpace < 8192)
+                                {
+                                    PreviewMetadata.Add(new KeyValuePair<string, string>("Fragmentation", "0% (Clean)"));
+                                }
+                                else
+                                {
+                                    string deadStr = deadSpace < 1024 * 1024
+                                        ? $"{deadSpace / 1024.0:F1} KB"
+                                        : $"{deadSpace / (1024.0 * 1024.0):F1} MB";
+                                    PreviewMetadata.Add(new KeyValuePair<string, string>("Fragmentation", $"{fragRatio:F1}% ({deadStr} wasted)"));
+                                    if (fragRatio >= 5.0)
+                                    {
+                                        PreviewMetadata.Add(new KeyValuePair<string, string>("Status", "Rebuild / Defrag recommended"));
+                                    }
+                                }
+                            }
+                            catch
+                            {
+                                // Fail gracefully if index is unreadable
+                            }
+                        }
+                    }
+
+                    if (!string.IsNullOrEmpty(node.BadgeText))
+                    {
+                        PreviewMetadata.Add(new KeyValuePair<string, string>("Descriptor", node.BadgeText));
+                    }
+                    PreviewMetadata.Add(new KeyValuePair<string, string>("Path", !string.IsNullOrEmpty(node.AbsolutePath) ? node.AbsolutePath : node.VirtualPath));
+                }
+                else
+                {
+                    PreviewSubTitle = $"Directory · {node.Children.Count} items";
+                    PreviewMetadata.Add(new KeyValuePair<string, string>("Type", "Folder / Directory"));
+                    PreviewMetadata.Add(new KeyValuePair<string, string>("Items Count", node.Children.Count.ToString()));
+                    PreviewMetadata.Add(new KeyValuePair<string, string>("Path", !string.IsNullOrEmpty(node.AbsolutePath) ? node.AbsolutePath : node.VirtualPath));
+                }
                 return;
             }
 
@@ -335,9 +397,9 @@ namespace TDR.Tools.ViewModels
                     PreviewMetadata.Add(new KeyValuePair<string, string>("Source", node.IsArchive ? "VFS PAK Memory" : "Disk"));
                     _log($"Loaded audio: '{node.Name}' ({AudioFormatText}, {totalDurationStr})");
                 }
-                else if (ext == ".txt" || ext == ".h" || ext == ".ini" || ext == ".cfg" || ext == ".json" || ext == ".xml" || ext == ".descriptor")
+                else if (ext == ".txt" || ext == ".h" || ext == ".ini" || ext == ".cfg" || ext == ".json" || ext == ".xml" || ext == ".descriptor" || ext == ".mat" || ext == ".hed")
                 {
-                    string textContent = System.Text.Encoding.UTF8.GetString(fileBytes).TrimStart('\uFEFF');
+                    string textContent = DecodeTextAuto(fileBytes);
                     if (textContent.Length > 4000)
                     {
                         textContent = textContent.Substring(0, 4000) + "\n... (truncated)";
@@ -370,7 +432,7 @@ namespace TDR.Tools.ViewModels
                     }
                     catch
                     {
-                        string textContent = System.Text.Encoding.UTF8.GetString(fileBytes).TrimStart('\uFEFF');
+                        string textContent = DecodeTextAuto(fileBytes);
                         if (textContent.Length > 4000)
                         {
                             textContent = textContent.Substring(0, 4000) + "\n... (truncated)";
@@ -383,7 +445,7 @@ namespace TDR.Tools.ViewModels
                 }
                 else if (IsPrintableText(fileBytes))
                 {
-                    string textContent = System.Text.Encoding.UTF8.GetString(fileBytes).TrimStart('\uFEFF');
+                    string textContent = DecodeTextAuto(fileBytes);
                     if (textContent.Length > 4000)
                     {
                         textContent = textContent.Substring(0, 4000) + "\n... (truncated)";
@@ -411,6 +473,41 @@ namespace TDR.Tools.ViewModels
         // ──────────────────────────────────────────────
         //  Internal Helpers
         // ──────────────────────────────────────────────
+
+        public static string DecodeTextAuto(byte[] bytes)
+        {
+            if (bytes == null || bytes.Length == 0) return string.Empty;
+
+            // 1. Check for UTF-8 / UTF-16 BOM
+            if (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF)
+            {
+                return System.Text.Encoding.UTF8.GetString(bytes, 3, bytes.Length - 3);
+            }
+            if (bytes.Length >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE)
+            {
+                return System.Text.Encoding.Unicode.GetString(bytes, 2, bytes.Length - 2);
+            }
+
+            // 2. Strict UTF-8 verification
+            try
+            {
+                var utf8Strict = new System.Text.UTF8Encoding(false, true);
+                return utf8Strict.GetString(bytes);
+            }
+            catch
+            {
+                // 3. Fallback for legacy game text files (Windows-1251 / Windows-1252 / Latin1)
+                try
+                {
+                    var enc = System.Text.Encoding.GetEncoding("windows-1251");
+                    return enc.GetString(bytes);
+                }
+                catch
+                {
+                    return System.Text.Encoding.Latin1.GetString(bytes);
+                }
+            }
+        }
 
         private static bool IsPrintableText(byte[] bytes)
         {

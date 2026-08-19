@@ -59,18 +59,27 @@ namespace TDR.PakLib
         {
             if (string.IsNullOrWhiteSpace(path)) return string.Empty;
 
-            string result = path.Replace("\\", "/");
+            string normalized = path.Replace('\\', '/');
+            string[] segments = normalized.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            var stack = new List<string>(segments.Length);
 
-            if (result.StartsWith("./"))
-                result = result.Substring(2);
+            foreach (string seg in segments)
+            {
+                if (seg == "." || string.IsNullOrWhiteSpace(seg))
+                    continue;
 
-            while (result.Contains("//"))
-                result = result.Replace("//", "/");
+                if (seg == "..")
+                {
+                    if (stack.Count > 0)
+                        stack.RemoveAt(stack.Count - 1);
+                }
+                else
+                {
+                    stack.Add(seg);
+                }
+            }
 
-            if (result.Contains(".."))
-                result = result.Replace("..", "__");
-
-            return result.Trim('/');
+            return string.Join('/', stack);
         }
 
         public static string NormalizeArchivePath(string virtualPath, string archiveName)
@@ -109,7 +118,7 @@ namespace TDR.PakLib
 
             byte[] compressed = Compress(content);
             bool worthIt = compressed.Length < content.Length * threshold;
-            return CreateZigHeader(content, worthIt);
+            return CreateZigHeaderWithPayload(content.Length, worthIt ? compressed : content, worthIt);
         }
 
         public static byte[] CreateZigHeader(byte[] content, bool compress)
@@ -117,10 +126,15 @@ namespace TDR.PakLib
             if (content == null || content.Length == 0)
                 return Array.Empty<byte>();
 
+            byte[] payload = compress ? Compress(content) : content;
+            return CreateZigHeaderWithPayload(content.Length, payload, compress);
+        }
+
+        private static byte[] CreateZigHeaderWithPayload(int originalSize, byte[] payload, bool compress)
+        {
             byte key = (byte)Random.Shared.Next(1, 255);
             byte metaKey = ComputeMetaKey(key);
 
-            byte[] payload = compress ? Compress(content) : content;
             byte[] signature = Encoding.ASCII.GetBytes(compress ? "zIG" : "RAW");
 
             byte[] header = new byte[8];
@@ -128,11 +142,11 @@ namespace TDR.PakLib
             for (int i = 0; i < 3; i++)
                 header[1 + i] = (byte)(signature[i] ^ key);
 
-            byte[] sizeBytes = BitConverter.GetBytes((uint)content.Length);
+            byte[] sizeBytes = BitConverter.GetBytes((uint)originalSize);
             for (int i = 0; i < 4; i++)
                 header[4 + i] = (byte)(sizeBytes[i] ^ metaKey);
 
-            byte[] result = new byte[header.Length + payload.Length];
+            byte[] result = new byte[8 + payload.Length];
             Buffer.BlockCopy(header, 0, result, 0, 8);
             Buffer.BlockCopy(payload, 0, result, 8, payload.Length);
 
@@ -170,8 +184,7 @@ namespace TDR.PakLib
                 }
                 catch (Exception ex)
                 {
-                    System.Diagnostics.Debug.WriteLine($"zIG decompression failed: {ex.Message}");
-                    return raw;
+                    throw new InvalidDataException($"Corrupted zIG compressed stream in archive entry: {ex.Message}", ex);
                 }
             }
 
@@ -228,9 +241,9 @@ namespace TDR.PakLib
                 return Array.Empty<byte>();
 
             var unique = list
-                .GroupBy(f => SanitizePath(f.Name))
+                .GroupBy(f => SanitizePath(f.Name), StringComparer.OrdinalIgnoreCase)
                 .Select(g => g.Last())
-                .OrderBy(f => f.Name.ToLower())
+                .OrderBy(f => f.Name.ToLowerInvariant(), StringComparer.Ordinal)
                 .ToList();
 
             var root = new TrieNode();

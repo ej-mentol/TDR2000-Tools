@@ -24,8 +24,8 @@
 
             <!-- ACTIONS (Standard Order: Delete | Cancel) -->
             <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10">
-                <Button Content="Delete" Width="100" Height="32" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Background="#B83838" Foreground="White" FontWeight="SemiBold" FontSize="12" CornerRadius="4" Click="OnDeleteClick"/>
-                <Button Content="Cancel" Width="100" Height="32" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" IsCancel="True" IsDefault="True" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextPrimaryBrush}" FontWeight="SemiBold" FontSize="12" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="1" CornerRadius="4" Click="OnCancelClick"/>
+                <Button Content="Delete" Width="100" Height="32" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" IsDefault="True" Background="#C53939" Foreground="White" FontWeight="SemiBold" FontSize="12" CornerRadius="4" Click="OnDeleteClick"/>
+                <Button Content="Cancel" Width="100" Height="32" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" IsCancel="True" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextPrimaryBrush}" FontWeight="SemiBold" FontSize="12" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="1" CornerRadius="4" Click="OnCancelClick"/>
             </StackPanel>
         </Grid>
     </Border>

@@ -1,48 +1,90 @@
 # TDR2000 Tools
 
 > [!WARNING]
-> **DEVELOPMENT / INITIAL DRAFT (`dev` build)**  
-> This is a personal pet project in early development.  
-> It contains experimental code choices, unpolished UI elements, work-in-progress features, and known bugs.  
-> Mechanics and outputs are unstable and subject to frequent changes.
+> **DEVELOPMENT BUILD**  
+> This project is in active development. Formats, parsers, and export structures are subject to changes and refinements.
 
-Desktop toolkit and C# library for inspecting, extracting, and converting **Carmageddon: TDR 2000 PAK files**.
+A desktop application and C# library for inspecting, extracting, and converting asset formats from **Carmageddon: TDR 2000**.
 
 ---
 
-## Technical Overview
+## Overview
 
-`TDR2000 Tools` provides a cross-platform Avalonia UI application and core library (`TDR.PakLib`, `TDR.Formats`) to interface directly with TDR2000 archive structures and asset files.
+`TDR2000 Tools` consists of a cross-platform desktop UI (Avalonia UI, .NET 10) and a modular library layer (`TDR.PakLib`, `TDR.Formats`) providing access to game archives, geometry data, descriptors, and audio resources.
 
-### Key Capabilities
-- **Virtual File System (VFS):** Reads and writes TDR2000 Trie-indexed `.DIR` directories and `.PAK` containers with XOR keying and `zIG` zlib compression.
-- **Texture & Material Decoding:** Renders 32-bit RGBA (`_32`), 24-bit RGB (`_24`), and 8-bit paletted TGA images. Supports `.png` conversion with alpha channel and `map_Bump` relief maps for water and terrain shaders.
-- **Audio Inspection & Playback:** In-memory WAV/SND header decoding (Sample Rate, Bits/Channels, Duration) with real-time playback timer, discrete progress bar, mute controls, and seamless **Looping (🔁)** for motor/ambient sounds.
-- **Track & Geometry Parsing:** Resolves 3D hierarchy models (`.hie`), binary mesh containers (`.mshs`), movables placements (`MoveableDescriptor.txt`), powerup icons (`.pup`), and pedestrian placements (`PEDS_DESCRIPTOR`).
-- **3D Level Export:** Generates combined Wavefront `.OBJ` (with `.mtl` material libraries), `.gltf` 2.0 scenes, and structured `scene.json` manifests.
-- **Variant & Layer Support:** Supports Base Track Only, specific Race/Mission variants, or All Variants combined export modes.
+### Core Capabilities
+
+- **Virtual File System (VFS):**
+  - Reading and writing Trie-indexed `.DIR` directory headers.
+  - Parsing `.PAK` containers with XOR keying and `zIG` (zlib) stream compression.
+
+- **Geometry & Hierarchy Parsing:**
+  - Node hierarchy trees and transform matrices (`.hie`).
+  - Binary mesh containers with position, normal, UV, and polygon buffers (`.mshs`, `.msh`).
+  - Road and drone spline networks (`.lin`, `.lins`), evaluated directly or via parent scene graph matrices (`*Drone_Paths.hie`).
+  - Level asset descriptors (`.txt`), movables (`MoveableDescriptor.txt`), animated props, and powerup item placements (`.pup`).
+
+- **Texture & Material Handling:**
+  - Decoding 32-bit RGBA, 24-bit RGB, and 8-bit paletted TGA files.
+  - PNG conversion with support for uncompressed alpha channels and zero-alpha recovery for legacy 32-bit textures.
+  - Relief and bump map resolution (`map_Bump`).
+
+- **Audio Playback:**
+  - In-memory decoding and playback of PCM WAV/SND audio streams with looping and metadata inspection.
+
+- **Export Formats:**
+  - **Wavefront OBJ:** Merged geometry with `.mtl` material libraries and texture assets.
+  - **glTF 2.0:** Scene graph nodes, mesh primitives, 4-byte buffer alignment, directional/ambient lighting (`KHR_lights_punctual`), and automated material alpha modes (`OPAQUE`, `MASK`, `BLEND` with emissive channels).
+  - **JSON Manifest:** Structured scene metadata (`scene.json`) containing level definitions, weather, lighting parameters, and object lists.
 
 ---
 
-## Workspace Layout & User Interface
+## User Interface
 
-The application features a dual-panel desktop workspace:
+The application interface is divided into two primary panes and a dedicated export dialog:
 
-1. **Left Panel (VFS & File System Explorer):**
-   - Tree View (`TreeView`), Flat Details Table (`ListBox`), or Grid Cards View (`WrapPanel`).
-   - Toolbar navigation buttons (Back `‹`, Forward `›`, Up `↑`) with dynamic `IsEnabled` history states and custom vector icons.
-   - Quick search and filtering across indexed virtual files.
+1. **Explorer Pane (Left):**
+   - VFS file hierarchy navigation (Tree View, Table List, or Card Grid).
+   - Search filtering and path navigation controls.
 
-2. **Right Panel (Preview & Inspector):**
-   - **Image Preview:** View TGA textures and paletted graphics.
-   - **Audio Inspector Drawer:** Interactive WAV audio player with real-time ticking time counter (`0:00 / MM:SS`), progress bar, Mute toggle, and Infinite Loop mode for engine/ambient sounds. Double-click any audio file in VFS tree to play instantly.
-   - **Metadata Inspector:** View raw file properties, compression details, mesh node counts, and archive locations.
-   - **Log Console:** Resizable session log console with draggable vertical splitter, multi-line text selection (`Ctrl+C` copy), right-click context menu, and a dedicated **Clear Log** button.
+2. **Inspector Pane (Right):**
+   - **Image Preview:** Texture inspection for TGA and paletted image files.
+   - **Audio Player:** Waveform audio playback controls with time tracking and looping.
+   - **Archive & Container Inspector:** File count, size on disk, active payload volume, real-time fragmentation % (`Dead Space`), and rebuild/defragmentation recommendations.
+   - **Properties:** File sizes, compression metadata, node structures, and container offsets.
+   - **Log Console:** Session logging output with text selection and clipboard copying.
 
-3. **Track Conversion Modal:**
-   - Triggered by double-clicking a Track Badge or choosing **Export Track to OBJ / glTF...** in the context menu.
-   - **Left Panel (Format & Geometry Controls):** Scrollable configuration panel containing format flags (`.OBJ`, `.GLTF 2.0`, `scene.json`), texture PNG conversion (`.png`), coordinate modes (`Local Coordinates`, `Raycast GroundSnap`), and grouping options. Settings automatically persist across sessions in `settings.json`.
-   - **Right Panel (Presets & Resource Tree):** Top Preset selector (`All supported resources`, `Base Track Only`, `All Races`, `All Missions`, or `Custom Selection`) synchronized with a 2-tier checkable `TreeView` of physical track layer roots (`Hollowood`, `Hollowood_Race1`, `Hollowood_Mission1`) and VFS subfolders (`Level Convsoft`, `Level Breakable`, `Sky Sphere`). Cascading check states allow toggling entire race layers or individual `.hie` meshes in a single click. Non-renderable camera path and cutscene script files (`campaths`, `intpaths`, `zoomin`, `lookat`) are un-checked by default.
+3. **Track Conversion Dialog:**
+   - **Format Options:** Selectable outputs (`.OBJ`, `.gltf`, `scene.json`), texture conversion toggles, and coordinate modes (Local Coordinates, Ground Snapping).
+   - **Resource Tree:** Checkable hierarchy tree allowing layer filtering (Base track, specific races, missions, or individual `.hie` files).
+
+### Keybindings & Navigation
+
+| Shortcut | Action | Description |
+| :--- | :--- | :--- |
+| `Ctrl + D` | Toggle Details Pane | Open or collapse the Inspector / Details Drawer |
+| `F5` | Refresh Explorer | Re-index and refresh active directory tree |
+| `F2` | Rename Item | In-place renaming for files and archives |
+| `Delete` / `Shift + Delete` | Delete Item | Move to Recycle Bin (or permanently delete with Shift) |
+| `Alt + Enter` | Properties | Open system shell properties dialog |
+| `Ctrl + P` | Settings | Open Application Settings & Preferences |
+
+---
+
+## Supported Formats
+
+| Format | Extension | Description | Support Status |
+| :--- | :--- | :--- | :--- |
+| **Archive Directory** | `.dir` | Trie-indexed directory structure | Read / Write |
+| **Archive Container** | `.pak` | Data container with XOR/zIG payloads | Read / Write |
+| **Model Hierarchy** | `.hie` | ASCII node hierarchy and transformation matrices | Read |
+| **Binary Mesh** | `.mshs`, `.msh` | Binary vertex, normal, UV, and face data | Read |
+| **Road Splines** | `.lin`, `.lins` | Waypoint vectors and path containers | Read |
+| **Textures** | `.tga`, `.tx`, `.pal` | TGA bitmaps, TTEX descriptors, palette files | Read / Convert |
+| **Level Descriptors** | `.txt` | Scene asset listings, props, lights, volumes | Read |
+| **Powerup Placements**| `.pup` | 3D powerup coordinates and type IDs | Read |
+| **Collision Volumes** | `.h`, `.scol` | Environment and bounding volume definitions | Read / Export |
+| **Audio Samples** | `.wav`, `.snd` | PCM audio streams | Playback / Export |
 
 ---
 
@@ -51,16 +93,17 @@ The application features a dual-panel desktop workspace:
 ```text
 ├── TDR2000Tools.slnx         # Solution manifest
 ├── lib/
-│   ├── TDR.PakLib/           # Core VFS archive reader/writer & zIG compression library
-│   └── TDR.Formats/          # HIE, MSHS, TGA, PUP, and Track descriptor parsers
+│   ├── TDR.PakLib/           # Core VFS archive reader/writer & zIG compression
+│   └── TDR.Formats/          # HIE, MSHS, LIN, TGA, PUP, and descriptor parsers
 ├── src/
-│   └── TDR.Tools/            # Desktop GUI Application (Avalonia UI, .NET 10)
+│   └── TDR.Tools/            # Desktop GUI application (Avalonia UI, .NET 10)
 ├── docs/
-│   ├── EXPORT_FORMAT.md      # Detailed format & keyword specification contract
-│   └── TDR2000_Tools_Architecture.md # Technical architecture & decompilation notes
-├── tests/                    # Unit & format verification test project
-├── clean_source.bat          # Helper script to clean all build artifacts & temp files for archiving
-└── rebuild_release.bat       # Helper script to build & publish Release Single-File binary
+│   ├── EXPORT_FORMAT.md      # Format and keyword mapping reference
+│   └── TDR2000_Tools_Architecture.md # Architecture notes and specifications
+├── tests/                    # Unit and format verification tests
+├── clean_source.bat          # Build artifact cleanup script
+└── rebuild_release.bat       # Release single-file build script
+```
 
 ---
 
@@ -69,42 +112,27 @@ The application features a dual-panel desktop workspace:
 ### Prerequisites
 - [.NET 10.0 SDK](https://dotnet.microsoft.com/)
 
-### Build Commands
+### Compilation
 
 ```bash
-# Clone repository
+# Clone the repository
 git clone https://github.com/username/TDR2000-Tools.git
 cd TDR2000-Tools
 
-# Build Solution
+# Build the solution
 dotnet build TDR2000Tools.slnx -c Release
 
-# Run Desktop Application
+# Run the desktop application
 dotnet run --project src/TDR.Tools/TDR.Tools.csproj
 ```
 
-On Windows, you can also run `rebuild_release.bat` to clean previous build outputs, publish a Single-File Release executable to `.\publish\Release\`, and strip debug symbol files. To completely clean the repository before creating a ZIP archive, run `clean_source.bat`.
+On Windows, `rebuild_release.bat` publishes a self-contained executable to `.\publish\Release\`.
 
 ---
 
-## Supported Formats Reference
+## Scope & Technical Notes
 
-| Format | Extension | Description | Status |
-| :--- | :--- | :--- | :--- |
-| **Archive Directory** | `.dir` | Trie-indexed directory structure | Fully Supported (Read/Write) |
-| **Archive Container** | `.pak` | Data container with XOR/zIG payloads | Fully Supported (Read/Write) |
-| **Model Hierarchy** | `.hie` | ASCII 3D hierarchy and node transform tree | Fully Supported |
-| **Binary Mesh** | `.mshs` / `.msh` | Binary vertex, normal, UV, and face data | Fully Supported |
-| **Image Asset** | `.tga` / `.tx` / `.pal` | Uncompressed TGA, TTEX descriptor, palette | Fully Supported |
-| **Level Descriptor** | `.txt` | Level asset keywords and placement descriptors | Fully Supported |
-| **Powerup Descriptor** | `.pup` | 3D item placement coordinates and Type IDs | Fully Supported |
-| **Volume Collision** | `.h` / `.scol` | Environment & checkpoint bounding volumes | Read / Export Supported |
-| **Audio Sample** | `.wav` / `.snd` | PCM audio samples, engine revs, and ambient sounds | In-Memory Playback & Seamless Loop (🔁) |
-
----
-
-## Current Status & Known Scope Limits
-
-- **Format Scope:** Designed specifically for Carmageddon: TDR 2000 formats.
-- **Pedestrian Animations:** Pedestrian positions and waypoints are exported to metadata (`scene.json`); skeletal animation playback is handled in external viewers/engines.
-- **Raycast Snapping:** Movable objects use approximate coordinates from level descriptors; an experimental Raycast snapper (`GroundSnapUtil`) is available for terrain surface alignment.
+- **Target Scope:** Specifically designed for Carmageddon: TDR 2000 formats and conventions.
+- **Skeletal & Runtime Animation:** Static hierarchy transforms and placements are fully resolved during export; dynamic runtime physics, deformers, and skeletal state machines are outside the scope of static format conversion.
+- **Spline Coordinates:** Road splines referenced in `*Drone_Paths.hie` are transformed by their parent scene graph matrices to achieve world-space placement.
+- **Material Roughness:** Default export parameters set `RoughnessFactor = 1.0` and `MetallicFactor = 0.0` to preserve the original non-specular appearance in modern PBR renderers.

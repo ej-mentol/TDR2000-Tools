@@ -20,7 +20,8 @@ namespace TDR.PakLib
             public bool IsLooseFile { get; set; }
         }
 
-        private readonly Dictionary<string, IndexedFile> _index = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, IndexedFile> _fullPathIndex = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, List<IndexedFile>> _fileNameIndex = new(StringComparer.OrdinalIgnoreCase);
         private readonly List<IndexedFile> _allFiles = new();
 
         public void IndexDirectory(string rootPath)
@@ -51,10 +52,16 @@ namespace TDR.PakLib
                     };
 
                     _allFiles.Add(indexed);
-                    _index[cleanName] = indexed;
+                    _fullPathIndex[cleanName] = indexed;
+
                     if (!string.IsNullOrEmpty(fileName))
                     {
-                        _index.TryAdd(fileName, indexed);
+                        if (!_fileNameIndex.TryGetValue(fileName, out var list))
+                        {
+                            list = new List<IndexedFile>();
+                            _fileNameIndex[fileName] = list;
+                        }
+                        list.Add(indexed);
                     }
                 }
             }
@@ -80,10 +87,16 @@ namespace TDR.PakLib
                 };
 
                 _allFiles.Add(indexed);
-                _index[relPath] = indexed;
+                _fullPathIndex[relPath] = indexed;
+
                 if (!string.IsNullOrEmpty(fileName))
                 {
-                    _index[fileName] = indexed;
+                    if (!_fileNameIndex.TryGetValue(fileName, out var list))
+                    {
+                        list = new List<IndexedFile>();
+                        _fileNameIndex[fileName] = list;
+                    }
+                    list.Add(indexed);
                 }
             }
         }
@@ -92,23 +105,28 @@ namespace TDR.PakLib
 
         /// <summary>
         /// Returns the ArchivePath (pak file path, or for loose files — the file's own path)
-        /// for the given virtual path. O(1) via _index. Returns null if not found.
+        /// for the given virtual path. Returns null if not found.
         /// </summary>
         public string? GetArchivePath(string virtualPath)
         {
             if (string.IsNullOrWhiteSpace(virtualPath)) return null;
             string clean = TDRArchive.SanitizePath(virtualPath);
-            if (_index.TryGetValue(clean, out var e)) return e.ArchivePath;
+            if (_fullPathIndex.TryGetValue(clean, out var e)) return e.ArchivePath;
             string fn = Path.GetFileName(clean);
-            return _index.TryGetValue(fn, out e) ? e.ArchivePath : null;
+            if (_fileNameIndex.TryGetValue(fn, out var list) && list.Count > 0)
+            {
+                return (list.FirstOrDefault(f => f.IsLooseFile) ?? list[0]).ArchivePath;
+            }
+            return null;
         }
 
         public bool FileExists(string virtualPath)
         {
             if (string.IsNullOrWhiteSpace(virtualPath)) return false;
             string clean = TDRArchive.SanitizePath(virtualPath);
+            if (_fullPathIndex.ContainsKey(clean)) return true;
             string fileName = Path.GetFileName(clean);
-            return _index.ContainsKey(clean) || _index.ContainsKey(fileName);
+            return _fileNameIndex.ContainsKey(fileName);
         }
 
         public byte[]? LoadFile(string virtualPath)
@@ -130,19 +148,22 @@ namespace TDR.PakLib
             string fileName = Path.GetFileName(clean);
 
             // 1. Direct full path match
-            if (_index.TryGetValue(clean, out var indexed))
+            if (_fullPathIndex.TryGetValue(clean, out var indexed))
             {
                 return ReadIndexedData(indexed);
             }
 
-            // 2. Track context-aware match (prioritize files inside tracks/<trackContext>/ or matching track prefix)
+            // If bare name is not in the index, no candidates exist
+            if (!_fileNameIndex.TryGetValue(fileName, out var candidates) || candidates.Count == 0)
+            {
+                return null;
+            }
+
+            // 2. Track context-aware match (filter ONLY candidate list O(K) where K <= 5, not all files O(N)!)
             if (!string.IsNullOrWhiteSpace(trackContext))
             {
                 string tCtx = trackContext.ToLowerInvariant();
-                var trackMatch = _allFiles.FirstOrDefault(f => {
-                    string fName = Path.GetFileName(f.Name).ToLowerInvariant();
-                    if (!fName.Equals(fileName.ToLowerInvariant(), StringComparison.OrdinalIgnoreCase)) return false;
-
+                var trackMatch = candidates.FirstOrDefault(f => {
                     string normPath = f.Name.ToLowerInvariant();
                     string normArchive = f.ArchivePath.ToLowerInvariant();
                     return normPath.Contains($"tracks/{tCtx}") || normArchive.Contains($"tracks/{tCtx}") || normPath.Contains(tCtx);
@@ -155,10 +176,7 @@ namespace TDR.PakLib
             }
 
             // 3. Shared assets match (prefer loose files or global ASSETS/3D/TEXTURES over unrelated track archives)
-            var sharedMatch = _allFiles.FirstOrDefault(f => {
-                string fName = Path.GetFileName(f.Name).ToLowerInvariant();
-                if (!fName.Equals(fileName.ToLowerInvariant(), StringComparison.OrdinalIgnoreCase)) return false;
-
+            var sharedMatch = candidates.FirstOrDefault(f => {
                 string normPath = f.Name.ToLowerInvariant();
                 return !normPath.Contains("tracks/") || f.IsLooseFile;
             });
@@ -168,13 +186,9 @@ namespace TDR.PakLib
                 return ReadIndexedData(sharedMatch);
             }
 
-            // 4. Fallback to bare name dictionary lookup
-            if (_index.TryGetValue(fileName, out indexed))
-            {
-                return ReadIndexedData(indexed);
-            }
-
-            return null;
+            // 4. Fallback to first available candidate (prefer loose, else first PAK)
+            var fallback = candidates.FirstOrDefault(f => f.IsLooseFile) ?? candidates[0];
+            return ReadIndexedData(fallback);
         }
 
         private byte[]? ReadIndexedData(IndexedFile indexed)

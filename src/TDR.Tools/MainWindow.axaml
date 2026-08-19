@@ -15,35 +15,36 @@
         <!-- HEADER -->
         <Border Grid.Row="0" Height="42" Background="#151515" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="0,0,0,1" Padding="16,0">
             <Grid ColumnDefinitions="Auto,*,Auto">
-                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="20" VerticalAlignment="Center">
-                    <TextBlock Text="TDR2000 Tools" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                    <Menu VerticalAlignment="Center" Background="Transparent">
-                        <MenuItem Header="_File">
-                            <MenuItem Header="_Open Source Folder..." InputGesture="Ctrl+O" Click="OnSelectSourceFolderClick"/>
-                            <MenuItem Header="_Select Destination Folder..." InputGesture="Ctrl+Shift+O" Click="OnSelectDestinationFolderClick"/>
-                            <Separator/>
-                            <MenuItem Header="_Pack Directory to .PAK..." InputGesture="Ctrl+N" Click="OnPackFolderToPakClick"/>
-                            <Separator/>
-                            <MenuItem Header="_Exit" InputGesture="Alt+F4" Click="OnExitClick"/>
+                <Menu Grid.Column="0" VerticalAlignment="Center" Background="Transparent">
+                    <MenuItem Header="_File">
+                        <MenuItem Header="_Open Source Folder..." InputGesture="Ctrl+O" Click="OnSelectSourceFolderClick"/>
+                        <MenuItem Header="_Select Destination Folder..." InputGesture="Ctrl+Shift+O" Click="OnSelectDestinationFolderClick"/>
+                        <Separator/>
+                        <MenuItem Header="_Pack Directory to .PAK..." InputGesture="Ctrl+N" Click="OnPackFolderToPakClick"/>
+                        <Separator/>
+                        <MenuItem Header="_Exit" InputGesture="Alt+F4" Click="OnExitClick"/>
+                    </MenuItem>
+                    <MenuItem Header="_Edit">
+                        <MenuItem Header="_Unpack / Copy Selected" Click="OnExtractSelectedClick"/>
+                        <MenuItem Header="_Delete Selected" InputGesture="Delete" Click="OnDeleteSelectedClick"/>
+                    </MenuItem>
+                    <MenuItem Header="_View">
+                        <MenuItem Header="_Refresh Source Tree" InputGesture="F5" Click="OnRefreshSourceClick"/>
+                        <MenuItem Header="Refresh _Destination Tree" Click="OnRefreshDestinationClick"/>
+                        <Separator/>
+                        <MenuItem Header="Details Pane" InputGesture="Ctrl+D" Click="OnTogglePreviewClick">
+                            <MenuItem.Icon>
+                                <PathIcon Data="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.75.75 0 0 1 1.06-1.06L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z" Width="11" Height="11" Foreground="{DynamicResource AccentBrush}" IsVisible="{Binding Preview.IsPreviewDrawerExpanded}"/>
+                            </MenuItem.Icon>
                         </MenuItem>
-                        <MenuItem Header="_Edit">
-                            <MenuItem Header="_Unpack / Copy Selected" InputGesture="F5" Click="OnExtractSelectedClick"/>
-                            <MenuItem Header="_Delete Selected" InputGesture="Delete" Click="OnDeleteSelectedClick"/>
-                        </MenuItem>
-                        <MenuItem Header="_View">
-                            <MenuItem Header="_Refresh Source Tree" InputGesture="F5" Click="OnRefreshSourceClick"/>
-                            <MenuItem Header="Refresh _Destination Tree" Click="OnRefreshDestinationClick"/>
-                            <Separator/>
-                            <MenuItem Header="_Toggle Preview Drawer" Click="OnTogglePreviewClick"/>
-                        </MenuItem>
-                        <MenuItem Header="_Options">
-                            <MenuItem Header="_Settings &amp; Preferences..." InputGesture="Ctrl+P" Click="OnSettingsMenuClick"/>
-                        </MenuItem>
-                        <MenuItem Header="_Help">
-                            <MenuItem Header="_About TDR2000 Tools..." Click="OnAboutMenuClick"/>
-                        </MenuItem>
-                    </Menu>
-                </StackPanel>
+                    </MenuItem>
+                    <MenuItem Header="_Options">
+                        <MenuItem Header="_Settings &amp; Preferences..." InputGesture="Ctrl+P" Click="OnSettingsMenuClick"/>
+                    </MenuItem>
+                    <MenuItem Header="_Help">
+                        <MenuItem Header="_About TDR2000 Tools..." Click="OnAboutMenuClick"/>
+                    </MenuItem>
+                </Menu>
 
                 <!-- RIGHT HEADER SPEEDBUTTONS BAR -->
                 <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
@@ -63,13 +64,13 @@
                     <Border Grid.Row="0" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="0,0,0,1" Padding="12,10">
                         <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto">
                             <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
-                                <Button Width="26" Height="26" IsEnabled="{Binding CanSourceNavigateBack}" Background="Transparent" Foreground="#A8A8A8" CornerRadius="6" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Click="OnSourceNavBackClick" ToolTip.Tip="Navigate Back">
-                                    <PathIcon Data="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z" Width="12" Height="12"/>
+                                <Button Classes="nav-btn" IsEnabled="{Binding CanSourceNavigateBack}" Click="OnSourceNavBackClick" ToolTip.Tip="Navigate Back">
+                                    <PathIcon Data="M4 12l6-6v4h8v4h-8v4l-6-6z" Width="12" Height="12"/>
                                 </Button>
-                                <Button Width="26" Height="26" IsEnabled="{Binding CanSourceNavigateForward}" Background="Transparent" Foreground="#A8A8A8" CornerRadius="6" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Click="OnSourceNavForwardClick" ToolTip.Tip="Navigate Forward">
-                                    <PathIcon Data="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" Width="12" Height="12"/>
+                                <Button Classes="nav-btn" IsEnabled="{Binding CanSourceNavigateForward}" Click="OnSourceNavForwardClick" ToolTip.Tip="Navigate Forward">
+                                    <PathIcon Data="M20 12l-6-6v4H6v4h8v4l6-6z" Width="12" Height="12"/>
                                 </Button>
-                                <Button Width="26" Height="26" Background="Transparent" Foreground="#A8A8A8" CornerRadius="6" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Click="OnSourceNavUpClick" ToolTip.Tip="Navigate Up (Parent Folder)">
+                                <Button Classes="nav-btn" Click="OnSourceNavUpClick" ToolTip.Tip="Navigate Up (Parent Folder)">
                                     <PathIcon Data="M12 4l-6 6h4v8h4v-8h4l-6-6z" Width="12" Height="12"/>
                                 </Button>
                             </StackPanel>
@@ -99,7 +100,7 @@
                     <!-- SOURCE VIEWPORT AREA (TREE / FLAT TABLE / GRID TILES) -->
                     <Grid Grid.Row="1">
                         <!-- 1. TREE VIEW MODE (☰) -->
-                        <TreeView x:Name="SourceTreeView" IsVisible="{Binding IsSourceTreeVisible}" ItemsSource="{Binding SourceNodes}" SelectedItem="{Binding SelectedSourceNode}" SelectedItems="{Binding SelectedSourceNodes}" IsEnabled="{Binding !IsSourceLoading}" PointerPressed="OnSourcePointerPressed" PointerMoved="OnSourcePointerMoved" DoubleTapped="OnSourceTreeDoubleTapped" SelectionMode="Multiple" GotFocus="OnSourceTreeGotFocus" DragDrop.AllowDrop="True" DragDrop.DragOver="OnSourceDragOver" DragDrop.Drop="OnSourceDrop" Margin="8">
+                        <TreeView x:Name="SourceTreeView" IsVisible="{Binding IsSourceTreeVisible}" ItemsSource="{Binding SourceNodes}" SelectedItem="{Binding SelectedSourceNode}" SelectedItems="{Binding SelectedSourceNodes}" AutoScrollToSelectedItem="True" IsEnabled="{Binding !IsSourceLoading}" PointerPressed="OnSourcePointerPressed" PointerMoved="OnSourcePointerMoved" DoubleTapped="OnSourceTreeDoubleTapped" SelectionMode="Multiple" GotFocus="OnSourceTreeGotFocus" DragDrop.AllowDrop="True" DragDrop.DragOver="OnSourceDragOver" DragDrop.Drop="OnSourceDrop" Margin="8">
                             <TreeView.Styles>
                                 <Style Selector="TreeViewItem" x:DataType="vm:FileNodeViewModel">
                                     <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}"/>
@@ -107,6 +108,12 @@
                                     <Setter Property="Padding" Value="2,0"/>
                                 </Style>
                                 <Style Selector="TreeViewItem /template/ Border#PART_LayoutRoot">
+                                    <Setter Property="BorderThickness" Value="3,0,0,0"/>
+                                    <Setter Property="BorderBrush" Value="Transparent"/>
+                                    <Setter Property="CornerRadius" Value="2"/>
+                                </Style>
+                                <Style Selector="TreeViewItem:pointerover /template/ Border#PART_LayoutRoot">
+                                    <Setter Property="Background" Value="#0DFFFFFF"/>
                                 </Style>
                                 <Style Selector="TreeViewItem:selected /template/ Border#PART_LayoutRoot">
                                     <Setter Property="Background" Value="{DynamicResource AccentSubtleBrush}"/>
@@ -138,7 +145,7 @@
                                             <!-- Vector PathIcon (Tabler Style) -->
                                             <PathIcon Grid.Column="0" Data="{Binding IconData}" Width="14" Height="14" Margin="0,0,8,0" VerticalAlignment="Center" Foreground="{Binding IconBrush}"/>
                                             <TextBlock Grid.Column="1" IsVisible="{Binding !IsEditing}" Text="{Binding Name}" VerticalAlignment="Center" Foreground="{DynamicResource TextPrimaryBrush}" FontSize="12"/>
-                                            <TextBox Grid.Column="1" IsVisible="{Binding IsEditing}" Text="{Binding EditName, Mode=TwoWay}" VerticalAlignment="Center" FontSize="12" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextPrimaryBrush}" BorderBrush="{DynamicResource AccentBrush}" Padding="4,2" Loaded="OnRenameTextBoxLoaded" KeyDown="OnRenameTextBoxKeyDown" LostFocus="OnRenameTextBoxLostFocus"/>
+                                            <TextBox Grid.Column="1" IsVisible="{Binding IsEditing}" Text="{Binding EditName, Mode=TwoWay}" VerticalAlignment="Center" MinHeight="0" Height="22" Padding="4,1" Margin="0" FontSize="12" FocusAdorner="{x:Null}" CornerRadius="2" BorderThickness="1" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextPrimaryBrush}" BorderBrush="{DynamicResource AccentBrush}" Loaded="OnRenameTextBoxLoaded" KeyDown="OnRenameTextBoxKeyDown" LostFocus="OnRenameTextBoxLostFocus"/>
                                             <TextBlock Grid.Column="2" Text="{Binding FormattedSize}" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="10" Margin="8,0" VerticalAlignment="Center" HorizontalAlignment="Right"/>
                                             <!-- Badge Pill with Scrollbar Clearance Margin -->
                                             <Border Grid.Column="3" IsVisible="{Binding IsTrack}" Background="{Binding BadgeSubtleBrush}" BorderBrush="{Binding BadgeBrush}" BorderThickness="1" CornerRadius="6" Padding="6,1" VerticalAlignment="Center" Margin="0,0,18,0" DoubleTapped="OnTrackBadgeDoubleTapped" ToolTip.Tip="Double-click badge to export track">
@@ -150,8 +157,8 @@
                             </TreeView.ItemTemplate>
                             <TreeView.ContextMenu>
                                 <ContextMenu Opening="OnSourceContextMenuOpening">
-                                    <MenuItem Header="✨ New PAK Archive" Click="OnCreateNewPakClick"/>
-                                    <MenuItem Header="📁 Add Files to Archive..." Click="OnAddFilesToArchiveClick" IsEnabled="{Binding SelectedSourceNode.IsArchive}"/>
+                                    <MenuItem Header="New PAK Archive" Click="OnCreateNewPakClick"/>
+                                    <MenuItem Header="Add Files to Archive..." Click="OnAddFilesToArchiveClick" IsEnabled="{Binding SelectedSourceNode.IsArchive}"/>
                                     <Separator/>
                                     <MenuItem Header="Open" Click="OnOpenNodeClick"/>
                                     <Separator/>
@@ -169,6 +176,11 @@
                                     <Separator/>
                                     <MenuItem Header="Refresh" Click="OnRefreshSourceClick"/>
                                     <Separator/>
+                                    <MenuItem Header="Details Pane" InputGesture="Ctrl+D" Click="OnTogglePreviewClick">
+                                        <MenuItem.Icon>
+                                            <PathIcon Data="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.75.75 0 0 1 1.06-1.06L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z" Width="11" Height="11" Foreground="{DynamicResource AccentBrush}" IsVisible="{Binding Preview.IsPreviewDrawerExpanded}"/>
+                                        </MenuItem.Icon>
+                                    </MenuItem>
                                     <MenuItem Header="Properties" InputGesture="Alt+Enter" Click="OnPropertiesClick"/>
                                 </ContextMenu>
                             </TreeView.ContextMenu>
@@ -264,13 +276,13 @@
                     <Border Grid.Row="0" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="0,0,0,1" Padding="12,10">
                         <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto">
                             <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
-                                <Button Width="26" Height="26" IsEnabled="{Binding CanDestinationNavigateBack}" Background="Transparent" Foreground="#A8A8A8" CornerRadius="6" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Click="OnDestinationNavBackClick" ToolTip.Tip="Navigate Back">
-                                    <PathIcon Data="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z" Width="12" Height="12"/>
+                                <Button Classes="nav-btn" IsEnabled="{Binding CanDestinationNavigateBack}" Click="OnDestinationNavBackClick" ToolTip.Tip="Navigate Back">
+                                    <PathIcon Data="M4 12l6-6v4h8v4h-8v4l-6-6z" Width="12" Height="12"/>
                                 </Button>
-                                <Button Width="26" Height="26" IsEnabled="{Binding CanDestinationNavigateForward}" Background="Transparent" Foreground="#A8A8A8" CornerRadius="6" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Click="OnDestinationNavForwardClick" ToolTip.Tip="Navigate Forward">
-                                    <PathIcon Data="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" Width="12" Height="12"/>
+                                <Button Classes="nav-btn" IsEnabled="{Binding CanDestinationNavigateForward}" Click="OnDestinationNavForwardClick" ToolTip.Tip="Navigate Forward">
+                                    <PathIcon Data="M20 12l-6-6v4H6v4h8v4l6-6z" Width="12" Height="12"/>
                                 </Button>
-                                <Button Width="26" Height="26" Background="Transparent" Foreground="#A8A8A8" CornerRadius="6" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Click="OnDestinationNavUpClick" ToolTip.Tip="Navigate Up (Parent Folder)">
+                                <Button Classes="nav-btn" Click="OnDestinationNavUpClick" ToolTip.Tip="Navigate Up (Parent Folder)">
                                     <PathIcon Data="M12 4l-6 6h4v8h4v-8h4l-6-6z" Width="12" Height="12"/>
                                 </Button>
                             </StackPanel>
@@ -298,7 +310,7 @@
                     </Border>
 
                     <Grid x:Name="DestinationGrid" Grid.Row="1" DragDrop.AllowDrop="True" DragDrop.DragOver="OnDestinationDragOver" DragDrop.Drop="OnDestinationDrop">
-                        <TreeView x:Name="DestinationTreeView" ItemsSource="{Binding DestinationNodes}" SelectedItem="{Binding SelectedDestinationNode}" SelectedItems="{Binding SelectedDestinationNodes}" IsEnabled="{Binding !IsDestinationLoading}" DoubleTapped="OnDestinationTreeDoubleTapped" DragDrop.AllowDrop="True" DragDrop.DragOver="OnDestinationDragOver" DragDrop.Drop="OnDestinationDrop" SelectionMode="Multiple" GotFocus="OnDestinationTreeGotFocus" PointerPressed="OnDestinationPointerPressed" PointerMoved="OnDestinationPointerMoved" Margin="8">
+                        <TreeView x:Name="DestinationTreeView" ItemsSource="{Binding DestinationNodes}" SelectedItem="{Binding SelectedDestinationNode}" SelectedItems="{Binding SelectedDestinationNodes}" AutoScrollToSelectedItem="True" IsEnabled="{Binding !IsDestinationLoading}" DoubleTapped="OnDestinationTreeDoubleTapped" DragDrop.AllowDrop="True" DragDrop.DragOver="OnDestinationDragOver" DragDrop.Drop="OnDestinationDrop" SelectionMode="Multiple" GotFocus="OnDestinationTreeGotFocus" PointerPressed="OnDestinationPointerPressed" PointerMoved="OnDestinationPointerMoved" Margin="8">
                             <TreeView.Styles>
                                 <Style Selector="TreeViewItem" x:DataType="vm:FileNodeViewModel">
                                     <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}"/>
@@ -342,7 +354,7 @@
                                         <Grid ColumnDefinitions="Auto,*,Auto" Height="28">
                                             <PathIcon Grid.Column="0" Data="{Binding IconData}" Width="14" Height="14" Margin="0,0,8,0" VerticalAlignment="Center" Foreground="{Binding IconBrush}"/>
                                             <TextBlock Grid.Column="1" IsVisible="{Binding !IsEditing}" Text="{Binding Name}" VerticalAlignment="Center" Foreground="{DynamicResource TextPrimaryBrush}" FontSize="12"/>
-                                            <TextBox Grid.Column="1" IsVisible="{Binding IsEditing}" Text="{Binding EditName, Mode=TwoWay}" VerticalAlignment="Center" FontSize="12" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextPrimaryBrush}" BorderBrush="{DynamicResource AccentBrush}" Padding="4,2" Loaded="OnRenameTextBoxLoaded" KeyDown="OnRenameTextBoxKeyDown" LostFocus="OnRenameTextBoxLostFocus"/>
+                                            <TextBox Grid.Column="1" IsVisible="{Binding IsEditing}" Text="{Binding EditName, Mode=TwoWay}" VerticalAlignment="Center" MinHeight="0" Height="22" Padding="4,1" Margin="0" FontSize="12" FocusAdorner="{x:Null}" CornerRadius="2" BorderThickness="1" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextPrimaryBrush}" BorderBrush="{DynamicResource AccentBrush}" Loaded="OnRenameTextBoxLoaded" KeyDown="OnRenameTextBoxKeyDown" LostFocus="OnRenameTextBoxLostFocus"/>
                                             <TextBlock Grid.Column="2" Text="{Binding FormattedSize}" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="10" Margin="8,0,18,0" VerticalAlignment="Center" HorizontalAlignment="Right"/>
                                         </Grid>
                                     </Border>
@@ -363,6 +375,11 @@
                                     <Separator/>
                                     <MenuItem Header="Refresh" Click="OnRefreshDestinationClick"/>
                                     <Separator/>
+                                    <MenuItem Header="Details Pane" InputGesture="Ctrl+D" Click="OnTogglePreviewClick">
+                                        <MenuItem.Icon>
+                                            <PathIcon Data="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.75.75 0 0 1 1.06-1.06L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z" Width="11" Height="11" Foreground="{DynamicResource AccentBrush}" IsVisible="{Binding Preview.IsPreviewDrawerExpanded}"/>
+                                        </MenuItem.Icon>
+                                    </MenuItem>
                                     <MenuItem Header="Properties" InputGesture="Alt+Enter" Click="OnPropertiesClick"/>
                                 </ContextMenu>
                             </TreeView.ContextMenu>

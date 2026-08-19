@@ -143,7 +143,7 @@ namespace TDR.Tools.Export
         /// </summary>
         public DescriptorAssets ParseLevelDescriptorAssets(byte[] descriptorBytes, HashSet<string>? visitedDescriptors = null)
         {
-            return LevelDescriptorParser.ParseLevelDescriptorAssets(_vfs, _trackContext, descriptorBytes, _selectedHieFiles, visitedDescriptors);
+            return LevelDescriptorParser.ParseLevelDescriptorAssets(_vfs, _trackContext, descriptorBytes, visitedDescriptors);
         }
 
         public TrackExportResult ExportLevelToObj(byte[] levelData, string levelName, string outputObjPath, Action<int, string>? progressCallback = null)
@@ -488,7 +488,7 @@ namespace TDR.Tools.Export
                             string canonicalMat = RegisterAndGetCanonicalTexture(subTex, sourceArchivePath, textures);
                             w.WriteLine($"usemtl {canonicalMat}");
 
-                            WriteSubMesh(subMesh, Matrix4x4.Identity, w, ref v, ref vt, ref vn);
+                            WriteSubMesh(subMesh, startMatrix, w, ref v, ref vt, ref vn);
                         }
                     }
                 }
@@ -843,6 +843,7 @@ namespace TDR.Tools.Export
                         if (spawnedLocations.Any(loc => loc.Model.Equals(modelBaseName, StringComparison.OrdinalIgnoreCase) &&
                                                         Vector3.DistanceSquared(loc.Pos, rawPos) < 0.01f))
                         {
+                            if (_verbose) Log($"    [Dedup] Skipped duplicate instance of '{hieName}' at {rawPos}");
                             continue;
                         }
                         spawnedLocations.Add((modelBaseName, rawPos));
@@ -1392,6 +1393,9 @@ namespace TDR.Tools.Export
                 var v1 = stream.Vertices[i + 1];
                 var v2 = stream.Vertices[i + 2];
 
+                // Wavefront OBJ uses OpenGL texture coordinate convention with origin (0,0) at bottom-left,
+                // requiring (1.0f - V). In contrast, TDR2000 native meshes and glTF 2.0 specification
+                // both use DirectX/Vulkan top-left convention and write (V) directly without inversion.
                 w.WriteLine($"v {F(v0.Position.X)} {F(v0.Position.Y)} {F(v0.Position.Z)}");
                 w.WriteLine($"vt {F(v0.UV.X)} {F(1.0f - v0.UV.Y)}");
                 w.WriteLine($"vn {F(v0.Normal.X)} {F(v0.Normal.Y)} {F(v0.Normal.Z)}");
