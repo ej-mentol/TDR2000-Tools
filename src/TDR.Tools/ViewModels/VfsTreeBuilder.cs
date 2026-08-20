@@ -140,20 +140,44 @@ namespace TDR.Tools.ViewModels
 
             // 2. Validate Track Badges on Archive and Folder Nodes
             var confirmedTrackFolders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var folderBadgeTypes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
             foreach (var f in vfs.GetFiles())
             {
-                if (!string.IsNullOrEmpty(f.Name) && TrackDiscovery.IsWeakTrackCandidate(f.Name) && (isTrackValidator == null || isTrackValidator(f.Name)))
+                if (string.IsNullOrEmpty(f.Name)) continue;
+                if (!TrackDiscovery.IsWeakTrackCandidate(f.Name)) continue;
+                if (isTrackValidator != null && !isTrackValidator(f.Name)) continue;
+
+                string norm = f.Name.Replace('\\', '/');
+                string badge = f.Name.Contains("mission", StringComparison.OrdinalIgnoreCase) ? "Mission" :
+                               f.Name.Contains("race", StringComparison.OrdinalIgnoreCase) ? "Race" : "Track";
+
+                var parts = norm.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length >= 2 && parts[0].Equals("tracks", StringComparison.OrdinalIgnoreCase))
                 {
-                    string norm = f.Name.Replace('\\', '/');
-                    var parts = norm.Split('/', StringSplitOptions.RemoveEmptyEntries);
-                    if (parts.Length >= 2 && parts[0].Equals("tracks", StringComparison.OrdinalIgnoreCase))
+                    confirmedTrackFolders.Add($"tracks/{parts[1]}");
+                    confirmedTrackFolders.Add(parts[1]);
+                    folderBadgeTypes[$"tracks/{parts[1]}"] = badge;
+                    folderBadgeTypes[parts[1]] = badge;
+                }
+
+                int lastSlash = norm.LastIndexOf('/');
+                if (lastSlash > 0)
+                {
+                    string folderPath = norm[..lastSlash];
+                    confirmedTrackFolders.Add(folderPath);
+                    string folderName = Path.GetFileName(folderPath);
+                    confirmedTrackFolders.Add(folderName);
+                    folderBadgeTypes[folderPath] = badge;
+                    folderBadgeTypes[folderName] = badge;
+                }
+                else
+                {
+                    string baseTrack = TrackDiscovery.GetBaseTrackName(Path.GetFileNameWithoutExtension(f.Name));
+                    if (!string.IsNullOrEmpty(baseTrack))
                     {
-                        confirmedTrackFolders.Add($"tracks/{parts[1]}");
-                    }
-                    int lastSlash = norm.LastIndexOf('/');
-                    if (lastSlash > 0)
-                    {
-                        confirmedTrackFolders.Add(norm[..lastSlash]);
+                        confirmedTrackFolders.Add(baseTrack);
+                        folderBadgeTypes[baseTrack] = badge;
                     }
                 }
             }
@@ -163,39 +187,77 @@ namespace TDR.Tools.ViewModels
                 if (node.IsArchive || node.IsDirectory)
                 {
                     string baseName = Path.GetFileNameWithoutExtension(node.Name).ToLowerInvariant();
-                    string virtPath = (node.VirtualPath ?? "").Replace('\\', '/').ToLowerInvariant();
+                    string virtPath = (node.VirtualPath ?? "").Replace('\\', '/').Trim('/');
 
-                    bool isSystemAsset = baseName is "animation" or "powerups" or "cars" or "carma" or "sound" or "sfx" or "fonts" or "pip" or "hud" or "frontend" or "system" or "menu" or "attributes" or "stuff" or "drones" or "pathfollowers" or "strings" or "sky sphere" or "animated props" or "level convsoft" or "level radar" or "level breakable" or "level props" or "level shadows"
-                                      || virtPath.StartsWith("cars/") || virtPath.StartsWith("powerups/") || virtPath.StartsWith("animations/") || virtPath.StartsWith("sound/") || virtPath.StartsWith("frontend/") || virtPath.StartsWith("menu/") || virtPath.StartsWith("attributes/") || virtPath.StartsWith("stuff/") || virtPath.StartsWith("drones/") || virtPath.StartsWith("pathfollowers/") || virtPath.StartsWith("strings/")
-                                      || virtPath.Contains("/sky sphere/") || virtPath.Contains("/animated props/") || virtPath.Contains("/level convsoft/") || virtPath.Contains("/level radar/") || virtPath.Contains("/level breakable/") || virtPath.Contains("/level props/") || virtPath.Contains("/level shadows/");
+                    string systemReason = "";
+                    if (baseName is "animation" or "powerups" or "cars" or "carma" or "sound" or "sfx" or "fonts" or "pip" or "hud" or "frontend" or "system" or "menu" or "attributes" or "stuff" or "drones" or "pathfollowers" or "strings" or "sky sphere" or "animated props" or "level convsoft" or "level radar" or "level breakable" or "level props" or "level shadows" or "tracks" or "assets" or "root")
+                        systemReason = $"SystemBaseName('{baseName}')";
+                    else if (virtPath.StartsWith("cars/", StringComparison.OrdinalIgnoreCase)) systemReason = "Prefix('cars/')";
+                    else if (virtPath.StartsWith("powerups/", StringComparison.OrdinalIgnoreCase)) systemReason = "Prefix('powerups/')";
+                    else if (virtPath.StartsWith("animations/", StringComparison.OrdinalIgnoreCase)) systemReason = "Prefix('animations/')";
+                    else if (virtPath.StartsWith("animation/", StringComparison.OrdinalIgnoreCase)) systemReason = "Prefix('animation/')";
+                    else if (virtPath.StartsWith("sound/", StringComparison.OrdinalIgnoreCase)) systemReason = "Prefix('sound/')";
+                    else if (virtPath.StartsWith("frontend/", StringComparison.OrdinalIgnoreCase)) systemReason = "Prefix('frontend/')";
+                    else if (virtPath.StartsWith("menu/", StringComparison.OrdinalIgnoreCase)) systemReason = "Prefix('menu/')";
+                    else if (virtPath.StartsWith("attributes/", StringComparison.OrdinalIgnoreCase)) systemReason = "Prefix('attributes/')";
+                    else if (virtPath.StartsWith("stuff/", StringComparison.OrdinalIgnoreCase)) systemReason = "Prefix('stuff/')";
+                    else if (virtPath.StartsWith("drones/", StringComparison.OrdinalIgnoreCase)) systemReason = "Prefix('drones/')";
+                    else if (virtPath.StartsWith("pathfollowers/", StringComparison.OrdinalIgnoreCase)) systemReason = "Prefix('pathfollowers/')";
+                    else if (virtPath.StartsWith("strings/", StringComparison.OrdinalIgnoreCase)) systemReason = "Prefix('strings/')";
+                    else if (virtPath.Contains("/sky sphere/", StringComparison.OrdinalIgnoreCase)) systemReason = "Contains('/sky sphere/')";
+                    else if (virtPath.Contains("/animated props/", StringComparison.OrdinalIgnoreCase)) systemReason = "Contains('/animated props/')";
+                    else if (virtPath.Contains("/level convsoft/", StringComparison.OrdinalIgnoreCase)) systemReason = "Contains('/level convsoft/')";
+                    else if (virtPath.Contains("/level radar/", StringComparison.OrdinalIgnoreCase)) systemReason = "Contains('/level radar/')";
+                    else if (virtPath.Contains("/level breakable/", StringComparison.OrdinalIgnoreCase)) systemReason = "Contains('/level breakable/')";
+                    else if (virtPath.Contains("/level props/", StringComparison.OrdinalIgnoreCase)) systemReason = "Contains('/level props/')";
+                    else if (virtPath.Contains("/level shadows/", StringComparison.OrdinalIgnoreCase)) systemReason = "Contains('/level shadows/')";
+
+                    bool isSystemAsset = !string.IsNullOrEmpty(systemReason);
 
                     if (!isSystemAsset)
                     {
-                        bool isTrackNode = node.IsDirectory &&
-                                           TrackDiscovery.IsWeakTrackCandidate($"{node.VirtualPath}/{baseName}.txt") &&
-                                           (isTrackValidator == null || isTrackValidator($"{node.VirtualPath}/{baseName}.txt"));
+                        bool isTrackNode = false;
+                        string badge = "Track";
+                        string trackMatchRule = "";
 
-                        if (!isTrackNode && node.IsDirectory)
+                        if (folderBadgeTypes.TryGetValue(virtPath, out var b1))
                         {
-                            // Badge escalation guard: only the immediate track folder (tracks/<name>)
-                            // gets a badge — never its parents ("tracks/", "assets/", root).
-                            string vp = (node.VirtualPath ?? "").Replace('\\', '/').ToLowerInvariant().TrimEnd('/');
-                            var vpParts = vp.Split('/', StringSplitOptions.RemoveEmptyEntries);
-                            bool isDirectTrackFolder = vpParts.Length == 2 &&
-                                                       vpParts[0].Equals("tracks", StringComparison.OrdinalIgnoreCase);
-
-                            if (isDirectTrackFolder && node.VirtualPath != null)
-                            {
-                                string normVp = node.VirtualPath.Replace('\\', '/');
-                                isTrackNode = confirmedTrackFolders.Contains(normVp);
-                            }
+                            isTrackNode = true;
+                            badge = b1;
+                            trackMatchRule = $"folderBadgeTypes['{virtPath}']";
+                        }
+                        else if (folderBadgeTypes.TryGetValue(node.Name, out var b2))
+                        {
+                            isTrackNode = true;
+                            badge = b2;
+                            trackMatchRule = $"folderBadgeTypes['{node.Name}']";
+                        }
+                        else if (confirmedTrackFolders.Contains(virtPath) || confirmedTrackFolders.Contains(node.Name))
+                        {
+                            isTrackNode = true;
+                            badge = node.Name.Contains("mission", StringComparison.OrdinalIgnoreCase) ? "Mission" :
+                                    node.Name.Contains("race", StringComparison.OrdinalIgnoreCase) ? "Race" : "Track";
+                            trackMatchRule = "confirmedTrackFolders";
+                        }
+                        else if (TrackDiscovery.IsWeakTrackCandidate($"{virtPath}/{baseName}.txt") && (isTrackValidator == null || isTrackValidator($"{virtPath}/{baseName}.txt")))
+                        {
+                            isTrackNode = true;
+                            badge = node.Name.Contains("mission", StringComparison.OrdinalIgnoreCase) ? "Mission" :
+                                    node.Name.Contains("race", StringComparison.OrdinalIgnoreCase) ? "Race" : "Track";
+                            trackMatchRule = $"WeakCandidate('{virtPath}/{baseName}.txt')";
+                        }
+                        else if (node.IsArchive && TrackDiscovery.IsWeakTrackCandidate(node.Name) && (isTrackValidator == null || isTrackValidator(node.Name)))
+                        {
+                            isTrackNode = true;
+                            badge = node.Name.Contains("mission", StringComparison.OrdinalIgnoreCase) ? "Mission" :
+                                    node.Name.Contains("race", StringComparison.OrdinalIgnoreCase) ? "Race" : "Track";
+                            trackMatchRule = $"WeakCandidateArchive('{node.Name}')";
                         }
 
                         if (isTrackNode)
                         {
                             node.IsTrack = true;
-                            node.BadgeText = node.Name.Contains("mission", StringComparison.OrdinalIgnoreCase) ? "Mission" :
-                                             node.Name.Contains("race", StringComparison.OrdinalIgnoreCase) ? "Race" : "Track";
+                            node.BadgeText = badge;
                             node.UpdateIcon();
                         }
                     }
@@ -235,6 +297,9 @@ namespace TDR.Tools.ViewModels
                         {
                             var fileInfo = new FileInfo(file);
                             bool isPak = fileName.EndsWith(".pak", StringComparison.OrdinalIgnoreCase) || fileName.EndsWith(".dir", StringComparison.OrdinalIgnoreCase);
+                            long fileLen = 0;
+                            try { fileLen = fileInfo.Length; } catch { }
+
                             var fileNode = new FileNodeViewModel
                             {
                                 Name = fileName,
@@ -243,7 +308,7 @@ namespace TDR.Tools.ViewModels
                                 IsArchive = isPak,
                                 IsDirectory = false,
                                 NodeType = isPak ? FileNodeType.Archive : FileNodeType.LooseFile,
-                                Size = fileInfo.Length
+                                Size = fileLen
                             };
                             fileNode.UpdateIcon();
                             nodeCache[fileName] = fileNode;
@@ -342,6 +407,7 @@ namespace TDR.Tools.ViewModels
                             AbsolutePath = dir,
                             IsDirectory = true
                         };
+                        CheckAndApplyDiskTrackBadge(dirNode, dir);
                         dirNode.UpdateIcon();
 
                         SetupLazyFolderExpansion(dirNode, searchQuery, logSession, showDirFiles);
@@ -366,18 +432,29 @@ namespace TDR.Tools.ViewModels
 
                 foreach (string file in files)
                 {
-                    var fileInfo = new FileInfo(file);
-                    if (!showDirFiles && fileInfo.Name.EndsWith(".dir", StringComparison.OrdinalIgnoreCase)) continue;
-                    if (!queryActive || fileInfo.Name.Contains(searchQuery, StringComparison.OrdinalIgnoreCase))
+                    try
                     {
-                        var fileNode = new FileNodeViewModel
+                        var fileInfo = new FileInfo(file);
+                        if (!fileInfo.Exists) continue;
+                        if (!showDirFiles && fileInfo.Name.EndsWith(".dir", StringComparison.OrdinalIgnoreCase)) continue;
+                        if (!queryActive || fileInfo.Name.Contains(searchQuery, StringComparison.OrdinalIgnoreCase))
                         {
-                            Name = fileInfo.Name,
-                            AbsolutePath = file,
-                            Size = fileInfo.Length
-                        };
-                        fileNode.UpdateIcon();
-                        targetNodes.Add(fileNode);
+                            long len = 0;
+                            try { len = fileInfo.Length; } catch { }
+
+                            var fileNode = new FileNodeViewModel
+                            {
+                                Name = fileInfo.Name,
+                                AbsolutePath = file,
+                                Size = len
+                            };
+                            fileNode.UpdateIcon();
+                            targetNodes.Add(fileNode);
+                        }
+                    }
+                    catch
+                    {
+                        // Skip individual inaccessible or transient files
                     }
                 }
             }
@@ -434,6 +511,7 @@ namespace TDR.Tools.ViewModels
                             IsDirectory = true,
                             Parent = parentNode
                         };
+                        CheckAndApplyDiskTrackBadge(subDirNode, subDir);
                         subDirNode.UpdateIcon();
 
                         SetupLazyFolderExpansion(subDirNode, searchQuery, logSession, showDirFiles);
@@ -454,19 +532,30 @@ namespace TDR.Tools.ViewModels
             {
                 foreach (string file in Directory.GetFiles(dirPath).OrderBy(f => Path.GetFileName(f), StringComparer.OrdinalIgnoreCase))
                 {
-                    var fileInfo = new FileInfo(file);
-                    if (!showDirFiles && fileInfo.Name.EndsWith(".dir", StringComparison.OrdinalIgnoreCase)) continue;
-                    if (!queryActive || fileInfo.Name.Contains(searchQuery, StringComparison.OrdinalIgnoreCase))
+                    try
                     {
-                        var fileNode = new FileNodeViewModel
+                        var fileInfo = new FileInfo(file);
+                        if (!fileInfo.Exists) continue;
+                        if (!showDirFiles && fileInfo.Name.EndsWith(".dir", StringComparison.OrdinalIgnoreCase)) continue;
+                        if (!queryActive || fileInfo.Name.Contains(searchQuery, StringComparison.OrdinalIgnoreCase))
                         {
-                            Name = fileInfo.Name,
-                            AbsolutePath = file,
-                            Size = fileInfo.Length,
-                            Parent = parentNode
-                        };
-                        fileNode.UpdateIcon();
-                        parentNode.Children.Add(fileNode);
+                            long len = 0;
+                            try { len = fileInfo.Length; } catch { }
+
+                            var fileNode = new FileNodeViewModel
+                            {
+                                Name = fileInfo.Name,
+                                AbsolutePath = file,
+                                Size = len,
+                                Parent = parentNode
+                            };
+                            fileNode.UpdateIcon();
+                            parentNode.Children.Add(fileNode);
+                        }
+                    }
+                    catch
+                    {
+                        // Skip individual inaccessible or transient files
                     }
                 }
             }
@@ -478,6 +567,28 @@ namespace TDR.Tools.ViewModels
             {
                 logSession?.Invoke($"[ERROR] Failed reading files of '{dirPath}': {ex.Message}");
             }
+        }
+
+        private static void CheckAndApplyDiskTrackBadge(FileNodeViewModel node, string dirPath)
+        {
+            try
+            {
+                if (!Directory.Exists(dirPath)) return;
+                string dirName = node.Name;
+                string lower = dirName.ToLowerInvariant();
+                if (lower is "tracks" or "assets" or "bin" or "obj" or "src" or "temp" or "export") return;
+
+                string[] txtFiles = Directory.GetFiles(dirPath, "*.txt");
+                bool isTrack = txtFiles.Any(f => TrackDiscovery.IsWeakTrackCandidate(Path.GetFileName(f)));
+                if (isTrack)
+                {
+                    node.IsTrack = true;
+                    node.NodeType = FileNodeType.TrackDescriptor;
+                    node.BadgeText = dirName.Contains("mission", StringComparison.OrdinalIgnoreCase) ? "Mission" :
+                                     dirName.Contains("race", StringComparison.OrdinalIgnoreCase) ? "Race" : "Track";
+                }
+            }
+            catch { }
         }
 
         private static bool MatchesSearchQuery(FileNodeViewModel node, string query)

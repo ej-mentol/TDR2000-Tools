@@ -1174,9 +1174,37 @@ namespace TDR.Tools.ViewModels
                     if (data != null)
                     {
                         string relPath = flatFiles ? Path.GetFileName(f.Name) : f.Name;
-                        if (!flatFiles && !string.IsNullOrEmpty(prefix) && f.Name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                        if (!flatFiles)
                         {
-                            relPath = f.Name.Substring(prefix.Length).TrimStart('/', '\\');
+                            string normName = f.Name.Replace('\\', '/');
+                            string normPrefix = (prefix ?? "").Replace('\\', '/').Trim('/');
+                            string nodeName = (node.Name ?? string.Empty).Replace('\\', '/').Trim('/');
+                            string branchUsed = "DirectNameFallback";
+
+                            if (!string.IsNullOrEmpty(normPrefix) && normName.StartsWith(normPrefix, StringComparison.OrdinalIgnoreCase))
+                            {
+                                relPath = normName.Substring(normPrefix.Length).TrimStart('/');
+                                branchUsed = $"PrefixMatch('{normPrefix}')";
+                            }
+                            else
+                            {
+                                int idx = normName.IndexOf("/" + nodeName + "/", StringComparison.OrdinalIgnoreCase);
+                                if (idx >= 0)
+                                {
+                                    relPath = normName.Substring(idx + nodeName.Length + 2);
+                                    branchUsed = $"NodeSegmentMatch('/{nodeName}/')";
+                                }
+                                else if (normName.StartsWith(nodeName + "/", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    relPath = normName.Substring(nodeName.Length + 1);
+                                    branchUsed = $"DirectNodePrefix('{nodeName}/')";
+                                }
+                                else if (node.IsArchive && !string.IsNullOrEmpty(f.ArchivePath))
+                                {
+                                    relPath = Path.GetFileName(normName);
+                                    branchUsed = "ArchiveFileNameFallback";
+                                }
+                            }
                         }
 
                         string outPath = Path.Combine(targetDir, relPath);
@@ -1185,7 +1213,7 @@ namespace TDR.Tools.ViewModels
                         count++;
                     }
                 }
-                LogSession($"Extracted {count} files from '{node.Name}' to {targetDir}");
+                LogSession($"Extracted {count} files from '{node.Name ?? string.Empty}' to {targetDir}");
             }
             else
             {
@@ -1203,13 +1231,13 @@ namespace TDR.Tools.ViewModels
                 if (data != null && data.Length > 0)
                 {
                     Directory.CreateDirectory(targetDir);
-                    string outPath = Path.Combine(targetDir, node.Name);
+                    string outPath = Path.Combine(targetDir, node.Name ?? "unnamed_file");
                     File.WriteAllBytes(outPath, data);
-                    LogSession($"Extracted '{node.Name}' ({data.Length} bytes) to {targetDir}");
+                    LogSession($"Extracted '{node.Name ?? string.Empty}' ({data.Length} bytes) to {targetDir}");
                 }
                 else
                 {
-                    LogSession($"[!] Warning: File '{node.Name}' is empty or unreadable. Skipped.");
+                    LogSession($"[!] Warning: File '{node.Name ?? string.Empty}' is empty or unreadable. Skipped.");
                 }
             }
         }
@@ -2170,7 +2198,6 @@ namespace TDR.Tools.ViewModels
                     UseGrouping: vm.UseGrouping,
                     DumpAll: false,
                     Verbose: vm.VerboseLog,
-                    EnableGroundSnap: vm.EnableGroundSnap,
                     SelectedHieFiles: (vm.SelectedVariant != null && vm.SelectedVariant.Equals(ConvertTrackModalViewModel.PresetCustom, StringComparison.OrdinalIgnoreCase))
                         ? vm.GetSelectedHiePaths()
                         : null

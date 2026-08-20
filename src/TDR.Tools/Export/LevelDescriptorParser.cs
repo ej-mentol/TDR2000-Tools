@@ -177,9 +177,27 @@ namespace TDR.Tools.Export
 
                 if (modelHies.Count > 0 && propSpline != null && propSpline.Points.Count > 0)
                 {
-                    foreach (string modelHie in modelHies)
+                    float carriageSpacing = 14.0f; // Standard TDR2000 train wagon length in meters
+                    for (int hIdx = 0; hIdx < modelHies.Count; hIdx++)
                     {
-                        Matrix4x4 spawnMat = splineNodeTransform * SplineResolver.ComputeSplineSpawnMatrix(propSpline, 0, 0.35f) * parentMatrix;
+                        string modelHie = modelHies[hIdx];
+                        float targetDist = hIdx * carriageSpacing;
+                        Matrix4x4 localSplineMat = SplineResolver.SampleSplineAtDistance(propSpline, targetDist, 0.35f);
+
+                        // If this is the rear head / caboose locomotive (e.g. DocksTrain4 / Choo_Choo4), rotate 180 deg around Y (<===>)
+                        bool isRearHead = (hIdx == modelHies.Count - 1 && modelHies.Count > 1) &&
+                                          (modelHie.Contains("train4", StringComparison.OrdinalIgnoreCase) ||
+                                           modelHie.Contains("train5b", StringComparison.OrdinalIgnoreCase) ||
+                                           modelHie.Contains("choo_choo4", StringComparison.OrdinalIgnoreCase) ||
+                                           modelHie.Contains("rear", StringComparison.OrdinalIgnoreCase) ||
+                                           modelHie.Contains("caboose", StringComparison.OrdinalIgnoreCase));
+
+                        if (isRearHead)
+                        {
+                            localSplineMat = Matrix4x4.CreateRotationY(MathF.PI) * localSplineMat;
+                        }
+
+                        Matrix4x4 spawnMat = splineNodeTransform * localSplineMat * parentMatrix;
                         assets.HieInstances.Add(new HieInstanceInfo
                         {
                             HieName = modelHie,

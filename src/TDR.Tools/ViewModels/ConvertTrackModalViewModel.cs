@@ -112,7 +112,6 @@ namespace TDR.Tools.ViewModels
         private bool _useZeroOriginForJsonAssets = true;
         private bool _useGrouping = true;
         private bool _useLocalCoords = false;
-        private bool _enableGroundSnap = false;
         private bool _verboseLog = false;
         private string _searchHieQuery = string.Empty;
         private string _selectedVariant = PresetAllSupported;
@@ -198,12 +197,6 @@ namespace TDR.Tools.ViewModels
             set { _useLocalCoords = value; OnPropertyChanged(); }
         }
 
-        public bool EnableGroundSnap
-        {
-            get => _enableGroundSnap;
-            set { _enableGroundSnap = value; OnPropertyChanged(); }
-        }
-
         public bool VerboseLog
         {
             get => _verboseLog;
@@ -249,7 +242,6 @@ namespace TDR.Tools.ViewModels
             UseZeroOriginForJsonAssets = settings.UseZeroOriginForJsonAssets;
             UseGrouping = settings.UseGrouping;
             UseLocalCoords = settings.UseLocalCoords;
-            EnableGroundSnap = settings.EnableGroundSnap;
             VerboseLog = settings.VerboseLog;
         }
 
@@ -432,7 +424,6 @@ namespace TDR.Tools.ViewModels
             settings.UseZeroOriginForJsonAssets = UseZeroOriginForJsonAssets;
             settings.UseGrouping = UseGrouping;
             settings.UseLocalCoords = UseLocalCoords;
-            settings.EnableGroundSnap = EnableGroundSnap;
             settings.VerboseLog = VerboseLog;
             settings.Save();
 

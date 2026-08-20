@@ -22,7 +22,6 @@ namespace TDR.Tools.Export
         private readonly bool _verbose;
         private readonly bool _useGrouping;
         private readonly bool _includeMovableProps;
-        private readonly bool _enableGroundSnap;
         private readonly bool _convertTexturesToPng;
         private readonly string? _trackContext;
         private readonly Action<string>? _logger;
@@ -51,7 +50,7 @@ namespace TDR.Tools.Export
             }
         }
 
-        public ObjExporter(PakManager vfs, string exportDir, bool noMaterials, bool useLocalCoords, bool verbose = false, bool useGrouping = true, bool includeMovableProps = true, string? trackContext = null, Action<string>? logger = null, bool enableGroundSnap = false, IEnumerable<string>? selectedHieFiles = null, bool convertTexturesToPng = true)
+        public ObjExporter(PakManager vfs, string exportDir, bool noMaterials, bool useLocalCoords, bool verbose = false, bool useGrouping = true, bool includeMovableProps = true, string? trackContext = null, Action<string>? logger = null, IEnumerable<string>? selectedHieFiles = null, bool convertTexturesToPng = true)
         {
             _vfs = vfs;
             _exportDir = exportDir;
@@ -62,7 +61,6 @@ namespace TDR.Tools.Export
             _includeMovableProps = includeMovableProps;
             _trackContext = trackContext;
             _logger = logger;
-            _enableGroundSnap = enableGroundSnap;
             _convertTexturesToPng = convertTexturesToPng;
             if (selectedHieFiles != null)
             {
@@ -183,13 +181,8 @@ namespace TDR.Tools.Export
                     if (hieName.Contains("sky", StringComparison.OrdinalIgnoreCase)) continue;
                     var preHie = GetOrLoadHierarchy(hieName, name => _vfs.LoadFileContext(name, _trackContext ?? levelName));
                     if (preHie == null) continue;
-                    var preTris = GroundSnapUtil.ExtractBaseTriangles(preHie, (path) => _vfs.LoadFileContext(path, _trackContext ?? levelName));
-                    foreach (var tri in preTris)
-                    {
-                        if (tri.A.Y < minY) minY = tri.A.Y;
-                        if (tri.B.Y < minY) minY = tri.B.Y;
-                        if (tri.C.Y < minY) minY = tri.C.Y;
-                    }
+                    float hieMinY = MeshGeometryReader.ComputeHierarchyMinimumY(preHie, (path) => _vfs.LoadFileContext(path, _trackContext ?? levelName));
+                    if (hieMinY < minY) minY = hieMinY;
                 }
 
                 if (minY < float.MaxValue)
@@ -277,101 +270,57 @@ namespace TDR.Tools.Export
                     // 2. Bake Movable Objects into the combined stream (if enabled)
                     if (_includeMovableProps)
                     {
-                        var movDescs = new List<string>(assets.MovableDescriptors);
-                        string defaultMov = $"{cleanTrackName}_MoveableDescriptor.txt";
-                        if (movDescs.Count == 0 && _vfs.FileExists(defaultMov))
-                        {
-                            movDescs.Add(defaultMov);
-                        }
+                        // 2. Reconstruct Dynamic Scene Entities (Movables, Powerups, Drones, Pedestrians)
+                        var dynamicEntities = SceneReconstruction.ReconstructDynamicEntities(
+                            _vfs,
+                            levelName,
+                            assets,
+                            includeMovables: _includeMovableProps,
+                            useLocalCoords: _useLocalCoords,
+                            globalOrigin: _localOrigin,
+                            trackContext: _trackContext ?? cleanTrackName,
+                            log: msg => Log(msg));
 
-                        // Extract base terrain triangles — only when ground snap is enabled to avoid
-                        // redundant HIE loading and triangle extraction on every export where snap is off.
-                        var baseTriangles = new List<GroundSnapUtil.Triangle>();
-                        if (_enableGroundSnap)
+                        foreach (var entity in dynamicEntities)
                         {
-                            var snapHies = new HashSet<string>(assets.HieFiles, StringComparer.OrdinalIgnoreCase);
-                            foreach (var inst in assets.HieInstances) snapHies.Add(inst.HieName);
-
-                            foreach (string hieName in snapHies)
+                            if (entity.Category == EntityCategory.Pedestrian)
                             {
-                                // Exclude sky dome, water surface, collision boxes and fog triggers
-                                if (hieName.Contains("sky", StringComparison.OrdinalIgnoreCase) ||
-                                    hieName.Contains("water", StringComparison.OrdinalIgnoreCase) ||
-                                    hieName.Contains("ocean", StringComparison.OrdinalIgnoreCase) ||
-                                    hieName.Contains("river", StringComparison.OrdinalIgnoreCase) ||
-                                    hieName.Contains("scol", StringComparison.OrdinalIgnoreCase) ||
-                                    hieName.Contains("trigger", StringComparison.OrdinalIgnoreCase))
-                                {
-                                    continue;
-                                }
-
-                                var hie = GetOrLoadHierarchy(hieName, name => _vfs.LoadFileContext(name, _trackContext ?? levelName));
-                                if (hie != null)
-                                {
-                                    var tris = GroundSnapUtil.ExtractBaseTriangles(hie, (path) => _vfs.LoadFileContext(path, _trackContext ?? levelName));
-                                    if (tris.Count > 0) baseTriangles.AddRange(tris);
-                                }
+                                AppendPedestrianProxyToWriter(entity.WorldTransform, w, textures, ref v, ref vt, ref vn, entity.InstanceId);
+                                continue;
                             }
-                        }
 
-                        // 2. Bake Movable Objects descriptors into the combined scene (Cumulative Base + Variant)
-                        var allMovDescs = new List<string>(assets.MovableDescriptors);
-                        string defaultBaseMov = $"{cleanTrackName}_MoveableDescriptor.txt";
-                        if (_vfs.FileExists(defaultBaseMov) && !allMovDescs.Contains(defaultBaseMov, StringComparer.OrdinalIgnoreCase))
-                        {
-                            allMovDescs.Insert(0, defaultBaseMov);
-                        }
-                        string defaultVarMov = $"{levelName}_MoveableDescriptor.txt";
-                        if (_vfs.FileExists(defaultVarMov) && !allMovDescs.Contains(defaultVarMov, StringComparer.OrdinalIgnoreCase))
-                        {
-                            allMovDescs.Add(defaultVarMov);
-                        }
+                            byte[]? hieBytes = _vfs.LoadFileContext(entity.ModelHieName, _trackContext ?? cleanTrackName) ??
+                                               _vfs.LoadFile(entity.ModelHieName);
+                            if (hieBytes == null || hieBytes.Length == 0) continue;
 
-                        foreach (string movDesc in allMovDescs)
-                        {
-                            if (_verbose) Log($"[+] Baking Movable Objects descriptor '{movDesc}' into combined scene...");
-                            byte[]? movData = _vfs.LoadFileContext(movDesc, _trackContext ?? cleanTrackName);
-                            if (movData != null)
+                            var hie = GetOrLoadHierarchy(entity.ModelHieName, _ => hieBytes);
+                            if (hie?.Root == null) continue;
+
+                            string? archivePath = _vfs.GetArchivePath(entity.ModelHieName);
+
+                            if (_useGrouping)
                             {
-                                AppendMovablesToWriter(movData, w, textures, ref v, ref vt, ref vn, (path) => _vfs.LoadFileContext(path, _trackContext ?? cleanTrackName), baseTriangles, bakedMovableCounts);
+                                w.WriteLine($"o {entity.InstanceId}");
+                                w.WriteLine($"# WorldPos: {F(entity.WorldTransform.M41)} {F(entity.WorldTransform.M42)} {F(entity.WorldTransform.M43)}");
                             }
-                        }
 
-                        // 3. Bake ALL Powerup Files (.pup) into the combined scene (Base Track .pup + Variant .pup + Race1 .pup)
-                        var pupNames = new List<string>();
-                        string basePup = $"{cleanTrackName}.pup";
-                        if (_vfs.FileExists(basePup)) pupNames.Add(basePup);
+                            string currentTex = "Default";
+                            ProcessNode(hie.Root, entity.WorldTransform, ref currentTex, hie, textures, w, ref v, ref vt, ref vn, archivePath, null, 0, entity.InstanceId);
 
-                        string varPup = $"{levelName}.pup";
-                        if (!varPup.Equals(basePup, StringComparison.OrdinalIgnoreCase) && _vfs.FileExists(varPup))
-                            pupNames.Add(varPup);
-
-                        string race1Pup = $"{cleanTrackName}_Race1.pup";
-                        if (!pupNames.Contains(race1Pup, StringComparer.OrdinalIgnoreCase) && _vfs.FileExists(race1Pup))
-                            pupNames.Add(race1Pup);
-
-                        foreach (string pName in pupNames)
-                        {
-                            byte[]? pupData = _vfs.LoadFileContext(pName, _trackContext ?? cleanTrackName);
-                            if (pupData != null)
+                            if (entity.Category == EntityCategory.MovableProp)
                             {
-                                if (_verbose) Log($"[+] Baking Powerup Objects (.pup) '{pName}' into combined scene...");
-                                bakedPowerups += AppendPowerupsToWriter(pupData, w, textures, ref v, ref vt, ref vn, (path) => _vfs.LoadFileContext(path, _trackContext ?? cleanTrackName));
+                                string shortName = Path.GetFileNameWithoutExtension(entity.ModelHieName);
+                                bakedMovableCounts[shortName] = bakedMovableCounts.GetValueOrDefault(shortName, 0) + 1;
                             }
-                        }
-
-                        // 4. Bake Traffic Drones (DRONE_DESCRIPTOR) into the combined scene
-                        var droneDescs = new List<string>(assets.DroneDescriptors);
-                        string defaultDrone = $"{cleanTrackName}_DroneDescriptor.txt";
-                        if (!droneDescs.Contains(defaultDrone, StringComparer.OrdinalIgnoreCase) && _vfs.FileExists(defaultDrone))
-                        {
-                            droneDescs.Add(defaultDrone);
-                        }
-
-                        if (droneDescs.Count > 0)
-                        {
-                            if (_verbose) Log($"[+] Baking Traffic Drones ({droneDescs.Count} descriptor(s)) into combined scene...");
-                            AppendDronesToWriter(droneDescs, w, textures, ref v, ref vt, ref vn, (path) => _vfs.LoadFileContext(path, _trackContext ?? cleanTrackName), cleanTrackName, bakedDroneCounts, baseTriangles);
+                            else if (entity.Category == EntityCategory.TrafficDrone)
+                            {
+                                string shortName = Path.GetFileNameWithoutExtension(entity.ModelHieName);
+                                bakedDroneCounts[shortName] = bakedDroneCounts.GetValueOrDefault(shortName, 0) + 1;
+                            }
+                            else if (entity.Category == EntityCategory.PowerupItem)
+                            {
+                                bakedPowerups++;
+                            }
                         }
                     }
                 }
@@ -595,198 +544,7 @@ namespace TDR.Tools.Export
             }
         }
 
-        private void AppendMovablesToWriter(byte[] movData, StreamWriter w, Dictionary<string, string?> textures, ref int v, ref int vt, ref int vn, Func<string, byte[]?> loader, List<GroundSnapUtil.Triangle>? baseTriangles = null, Dictionary<string, int>? modelCountsCollector = null)
-        {
-            string text = Encoding.ASCII.GetString(movData);
-            string[] lines = text.Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
-            var instanceCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
-            // Derive snap distances from the actual terrain Y range so that objects intentionally
-            // placed above ground (rooftops, balconies, hanging props) are not falsely pulled down.
-            float snapMaxDrop = 500f;
-            float snapRayStart = 25.0f;
-            float? floorLimitY = null;
-            if (_enableGroundSnap && baseTriangles != null && baseTriangles.Count > 0)
-            {
-                GroundSnapUtil.ComputeTerrainBounds(baseTriangles, out float minTY, out float maxTY);
-                float range = maxTY - minTY;
-                if (range > 0f)
-                {
-                    snapMaxDrop = range + 50.0f;
-                    floorLimitY = minTY - 1.0f;
-                }
-            }
-
-            foreach (string line in lines)
-            {
-                string clean = line.Contains("//") ? line[..line.IndexOf("//")].Trim() : line.Trim();
-                if (string.IsNullOrWhiteSpace(clean)) continue;
-
-                string[] parts = clean.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
-                if (parts.Length < 8) continue;
-
-                string hieName = parts[0].Trim('"');
-                if (!hieName.EndsWith(".hie", StringComparison.OrdinalIgnoreCase))
-                    hieName += ".hie";
-
-                if (!float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float px) ||
-                    !float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float py) ||
-                    !float.TryParse(parts[3], NumberStyles.Float, CultureInfo.InvariantCulture, out float pz) ||
-                    !float.TryParse(parts[4], NumberStyles.Float, CultureInfo.InvariantCulture, out float qx) ||
-                    !float.TryParse(parts[5], NumberStyles.Float, CultureInfo.InvariantCulture, out float qy) ||
-                    !float.TryParse(parts[6], NumberStyles.Float, CultureInfo.InvariantCulture, out float qz) ||
-                    !float.TryParse(parts[7], NumberStyles.Float, CultureInfo.InvariantCulture, out float qw))
-                {
-                    continue;
-                }
-
-                Matrix4x4 rotation = Matrix4x4.CreateFromQuaternion(new Quaternion(qx, qy, qz, qw));
-                Matrix4x4 worldMatrix = rotation with { M41 = px, M42 = py, M43 = pz };
-
-                // EXPERIMENTAL GROUND SNAP WITH SLOPE ALIGNMENT BEGIN
-                if (_enableGroundSnap && baseTriangles != null && baseTriangles.Count > 0)
-                {
-                    Vector3 origPos = new Vector3(px, py, pz);
-                    var (snappedPos, alignedMat) = GroundSnapUtil.SnapAndAlignToSurface(
-                        origPos,
-                        worldMatrix,
-                        baseTriangles,
-                        contactRadius: 0.75f,
-                        maxDropDistance: snapMaxDrop,
-                        rayStartHeight: snapRayStart,
-                        floorLimitY: floorLimitY
-                    );
-                    worldMatrix = alignedMat;
-                    px = snappedPos.X;
-                    py = snappedPos.Y;
-                    pz = snappedPos.Z;
-                }
-                // EXPERIMENTAL GROUND SNAP END
-
-                string modelBaseName = Path.GetFileNameWithoutExtension(hieName);
-                int instIdx = instanceCounts.GetValueOrDefault(modelBaseName, 0) + 1;
-                instanceCounts[modelBaseName] = instIdx;
-                if (modelCountsCollector != null)
-                {
-                    modelCountsCollector[modelBaseName] = modelCountsCollector.GetValueOrDefault(modelBaseName, 0) + 1;
-                }
-                string instanceId = $"{modelBaseName}_{instIdx:D3}";
-
-                if (_useGrouping)
-                {
-                    w.WriteLine($"o {instanceId}");
-                    w.WriteLine($"# Class: {hieName}");
-                    w.WriteLine($"# WorldPos: {F(px)} {F(py)} {F(pz)}");
-                    w.WriteLine($"# Quaternion: {F(qx)} {F(qy)} {F(qz)} {F(qw)}");
-                }
-
-                var hie = GetOrLoadHierarchy(hieName, loader);
-                if (hie?.Root != null)
-                {
-                    string? movableArchive = _vfs.GetArchivePath(hieName);
-                    string defaultTex = "Default";
-                    // _localOrigin is NOT reset per movable: the global origin from ExportLevelToObj
-                    // keeps movables positioned correctly relative to the terrain.
-                    ProcessNode(hie.Root, worldMatrix, ref defaultTex, hie, textures, w, ref v, ref vt, ref vn, movableArchive, null, 0, instanceId);
-                }
-                else if (hie != null && hie.Meshes.Count > 0)
-                {
-                    string? movableArchive = _vfs.GetArchivePath(hieName);
-                    string defaultTex = hie.Textures.Count > 0 ? hie.Textures[0].Trim('"') : "Default";
-                    foreach (var meshName in hie.Meshes)
-                    {
-                        if (!_meshCache.TryGetValue(meshName, out var container))
-                        {
-                            byte[]? meshData = loader(meshName);
-                            if (meshData != null)
-                            {
-                                container = MSHSContainer.Load(meshData, meshName);
-                                _meshCache[meshName] = container;
-                            }
-                        }
-                        if (container != null)
-                        {
-                            Matrix4x4 drawMatrix = worldMatrix;
-                            if (_useLocalCoords && _localOrigin.HasValue)
-                            {
-                                drawMatrix.M41 -= _localOrigin.Value.X;
-                                drawMatrix.M42 -= _localOrigin.Value.Y;
-                                drawMatrix.M43 -= _localOrigin.Value.Z;
-                            }
-                            string canonicalMat = RegisterAndGetCanonicalTexture(defaultTex, movableArchive, textures);
-                            w.WriteLine($"usemtl {canonicalMat}");
-                            for (int i = 0; i < container.Meshes.Count; i++)
-                            {
-                                WriteSubMesh(container.Meshes[i], drawMatrix, w, ref v, ref vt, ref vn);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        private int AppendPowerupsToWriter(byte[] pupData, StreamWriter w, Dictionary<string, string?> textures, ref int v, ref int vt, ref int vn, Func<string, byte[]?> loader)
-        {
-            string text = Encoding.ASCII.GetString(pupData);
-            string[] lines = text.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
-
-            string lastCommentName = "Powerup";
-            int lastTypeId = 0;
-            int pupIndex = 0;
-            int bakedCount = 0;
-
-            for (int i = 0; i < lines.Length; i++)
-            {
-                string line = lines[i].Trim();
-                if (string.IsNullOrWhiteSpace(line)) continue;
-
-                if (line.StartsWith("//"))
-                {
-                    lastCommentName = line.Substring(2).Trim();
-                    continue;
-                }
-
-                if (int.TryParse(line, NumberStyles.Integer, CultureInfo.InvariantCulture, out int typeId))
-                {
-                    lastTypeId = typeId;
-                    continue;
-                }
-
-                string[] parts = line.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
-                if (parts.Length >= 3 &&
-                    float.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float px) &&
-                    float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float py) &&
-                    float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float pz))
-                {
-                    pupIndex++;
-                    string iconHieName = ResolvePowerupIconHie(lastTypeId, lastCommentName);
-                    Matrix4x4 worldMatrix = Matrix4x4.CreateTranslation(px, py, pz);
-                    string cleanComment = lastCommentName.Replace(' ', '_').Replace('!', '_').Replace('.', '_');
-                    string instanceId = $"Powerup_{pupIndex:D3}_{cleanComment}";
-
-                    if (_useGrouping)
-                    {
-                        w.WriteLine($"o {instanceId}");
-                        w.WriteLine($"# TypeID: {lastTypeId} ({lastCommentName})");
-                        w.WriteLine($"# WorldPos: {F(px)} {F(py)} {F(pz)}");
-                    }
-
-                    var hie = GetOrLoadHierarchy(iconHieName, loader);
-                    if (hie?.Root != null)
-                    {
-                        string? movableArchive = _vfs.GetArchivePath(iconHieName);
-                        string defaultTex = "Default";
-                        // _localOrigin is NOT reset per powerup: global origin from ExportLevelToObj.
-                        ProcessNode(hie.Root, worldMatrix, ref defaultTex, hie, textures, w, ref v, ref vt, ref vn, movableArchive);
-                        bakedCount++;
-                    }
-                }
-            }
-            return bakedCount;
-        }
-
-        private static string ResolvePowerupIconHie(int typeId, string name) =>
-            TextureResolver.ResolvePowerupIconHie(typeId, name);
         public void ExportMovablesToObj(string descPath, Func<string, byte[]?> loader)
         {
             byte[]? data = loader(descPath);
@@ -1050,30 +808,7 @@ namespace TDR.Tools.Export
                             textures.TryAdd("PedestrianProxy", null);
 
                             int startV = v;
-                            foreach (var lb in localBox)
-                            {
-                                Vector3 wv = Vector3.Transform(lb, worldMatrix);
-                                w.WriteLine($"v {F(wv.X)} {F(wv.Y)} {F(wv.Z)}");
-                                v++;
-                            }
-
-                            w.WriteLine($"f {startV+0} {startV+1} {startV+5}");
-                            w.WriteLine($"f {startV+0} {startV+5} {startV+4}");
-
-                            w.WriteLine($"f {startV+1} {startV+2} {startV+6}");
-                            w.WriteLine($"f {startV+1} {startV+6} {startV+5}");
-
-                            w.WriteLine($"f {startV+2} {startV+3} {startV+7}");
-                            w.WriteLine($"f {startV+2} {startV+7} {startV+6}");
-
-                            w.WriteLine($"f {startV+3} {startV+0} {startV+4}");
-                            w.WriteLine($"f {startV+3} {startV+4} {startV+7}");
-
-                            w.WriteLine($"f {startV+4} {startV+5} {startV+6}");
-                            w.WriteLine($"f {startV+4} {startV+6} {startV+7}");
-
-                            w.WriteLine($"f {startV+0} {startV+3} {startV+2}");
-                            w.WriteLine($"f {startV+0} {startV+2} {startV+1}");
+                            AppendPedestrianProxyToWriter(worldMatrix, w, textures, ref v, ref vt, ref vn, instanceId);
                         }
                     }
                 }
@@ -1095,178 +830,53 @@ namespace TDR.Tools.Export
             }
         }
 
-        private int AppendPedestriansToWriter(byte[] pedData, StreamWriter w, Dictionary<string, string?> textures, ref int v, ref int vt, ref int vn, Func<string, byte[]?> loader)
+        private void AppendPedestrianProxyToWriter(Matrix4x4 transform, StreamWriter w, Dictionary<string, string?> textures, ref int v, ref int vt, ref int vn, string instanceId)
         {
-            string text = Encoding.ASCII.GetString(pedData);
-            string[] lines = text.Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
-
-            int pedIdx = 0;
-            foreach (string rawLine in lines)
+            if (_useGrouping)
             {
-                string clean = rawLine.Contains("//") ? rawLine[..rawLine.IndexOf("//")].Trim() : rawLine.Trim();
-                if (string.IsNullOrWhiteSpace(clean)) continue;
-
-                string[] parts = clean.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
-                if (parts.Length >= 3 &&
-                    float.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float px) &&
-                    float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float py) &&
-                    float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float pz))
-                {
-                    pedIdx++;
-                    string pedHieName = "pedestrian_placeholder.hie";
-                    Matrix4x4 worldMatrix = Matrix4x4.CreateTranslation(px, py, pz);
-
-                    if (_useGrouping)
-                    {
-                        w.WriteLine($"o Pedestrian_{pedIdx:D3}");
-                        w.WriteLine($"# WorldPos: {F(px)} {F(py)} {F(pz)}");
-                    }
-
-                    var hie = GetOrLoadHierarchy(pedHieName, loader);
-                    if (hie?.Root != null)
-                    {
-                        string? pedArchive = _vfs.GetArchivePath(pedHieName);
-                        string currentTex = "Default";
-                        ProcessNode(hie.Root, worldMatrix, ref currentTex, hie, textures, w, ref v, ref vt, ref vn, pedArchive, null, 0, $"Pedestrian_{pedIdx:D3}");
-                    }
-                }
+                w.WriteLine($"o {instanceId}");
+                w.WriteLine($"# WorldPos: {F(transform.M41)} {F(transform.M42)} {F(transform.M43)}");
             }
-            return pedIdx;
-        }
-
-        private byte[]? LoadDroneHie(string droneName, out string resolvedName)
-        {
-            string clean = droneName
-                .Replace("MAIN_NULL_PED", "", StringComparison.OrdinalIgnoreCase)
-                .Replace("MAIN_NULL", "", StringComparison.OrdinalIgnoreCase)
-                .Replace("_PED", "", StringComparison.OrdinalIgnoreCase)
-                .Trim('_');
-
-            var candidates = new List<string>
+            // Upright proxy box: width 0.5m, height 1.8m, depth 0.5m
+            float hx = 0.25f, hy = 1.8f, hz = 0.25f;
+            var localPts = new[]
             {
-                droneName,
-                droneName + ".hie",
-                $"cars/{droneName}/{droneName}.hie",
-                $"drones/{droneName}/{droneName}.hie",
-                clean,
-                clean + ".hie",
-                $"cars/{clean}/{clean}.hie",
-                $"drones/{clean}/{clean}.hie",
-                $"cars/{clean}/{clean}main_null.hie"
+                new Vector3(-hx, 0, -hz), new Vector3(hx, 0, -hz),
+                new Vector3(hx, 0, hz),  new Vector3(-hx, 0, hz),
+                new Vector3(-hx, hy, -hz), new Vector3(hx, hy, -hz),
+                new Vector3(hx, hy, hz),  new Vector3(-hx, hy, hz)
             };
 
-            foreach (var cand in candidates.Distinct(StringComparer.OrdinalIgnoreCase))
+            int startV = v;
+            foreach (var pt in localPts)
             {
-                byte[]? data = _vfs.LoadFile(cand);
-                if (data != null && data.Length > 0)
-                {
-                    resolvedName = cand;
-                    return data;
-                }
+                Vector3 worldPt = Vector3.Transform(pt, transform);
+                w.WriteLine($"v {F(worldPt.X)} {F(worldPt.Y)} {F(worldPt.Z)}");
+                v++;
             }
 
-            resolvedName = droneName;
-            return null;
-        }
+            int vtIdx = vt;
+            w.WriteLine("vt 0.0000 0.0000");
+            vt++;
 
-        private int AppendDronesToWriter(
-            List<string> droneDescs,
-            StreamWriter w,
-            Dictionary<string, string?> textures,
-            ref int v, ref int vt, ref int vn,
-            Func<string, byte[]?> loader,
-            string cleanTrackName,
-            Dictionary<string, int>? droneCountsCollector = null,
-            List<GroundSnapUtil.Triangle>? baseTriangles = null)
-        {
-            if (droneDescs == null || droneDescs.Count == 0) return 0;
+            int vnIdx = vn;
+            w.WriteLine("vn 0.0000 1.0000 0.0000");
+            vn++;
 
-            // 1. Parse drone vehicle types & requested instance counts
-            var droneRequests = new List<(string Name, int Count)>();
-            foreach (string descName in droneDescs)
+            w.WriteLine("usemtl Default");
+            textures["Default"] = null;
+
+            (int, int, int)[] faces = new[]
             {
-                byte[]? data = loader(descName);
-                if (data == null || data.Length == 0) continue;
+                (0, 1, 5), (0, 5, 4), (1, 2, 6), (1, 6, 5),
+                (2, 3, 7), (2, 7, 6), (3, 0, 4), (3, 4, 7),
+                (4, 5, 6), (4, 6, 7), (3, 2, 1), (3, 1, 0)
+            };
 
-                string text = Encoding.ASCII.GetString(data);
-                string[] lines = text.Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
-
-                foreach (string rawLine in lines)
-                {
-                    string clean = rawLine.Contains("//") ? rawLine[..rawLine.IndexOf("//")].Trim() : rawLine.Trim();
-                    if (string.IsNullOrWhiteSpace(clean)) continue;
-
-                    string[] parts = clean.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
-                    if (parts.Length >= 2)
-                    {
-                        string dName = parts[0].Trim('"');
-                        if (int.TryParse(parts[1], out int count) && count > 0)
-                        {
-                            droneRequests.Add((dName, count));
-                        }
-                    }
-                }
-            }
-
-            if (droneRequests.Count == 0) return 0;
-
-            var roadSplines = SplineResolver.ResolveRoadSplines(_vfs, cleanTrackName, _trackContext, msg => Log(msg));
-            int totalDrones = droneRequests.Sum(r => r.Count);
-            var spawnMatrices = SplineResolver.GenerateSpawnMatrices(roadSplines, totalDrones);
-
-            int bakedTotal = 0;
-            int spawnIdx = 0;
-
-            foreach (var req in droneRequests)
+            foreach (var (f0, f1, f2) in faces)
             {
-                byte[]? droneHieBytes = LoadDroneHie(req.Name, out string resolvedHieName);
-                if (droneHieBytes == null)
-                {
-                    if (_verbose)
-                        Log($"    [!] Traffic drone '{req.Name}' model not found in VFS (skipped 3D mesh).");
-                    continue;
-                }
-
-                var hie = GetOrLoadHierarchy(resolvedHieName, _ => droneHieBytes);
-                if (hie?.Root == null) continue;
-
-                string? droneArchive = _vfs.GetArchivePath(resolvedHieName);
-
-                for (int i = 0; i < req.Count; i++)
-                {
-                    Matrix4x4 spawnMat = spawnMatrices[spawnIdx % spawnMatrices.Count];
-                    spawnIdx++;
-
-                    if (_enableGroundSnap && baseTriangles != null && baseTriangles.Count > 0)
-                    {
-                        Vector3 origPos = new Vector3(spawnMat.M41, spawnMat.M42, spawnMat.M43);
-                        Vector3 snappedPos = GroundSnapUtil.SnapPointToSurface(origPos, baseTriangles, maxDropDistance: 500f, rayStartHeight: 2.0f);
-                        spawnMat.M41 = snappedPos.X;
-                        spawnMat.M42 = snappedPos.Y + 0.15f;
-                        spawnMat.M43 = snappedPos.Z;
-                    }
-
-                    string instanceId = $"Drone_{Path.GetFileNameWithoutExtension(req.Name)}_{i + 1:D2}";
-                    if (_useGrouping)
-                    {
-                        w.WriteLine($"o {instanceId}");
-                        w.WriteLine($"# Class: {req.Name}");
-                        w.WriteLine($"# WorldPos: {F(spawnMat.M41)} {F(spawnMat.M42)} {F(spawnMat.M43)}");
-                    }
-
-                    string currentTex = "Default";
-                    ProcessNode(hie.Root, spawnMat, ref currentTex, hie, textures, w, ref v, ref vt, ref vn, droneArchive, null, 0, instanceId);
-                    bakedTotal++;
-
-                    if (droneCountsCollector != null)
-                    {
-                        string shortName = Path.GetFileNameWithoutExtension(req.Name);
-                        droneCountsCollector[shortName] = droneCountsCollector.GetValueOrDefault(shortName, 0) + 1;
-                    }
-                }
+                w.WriteLine($"f {startV + f0}/{vtIdx}/{vnIdx} {startV + f1}/{vtIdx}/{vnIdx} {startV + f2}/{vtIdx}/{vnIdx}");
             }
-
-            return bakedTotal;
         }
 
         private void ProcessNode(

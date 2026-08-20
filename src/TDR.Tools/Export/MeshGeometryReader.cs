@@ -103,5 +103,62 @@ namespace TDR.Tools.Export
                     break;
             }
         }
+
+        public static float ComputeHierarchyMinimumY(TDRHierarchy hie, Func<string, byte[]?> loader)
+        {
+            if (hie?.Root == null) return float.MaxValue;
+            float minY = float.MaxValue;
+            var meshCache = new Dictionary<string, MSHSContainer>(StringComparer.OrdinalIgnoreCase);
+
+            void RecurseNode(TDRNode node, Matrix4x4 parentMatrix)
+            {
+                Matrix4x4 worldMat = node.Transform * parentMatrix;
+
+                if (node.Type == TDRNode.NodeType.Mesh && node.Index >= 0 && node.Index < hie.Meshes.Count)
+                {
+                    string mshName = hie.Meshes[node.Index];
+                    if (!meshCache.TryGetValue(mshName, out var container))
+                    {
+                        byte[]? mshBytes = loader(mshName);
+                        if (mshBytes != null && mshBytes.Length > 0)
+                        {
+                            container = MSHSContainer.Load(mshBytes, mshName);
+                            meshCache[mshName] = container;
+                        }
+                    }
+
+                    if (container != null)
+                    {
+                        foreach (var meshData in container.Meshes)
+                        {
+                            if (meshData.Mode == MeshMode.TriIndexedPosition || (meshData.Positions.Count > 0 && meshData.Faces.Count > 0))
+                            {
+                                foreach (var pos in meshData.Positions)
+                                {
+                                    float y = Vector3.Transform(pos, worldMat).Y;
+                                    if (y < minY) minY = y;
+                                }
+                            }
+                            else
+                            {
+                                foreach (var vert in meshData.Vertices)
+                                {
+                                    float y = Vector3.Transform(vert.Position, worldMat).Y;
+                                    if (y < minY) minY = y;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                foreach (var child in node.Children)
+                {
+                    RecurseNode(child, worldMat);
+                }
+            }
+
+            RecurseNode(hie.Root, Matrix4x4.Identity);
+            return minY;
+        }
     }
 }

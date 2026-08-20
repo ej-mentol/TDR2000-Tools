@@ -12,54 +12,7 @@ namespace TDR.PakLib.Formats
         public string Name { get; set; } = string.Empty;
         public List<Vector3> Points { get; } = new();
 
-        /// <summary>
-        /// Calculates a placement Matrix4x4 positioned at Points[pointIndex] oriented towards the next point.
-        /// </summary>
-        public Matrix4x4 GetSpawnMatrix(int pointIndex = 0, float yOffset = 0.35f)
-        {
-            if (Points.Count == 0) return Matrix4x4.Identity;
 
-            int idx0 = Math.Clamp(pointIndex, 0, Points.Count - 1);
-            Vector3 pos = Points[idx0];
-            pos.Y += yOffset;
-
-            Vector3 forward;
-            if (idx0 < Points.Count - 1)
-            {
-                forward = Points[idx0 + 1] - Points[idx0];
-            }
-            else if (idx0 > 0)
-            {
-                forward = Points[idx0] - Points[idx0 - 1];
-            }
-            else
-            {
-                forward = Vector3.UnitZ;
-            }
-
-            // Keep vehicle and train upright by projecting forward tangent onto horizontal XZ plane
-            forward.Y = 0f;
-
-            if (forward.LengthSquared() < 0.0001f)
-            {
-                forward = Vector3.UnitZ;
-            }
-            else
-            {
-                forward = Vector3.Normalize(forward);
-            }
-
-            Vector3 realUp = Vector3.UnitY;
-            Vector3 right = Vector3.Normalize(Vector3.Cross(forward, realUp));
-
-            // TDR2000 train & vehicle models are built along the Z-axis (Forward = Z, Right = X, Up = Y)
-            return new Matrix4x4(
-                right.X,    right.Y,    right.Z,    0f,
-                realUp.X,   realUp.Y,   realUp.Z,   0f,
-                forward.X,  forward.Y,  forward.Z,  0f,
-                pos.X,      pos.Y,      pos.Z,      1f
-            );
-        }
 
         public void ApplyTransform(Matrix4x4 transform)
         {

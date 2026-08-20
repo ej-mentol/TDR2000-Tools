@@ -29,8 +29,7 @@
                         <MenuItem Header="_Delete Selected" InputGesture="Delete" Click="OnDeleteSelectedClick"/>
                     </MenuItem>
                     <MenuItem Header="_View">
-                        <MenuItem Header="_Refresh Source Tree" InputGesture="F5" Click="OnRefreshSourceClick"/>
-                        <MenuItem Header="Refresh _Destination Tree" Click="OnRefreshDestinationClick"/>
+                        <MenuItem Header="_Refresh" InputGesture="F5" Click="OnRefreshSourceClick"/>
                         <Separator/>
                         <MenuItem Header="Details Pane" InputGesture="Ctrl+D" Click="OnTogglePreviewClick">
                             <MenuItem.Icon>
@@ -372,8 +371,6 @@
                                     <MenuItem Header="Open Containing Folder" Click="OnOpenContainingFolderClick"/>
                                     <Separator/>
                                     <MenuItem Header="Delete" InputGesture="Delete" Click="OnDestinationDeleteNodeClick"/>
-                                    <Separator/>
-                                    <MenuItem Header="Refresh" Click="OnRefreshDestinationClick"/>
                                     <Separator/>
                                     <MenuItem Header="Details Pane" InputGesture="Ctrl+D" Click="OnTogglePreviewClick">
                                         <MenuItem.Icon>

@@ -208,6 +208,9 @@ namespace TDR.Tools.Export
 
         [JsonPropertyName("heading")]
         public float? Heading { get; set; }
+
+        [JsonPropertyName("properties")]
+        public Dictionary<string, object> Properties { get; set; } = new();
     }
 
     public sealed class SceneLight
@@ -350,51 +353,55 @@ namespace TDR.Tools.Export
                 });
             }
 
-            // 4b. Movables (Cumulative descriptors)
-            var allMovDescs = new List<string>(assets.MovableDescriptors);
-            string defaultVarMov = $"{trackName}_{variantArg}_MoveableDescriptor.txt";
-            string defaultBaseMov = $"{cleanTrack}_MoveableDescriptor.txt";
-            if (!string.IsNullOrWhiteSpace(variantArg) && vfs.FileExists(defaultVarMov) && !allMovDescs.Contains(defaultVarMov, StringComparer.OrdinalIgnoreCase))
-                allMovDescs.Add(defaultVarMov);
-            else if (allMovDescs.Count == 0 && vfs.FileExists(defaultBaseMov))
-                allMovDescs.Add(defaultBaseMov);
+            // 4b. Dynamic Scene Entities (Movables, Powerups, Drones, Pedestrians) via SceneReconstruction
+            var dynamicEntities = SceneReconstruction.ReconstructDynamicEntities(
+                vfs,
+                trackName,
+                assets,
+                includeMovables: true,
+                useLocalCoords: false,
+                globalOrigin: null,
+                trackContext: trackContext,
+                log: msg => { if (verbose) log?.Invoke(msg); });
 
-            var spawnedMovableLocations = new List<(string Model, Vector3 Pos)>();
-            foreach (string movDesc in allMovDescs)
+            foreach (var entity in dynamicEntities)
             {
-                byte[]? movData = loader(movDesc);
-                if (movData != null)
+                var q = Quaternion.CreateFromRotationMatrix(entity.WorldTransform);
+                string category = entity.Category switch
                 {
-                    int before = manifest.Entities.Count;
-                    ParseMovables(movData, manifest.Entities, spawnedMovableLocations);
-                    if (verbose) log?.Invoke($"  [JSON Movables] Parsed {manifest.Entities.Count - before} movable entity placement(s) from '{movDesc}'");
+                    EntityCategory.MovableProp => "movable",
+                    EntityCategory.TrafficDrone => "traffic_drone",
+                    EntityCategory.PowerupItem => "powerup",
+                    EntityCategory.Pedestrian => "pedestrian",
+                    _ => "dynamic_entity"
+                };
+
+                string prefab = entity.Category == EntityCategory.Pedestrian
+                    ? "prefabs/pedestrian_proxy.obj"
+                    : $"prefabs/{Path.GetFileNameWithoutExtension(entity.ModelHieName)}.obj";
+
+                var jsonEntity = new SceneEntity
+                {
+                    Id = entity.InstanceId,
+                    Category = category,
+                    Prefab = prefab,
+                    Position = new[] { entity.WorldTransform.M41, entity.WorldTransform.M42, entity.WorldTransform.M43 },
+                    Rotation = new[] { q.X, q.Y, q.Z, q.W }
+                };
+
+                if (entity.Category == EntityCategory.PowerupItem)
+                {
+                    jsonEntity.Properties["type_id"] = entity.TypeId;
+                    if (!string.IsNullOrEmpty(entity.Tag)) jsonEntity.Properties["powerup_type"] = entity.Tag;
                 }
-            }
+                else if (entity.Category == EntityCategory.TrafficDrone)
+                {
+                    if (!string.IsNullOrEmpty(entity.Tag)) jsonEntity.Properties["drone_class"] = entity.Tag;
+                }
 
-            // 4c. Pedestrians
-            var allPedDescs = new List<string>(assets.PedestrianDescriptors);
-            string defaultPed = $"{cleanTrack}_PedDescriptor.txt";
-            if (!allPedDescs.Contains(defaultPed, StringComparer.OrdinalIgnoreCase) && vfs.FileExists(defaultPed))
-                allPedDescs.Add(defaultPed);
-
-            byte[]? pedData = loader($"{trackName}_Ped_Placement.txt") ?? loader($"{trackName}Ped_Placement.txt");
-            if (pedData != null)
-            {
-                int before = manifest.Entities.Count;
-                byte[]? pedDescData = allPedDescs.Count > 0 ? loader(allPedDescs[0]) : null;
-                ParsePedestrians(pedData, pedDescData, manifest.Entities);
-                if (verbose) log?.Invoke($"  [JSON Pedestrians] Parsed {manifest.Entities.Count - before} pedestrian placement(s)");
+                manifest.Entities.Add(jsonEntity);
             }
-
-            // 4d. Powerups (.pup)
-            string targetPup = !string.IsNullOrWhiteSpace(variantArg) ? $"{trackName}_{variantArg}.pup" : $"{trackName}_Race1.pup";
-            byte[]? pupData = loader(targetPup) ?? loader($"{trackName}.pup") ?? loader($"{trackName}Race1.pup");
-            if (pupData != null)
-            {
-                int before = manifest.Entities.Count;
-                ParsePowerups(pupData, manifest.Entities);
-                if (verbose) log?.Invoke($"  [JSON Powerups] Parsed {manifest.Entities.Count - before} powerup placement(s)");
-            }
+            if (verbose) log?.Invoke($"  [JSON Dynamic Entities] Reconstructed {dynamicEntities.Count} dynamic entity placement(s)");
 
             // 4e. Breakables
             var breakRes = LoadDescriptorByKeyOrFallback(loader, trackTxtData, "BREAKABLES_DESCRIPTOR", trackName, "BreakDescriptor.txt");
@@ -715,157 +722,7 @@ if json_files:
             }
         }
 
-        private static void ParseMovables(byte[] data, List<SceneEntity> entities, List<(string Model, Vector3 Pos)>? spawnedPositions = null)
-        {
-            string[] lines = Encoding.ASCII.GetString(data).Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
-            var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
-            foreach (string line in lines)
-            {
-                string clean = line.Contains("//") ? line[..line.IndexOf("//")].Trim() : line.Trim();
-                if (string.IsNullOrWhiteSpace(clean)) continue;
-
-                string[] parts = clean.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
-                if (parts.Length < 8) continue;
-
-                string hieName = parts[0].Trim('"');
-                string modelBaseName = Path.GetFileNameWithoutExtension(hieName);
-
-                if (!float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float px) ||
-                    !float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float py) ||
-                    !float.TryParse(parts[3], NumberStyles.Float, CultureInfo.InvariantCulture, out float pz) ||
-                    !float.TryParse(parts[4], NumberStyles.Float, CultureInfo.InvariantCulture, out float qx) ||
-                    !float.TryParse(parts[5], NumberStyles.Float, CultureInfo.InvariantCulture, out float qy) ||
-                    !float.TryParse(parts[6], NumberStyles.Float, CultureInfo.InvariantCulture, out float qz) ||
-                    !float.TryParse(parts[7], NumberStyles.Float, CultureInfo.InvariantCulture, out float qw))
-                {
-                    continue;
-                }
-
-                var rawPos = new Vector3(px, py, pz);
-                if (spawnedPositions != null)
-                {
-                    if (spawnedPositions.Any(loc => loc.Model.Equals(modelBaseName, StringComparison.OrdinalIgnoreCase) &&
-                                                    Vector3.DistanceSquared(loc.Pos, rawPos) < 0.01f))
-                    {
-                        continue;
-                    }
-                    spawnedPositions.Add((modelBaseName, rawPos));
-                }
-
-                int instIdx = counts.GetValueOrDefault(modelBaseName, 0) + 1;
-                counts[modelBaseName] = instIdx;
-
-                entities.Add(new SceneEntity
-                {
-                    Id = $"{modelBaseName}_{instIdx:D3}",
-                    Category = "movable",
-                    Prefab = $"prefabs/{modelBaseName}.obj",
-                    Position = new[] { px, py, pz },
-                    Rotation = new[] { qx, qy, qz, qw }
-                });
-            }
-        }
-
-        private static void ParsePedestrians(byte[] pedData, byte[]? pedDescData, List<SceneEntity> entities)
-        {
-            var pedClasses = new List<string>();
-            if (pedDescData != null)
-            {
-                string[] descLines = Encoding.ASCII.GetString(pedDescData).Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
-                foreach (string line in descLines)
-                {
-                    string clean = line.Contains("//") ? line[..line.IndexOf("//")].Trim() : line.Trim();
-                    if (clean.EndsWith("Descriptor.txt", StringComparison.OrdinalIgnoreCase))
-                    {
-                        string className = clean.Replace("Skeleton Descriptor.txt", "").Trim('"').Trim();
-                        pedClasses.Add(className);
-                    }
-                }
-            }
-
-            string[] lines = Encoding.ASCII.GetString(pedData).Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
-            var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-
-            foreach (string line in lines)
-            {
-                string clean = line.Contains("//") ? line[..line.IndexOf("//")].Trim() : line.Trim();
-                if (string.IsNullOrWhiteSpace(clean)) continue;
-
-                string[] parts = clean.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
-                if (parts.Length < 7) continue;
-
-                if (parts[0] != "1") continue; // Skip disabled spawners
-
-                if (!int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out int classId) ||
-                    !float.TryParse(parts[3], NumberStyles.Float, CultureInfo.InvariantCulture, out float px) ||
-                    !float.TryParse(parts[4], NumberStyles.Float, CultureInfo.InvariantCulture, out float py) ||
-                    !float.TryParse(parts[5], NumberStyles.Float, CultureInfo.InvariantCulture, out float pz) ||
-                    !float.TryParse(parts[6], NumberStyles.Float, CultureInfo.InvariantCulture, out float heading))
-                {
-                    continue;
-                }
-
-                string className = classId >= 0 && classId < pedClasses.Count ? pedClasses[classId] : $"Pedestrian_Class_{classId}";
-                int instIdx = counts.GetValueOrDefault(className, 0) + 1;
-                counts[className] = instIdx;
-
-                entities.Add(new SceneEntity
-                {
-                    Id = $"{className}_{instIdx:D3}",
-                    Category = "pedestrian",
-                    Prefab = $"prefabs/{className}.obj",
-                    Position = new[] { px, py, pz },
-                    Heading = heading
-                });
-            }
-        }
-
-        private static void ParsePowerups(byte[] pupData, List<SceneEntity> entities)
-        {
-            string text = Encoding.ASCII.GetString(pupData);
-            string[] lines = text.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
-
-            string lastCommentName = "Powerup";
-            int lastTypeId = 0;
-            int pupIndex = 0;
-
-            for (int i = 0; i < lines.Length; i++)
-            {
-                string line = lines[i].Trim();
-                if (string.IsNullOrWhiteSpace(line)) continue;
-
-                if (line.StartsWith("//"))
-                {
-                    lastCommentName = line.Substring(2).Trim();
-                    continue;
-                }
-
-                if (int.TryParse(line, NumberStyles.Integer, CultureInfo.InvariantCulture, out int typeId))
-                {
-                    lastTypeId = typeId;
-                    continue;
-                }
-
-                string[] parts = line.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
-                if (parts.Length >= 3 &&
-                    float.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float px) &&
-                    float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float py) &&
-                    float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float pz))
-                {
-                    pupIndex++;
-                    string cleanComment = lastCommentName.Replace(' ', '_').Replace('!', '_').Replace('.', '_');
-                    entities.Add(new SceneEntity
-                    {
-                        Id = $"powerup_{pupIndex:D3}_{cleanComment}",
-                        Category = "powerup",
-                        Prefab = $"prefabs/powerups/{cleanComment}.obj",
-                        Position = new[] { px, py, pz },
-                        Heading = 0.0f
-                    });
-                }
-            }
-        }
 
         private static void ParseBreakables(byte[] breakData, List<SceneBreakable> breakables)
         {

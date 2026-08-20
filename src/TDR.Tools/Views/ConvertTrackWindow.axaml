@@ -48,8 +48,6 @@
 
                         <CheckBox IsChecked="{Binding UseLocalCoords}" Content="Use Local Coordinates" FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}" ToolTip.Tip="Exports mesh instances with local coordinates instead of applying world transforms."/>
 
-                        <CheckBox IsChecked="{Binding EnableGroundSnap}" Content="Raycast Ground Snap Props to Surface" FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}" ToolTip.Tip="Raycasts movable objects down onto terrain collision geometry using Möller–Trumbore raycasting."/>
-
                         <CheckBox IsChecked="{Binding VerboseLog}" Content="Verbose Pipeline Logging" FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}" ToolTip.Tip="Logs detailed VFS hits and pipeline processing stages in session log."/>
                     </StackPanel>
                 </Border>

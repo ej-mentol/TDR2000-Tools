@@ -19,7 +19,6 @@ namespace TDR.Tools.Export
         bool UseGrouping = true,
         bool DumpAll = false,
         bool Verbose = false,
-        bool EnableGroundSnap = false,
         List<string>? SelectedHieFiles = null
     );
 
@@ -102,7 +101,6 @@ namespace TDR.Tools.Export
                         options.IncludeMovableProps,
                         variantTrackName,
                         log,
-                        options.EnableGroundSnap,
                         options.SelectedHieFiles,
                         options.ExportPngTextures
                     );
@@ -127,7 +125,7 @@ namespace TDR.Tools.Export
 
                 if (descriptorData != null && descriptorData.Length > 0)
                 {
-                    var gltfExporter = new GltfExporter(vfs, outputDir, options.UseLocalCoords, options.Verbose, variantTrackName, log, options.ExportPngTextures, options.SelectedHieFiles, options.EnableGroundSnap);
+                    var gltfExporter = new GltfExporter(vfs, outputDir, options.UseLocalCoords, options.Verbose, variantTrackName, log, options.ExportPngTextures, options.SelectedHieFiles);
                     string outputGltfPath = Path.Combine(outputDir, variantTrackName + ".gltf");
                     log?.Invoke($"[►] Exporting Modern glTF 2.0 Scene: '{variantTrackName}.gltf'");
                     gltfExporter.ExportLevelToGltf(descriptorData, variantTrackName, outputGltfPath, options.IncludeMovableProps, progressCallback);
@@ -192,7 +190,6 @@ namespace TDR.Tools.Export
                     options.IncludeMovableProps,
                     variantTrackName,
                     log,
-                    options.EnableGroundSnap,
                     options.SelectedHieFiles,
                     options.ExportPngTextures
                 );

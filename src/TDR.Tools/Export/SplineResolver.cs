@@ -13,7 +13,9 @@ namespace TDR.Tools.Export
     {
         private static readonly string[] ExcludedKeywords = new[]
         {
-            "camera", "energy", "ped", "shark", "gorilla", "kong", "look", "boat", "tug"
+            "camera", "cam", "energy", "ped", "shark", "gorilla", "kong", "look", "boat", "tug",
+            "biplane", "stuka", "plane", "fly", "air", "train", "tram", "shot", "zoom", "circle",
+            "jump", "radar", "gate", "lift", "spinner", "explode", "sphere", "intro", "ai"
         };
 
         /// <summary>
@@ -35,12 +37,12 @@ namespace TDR.Tools.Export
                 string archiveLower = (file.ArchivePath ?? "").Replace('\\', '/').ToLowerInvariant();
 
                 if (!fn.EndsWith(".hie", StringComparison.OrdinalIgnoreCase)) continue;
-                if (!fn.Contains("drone") && !fn.Contains("path") && !fn.Contains("traffic")) continue;
+                if (!fn.Contains("drone") && !fn.Contains("traffic")) continue;
 
                 bool isExcluded = false;
                 foreach (string keyword in ExcludedKeywords)
                 {
-                    if (fn.Contains(keyword)) { isExcluded = true; break; }
+                    if (fn.Contains(keyword) || archiveLower.Contains(keyword)) { isExcluded = true; break; }
                 }
                 if (isExcluded) continue;
 
@@ -56,61 +58,21 @@ namespace TDR.Tools.Export
                     var hie = TDRHierarchy.Load(hieBytes, file.Name);
                     if (hie.Nodes.Any(n => n.Type == TDRNode.NodeType.Spline))
                     {
-                        var allSplines = new List<TDRSpline>();
                         foreach (string lineFileName in hie.LineNames)
                         {
                             byte[]? spBytes = vfs.LoadFileContext(lineFileName, trackContext ?? cleanTrackName) ??
                                               vfs.LoadFile(lineFileName);
                             if (spBytes != null && spBytes.Length > 0)
                             {
-                                string optShortName = Path.ChangeExtension(Path.GetFileName(lineFileName), ".txt");
-                                string optFullPath = Path.ChangeExtension(lineFileName, ".txt");
-                                byte[]? optBytes = vfs.LoadFileContext(optShortName, trackContext ?? cleanTrackName) ??
-                                                   vfs.LoadFile(optFullPath) ??
-                                                   vfs.LoadFile(optShortName);
-
-                                var container = TDRSplineContainer.Load(spBytes, lineFileName, optBytes);
-                                allSplines.AddRange(container.Splines);
-                            }
-                        }
-
-                        if (allSplines.Count > 0)
-                        {
-                            var visited = new HashSet<TDRNode>();
-                            void TraverseNode(TDRNode? node, Matrix4x4 parentMatrix)
-                            {
-                                if (node == null || !visited.Add(node)) return;
-                                Matrix4x4 currentMatrix = node.Transform * parentMatrix;
-
-                                if (node.Type == TDRNode.NodeType.Spline && node.Index >= 0 && node.Index < allSplines.Count)
+                                // TDR2000 road network splines are authored directly in world space coordinates.
+                                var container = TDRSplineContainer.Load(spBytes, lineFileName, null);
+                                foreach (var sp in container.Splines)
                                 {
-                                    var rawSpline = allSplines[node.Index];
-                                    if (rawSpline.Points.Count >= 2)
+                                    if (sp.Points.Count >= 2)
                                     {
-                                        var transformedSpline = new TDRSpline
-                                        {
-                                            Name = $"{rawSpline.Name}_node{node.ID}"
-                                        };
-                                        foreach (var pt in rawSpline.Points)
-                                        {
-                                            transformedSpline.Points.Add(Vector3.Transform(pt, currentMatrix));
-                                        }
-                                        roadSplines.Add(transformedSpline);
+                                        roadSplines.Add(sp);
                                     }
                                 }
-
-                                foreach (var child in node.Children)
-                                {
-                                    TraverseNode(child, currentMatrix);
-                                }
-                            }
-
-                            if (hie.Root != null)
-                                TraverseNode(hie.Root, Matrix4x4.Identity);
-                            else
-                            {
-                                foreach (var n in hie.Nodes)
-                                    TraverseNode(n, Matrix4x4.Identity);
                             }
                         }
                     }
@@ -132,12 +94,12 @@ namespace TDR.Tools.Export
                 bool isExcluded = false;
                 foreach (string keyword in ExcludedKeywords)
                 {
-                    if (fn.Contains(keyword)) { isExcluded = true; break; }
+                    if (fn.Contains(keyword) || archiveLower.Contains(keyword)) { isExcluded = true; break; }
                 }
                 if (isExcluded) continue;
 
-                bool isSplineExt = fn.EndsWith(".lins", StringComparison.OrdinalIgnoreCase) ||
-                                  (fn.EndsWith(".lin", StringComparison.OrdinalIgnoreCase) && (fn.Contains("traffic") || fn.Contains("drone") || fn.Contains("paths")));
+                bool isSplineExt = (fn.EndsWith(".lins", StringComparison.OrdinalIgnoreCase) || fn.EndsWith(".lin", StringComparison.OrdinalIgnoreCase)) &&
+                                   (fn.Contains("traffic") || fn.Contains("drone"));
 
                 if (!isSplineExt) continue;
 
@@ -151,13 +113,7 @@ namespace TDR.Tools.Export
                 {
                     try
                     {
-                        string optShortName = Path.ChangeExtension(Path.GetFileName(file.Name), ".txt");
-                        string optFullPath = Path.ChangeExtension(file.Name, ".txt");
-                        byte[]? optBytes = vfs.LoadFileContext(optShortName, trackContext ?? cleanTrackName) ??
-                                           vfs.LoadFile(optFullPath) ??
-                                           vfs.LoadFile(optShortName);
-
-                        var container = TDRSplineContainer.Load(splineBytes, file.Name, optBytes);
+                        var container = TDRSplineContainer.Load(splineBytes, file.Name, null);
                         foreach (var spline in container.Splines)
                         {
                             if (spline.Points.Count >= 2)
@@ -214,39 +170,74 @@ namespace TDR.Tools.Export
                 totalLength += len;
             }
 
-            // Distribute vehicle spawn slots proportionally along splines with minimum distance check
-            float minSeparation = 10.0f; // Minimum 10 meters between vehicle centres to prevent stacking
+            // Distribute vehicle spawn slots across distinct major arterial roads (avoiding short junction connectors)
+            float minSeparation = 50.0f; // Minimum 50 meters between vehicles across distinct sectors
             var spawnedPositions = new List<Vector3>();
 
-            for (int sIdx = 0; sIdx < validSplines.Count; sIdx++)
+            // Sort splines: prioritize gentle road grades (<= 10% slope, e.g. city streets) over steep mountain climbing ramps, then by length descending
+            var sortedIndices = Enumerable.Range(0, validSplines.Count)
+                .OrderBy(idx =>
+                {
+                    var sp = validSplines[idx];
+                    float spLen = splineLengths[idx];
+                    float dy = Math.Abs(sp.Points[^1].Y - sp.Points[0].Y);
+                    float grade = dy / Math.Max(1.0f, spLen);
+                    return grade > 0.10f ? 1 : 0; // 0 = gentle city street first, 1 = steep mountain ramp
+                })
+                .ThenByDescending(idx => splineLengths[idx])
+                .ToList();
+
+            // Phase 1: Spawn exactly 1 vehicle in the middle of each distinct major road (len >= 35m, avoiding intersection turn arcs)
+            foreach (int sIdx in sortedIndices)
             {
                 var spline = validSplines[sIdx];
                 float spLen = splineLengths[sIdx];
-                if (spLen < 1.0f) continue;
+                if (spLen < 35.0f) continue;
 
-                int splineSlots = Math.Max(1, (int)Math.Round((double)spLen / Math.Max(1.0f, totalLength) * targetCount));
-                float stepDist = spLen / (splineSlots + 1);
+                float targetDist = spLen * 0.5f; // Middle of the road
+                Matrix4x4 mat = SampleSplineAtDistance(spline, targetDist);
+                Vector3 pos = new Vector3(mat.M41, mat.M42, mat.M43);
 
-                for (int slot = 1; slot <= splineSlots; slot++)
+                bool tooClose = spawnedPositions.Any(p => Vector3.Distance(p, pos) < minSeparation);
+                if (!tooClose)
                 {
-                    float targetDist = slot * stepDist;
-                    Matrix4x4 mat = SampleSplineAtDistance(spline, targetDist);
-                    Vector3 pos = new Vector3(mat.M41, mat.M42, mat.M43);
-
-                    // Collision check with already spawned points
-                    bool tooClose = spawnedPositions.Any(p => Vector3.Distance(p, pos) < minSeparation);
-                    if (!tooClose)
-                    {
-                        spawnedPositions.Add(pos);
-                        spawnMatrices.Add(mat);
-                        if (spawnMatrices.Count >= targetCount) break;
-                    }
+                    spawnedPositions.Add(pos);
+                    spawnMatrices.Add(mat);
+                    if (spawnMatrices.Count >= targetCount) break;
                 }
-
-                if (spawnMatrices.Count >= targetCount) break;
             }
 
-            // If more slots needed, fill with fallback waypoint positions ensuring min separation
+            // Phase 2: If more slots needed, sample proportional slots on major roads
+            if (spawnMatrices.Count < targetCount)
+            {
+                foreach (int sIdx in sortedIndices)
+                {
+                    var spline = validSplines[sIdx];
+                    float spLen = splineLengths[sIdx];
+                    if (spLen < 35.0f) continue;
+
+                    int slots = Math.Max(2, (int)(spLen / 50.0f));
+                    float stepDist = spLen / (slots + 1);
+
+                    for (int slot = 1; slot <= slots; slot++)
+                    {
+                        float targetDist = slot * stepDist;
+                        Matrix4x4 mat = SampleSplineAtDistance(spline, targetDist);
+                        Vector3 pos = new Vector3(mat.M41, mat.M42, mat.M43);
+
+                        bool tooClose = spawnedPositions.Any(p => Vector3.Distance(p, pos) < 35.0f);
+                        if (!tooClose)
+                        {
+                            spawnedPositions.Add(pos);
+                            spawnMatrices.Add(mat);
+                            if (spawnMatrices.Count >= targetCount) break;
+                        }
+                    }
+                    if (spawnMatrices.Count >= targetCount) break;
+                }
+            }
+
+            // Fallback if very few splines exist
             if (spawnMatrices.Count < targetCount)
             {
                 foreach (var spline in validSplines)
@@ -255,7 +246,7 @@ namespace TDR.Tools.Export
                     {
                         Matrix4x4 mat = ComputeSplineSpawnMatrix(spline, i);
                         Vector3 pos = new Vector3(mat.M41, mat.M42, mat.M43);
-                        if (!spawnedPositions.Any(p => Vector3.Distance(p, pos) < 5.0f))
+                        if (!spawnedPositions.Any(p => Vector3.Distance(p, pos) < 15.0f))
                         {
                             spawnedPositions.Add(pos);
                             spawnMatrices.Add(mat);
@@ -278,50 +269,45 @@ namespace TDR.Tools.Export
             Vector3 pos = spline.Points[idx0];
             pos.Y += yOffset;
 
-            Vector3 forward;
+            Vector3 delta;
             if (idx0 < spline.Points.Count - 1)
             {
-                forward = spline.Points[idx0 + 1] - spline.Points[idx0];
+                delta = spline.Points[idx0 + 1] - spline.Points[idx0];
             }
             else if (idx0 > 0)
             {
-                forward = spline.Points[idx0] - spline.Points[idx0 - 1];
+                delta = spline.Points[idx0] - spline.Points[idx0 - 1];
+            }
+            else
+            {
+                delta = Vector3.UnitZ;
+            }
+
+            // Align vehicle heading horizontally along the road (Pitch = 0, Roll = 0, Up = +Y)
+            Vector3 forward = new Vector3(delta.X, 0f, delta.Z);
+            if (forward.LengthSquared() > 0.0001f)
+            {
+                forward = Vector3.Normalize(forward);
             }
             else
             {
                 forward = Vector3.UnitZ;
             }
-
-            if (forward.LengthSquared() > 0.0001f)
-                forward = Vector3.Normalize(forward);
-            else
-                forward = Vector3.UnitZ;
 
             Vector3 up = Vector3.UnitY;
             Vector3 right = Vector3.Cross(up, forward);
-            if (right.LengthSquared() < 0.0001f)
-            {
-                // Handle vertical/steep climbs and dives without singularity
-                right = Vector3.Cross(Vector3.UnitZ, forward);
-                if (right.LengthSquared() < 0.0001f) right = Vector3.UnitX;
-                else right = Vector3.Normalize(right);
-            }
-            else
-            {
-                right = Vector3.Normalize(right);
-            }
-
-            Vector3 realUp = Vector3.Normalize(Vector3.Cross(forward, right));
+            if (right.LengthSquared() < 0.0001f) right = Vector3.UnitX;
+            else right = Vector3.Normalize(right);
 
             return new Matrix4x4(
                 right.X,   right.Y,   right.Z,   0f,
-                realUp.X,  realUp.Y,  realUp.Z,  0f,
+                up.X,      up.Y,      up.Z,      0f,
                 forward.X, forward.Y, forward.Z, 0f,
                 pos.X,     pos.Y,     pos.Z,     1f
             );
         }
 
-        private static Matrix4x4 SampleSplineAtDistance(TDRSpline spline, float distance, float yOffset = 0.35f)
+        public static Matrix4x4 SampleSplineAtDistance(TDRSpline spline, float distance, float yOffset = 0.35f)
         {
             if (spline.Points.Count == 0) return Matrix4x4.Identity;
             if (spline.Points.Count == 1) return ComputeSplineSpawnMatrix(spline, 0, yOffset);
@@ -339,17 +325,26 @@ namespace TDR.Tools.Export
                     Vector3 pos = Vector3.Lerp(p0, p1, t);
                     pos.Y += yOffset;
 
-                    Vector3 forward = segLen > 0.0001f ? Vector3.Normalize(p1 - p0) : Vector3.UnitZ;
+                    // Align vehicle heading horizontally along the road (Pitch = 0, Roll = 0, Up = +Y)
+                    Vector3 delta = p1 - p0;
+                    Vector3 forward = new Vector3(delta.X, 0f, delta.Z);
+                    if (forward.LengthSquared() > 0.0001f)
+                    {
+                        forward = Vector3.Normalize(forward);
+                    }
+                    else
+                    {
+                        forward = Vector3.UnitZ;
+                    }
+
                     Vector3 up = Vector3.UnitY;
                     Vector3 right = Vector3.Cross(up, forward);
                     if (right.LengthSquared() < 0.0001f) right = Vector3.UnitX;
                     else right = Vector3.Normalize(right);
 
-                    Vector3 realUp = Vector3.Normalize(Vector3.Cross(forward, right));
-
                     return new Matrix4x4(
                         right.X,   right.Y,   right.Z,   0f,
-                        realUp.X,  realUp.Y,  realUp.Z,  0f,
+                        up.X,      up.Y,      up.Z,      0f,
                         forward.X, forward.Y, forward.Z, 0f,
                         pos.X,     pos.Y,     pos.Z,     1f
                     );

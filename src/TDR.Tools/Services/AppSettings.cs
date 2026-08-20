@@ -29,7 +29,6 @@ namespace TDR.Tools.Services
         public bool UseZeroOriginForJsonAssets { get; set; } = true;
         public bool UseGrouping { get; set; } = true;
         public bool UseLocalCoords { get; set; } = false;
-        public bool EnableGroundSnap { get; set; } = false;
         public bool VerboseLog { get; set; } = false;
         // DebugMode: timing and diagnostic info in the session log.
         // Separate from VerboseLog (export pipeline only) — this covers VFS index, tree build, discovery.
