@@ -133,9 +133,14 @@ namespace TDR.Tools.Export
         }
 
         /// <summary>
-        /// Generates evenly distributed, collision-free spawn matrices along the continuous length of available road splines.
+        /// Generates evenly distributed, collision-free spawn matrices along the continuous length of available road splines,
+        /// ensuring the start grid / starting straightaway and pedestrian crossings remain clear of static drone obstacles.
         /// </summary>
-        public static List<Matrix4x4> GenerateSpawnMatrices(List<TDRSpline> splines, int requestedCount)
+        public static List<Matrix4x4> GenerateSpawnMatrices(
+            List<TDRSpline> splines,
+            int requestedCount,
+            Vector3? startPosition = null,
+            IEnumerable<Vector3>? excludedPositions = null)
         {
             var spawnMatrices = new List<Matrix4x4>();
             if (splines == null || splines.Count == 0)
@@ -145,13 +150,34 @@ namespace TDR.Tools.Export
             }
 
             int targetCount = Math.Max(1, requestedCount);
+            var excludedList = excludedPositions?.ToList() ?? new List<Vector3>();
+
+            bool IsPositionAllowed(Vector3 pos)
+            {
+                // Clear the start grid / starting straightaway (120m radius around START_POS)
+                if (startPosition.HasValue && Vector3.Distance(pos, startPosition.Value) < 120.0f)
+                {
+                    return false;
+                }
+                // Avoid spawning cars on top of pedestrians or existing props
+                if (excludedList.Any(ep => Vector3.Distance(ep, pos) < 8.0f))
+                {
+                    return false;
+                }
+                return true;
+            }
 
             var validSplines = splines.Where(s => s.Points.Count >= 2).ToList();
             if (validSplines.Count == 0)
             {
                 foreach (var s in splines)
                 {
-                    if (s.Points.Count > 0) spawnMatrices.Add(ComputeSplineSpawnMatrix(s, 0));
+                    if (s.Points.Count > 0)
+                    {
+                        var mat = ComputeSplineSpawnMatrix(s, 0);
+                        var p = new Vector3(mat.M41, mat.M42, mat.M43);
+                        if (IsPositionAllowed(p)) spawnMatrices.Add(mat);
+                    }
                 }
                 if (spawnMatrices.Count == 0) spawnMatrices.Add(Matrix4x4.Identity);
                 return spawnMatrices;
@@ -198,6 +224,8 @@ namespace TDR.Tools.Export
                 Matrix4x4 mat = SampleSplineAtDistance(spline, targetDist);
                 Vector3 pos = new Vector3(mat.M41, mat.M42, mat.M43);
 
+                if (!IsPositionAllowed(pos)) continue;
+
                 bool tooClose = spawnedPositions.Any(p => Vector3.Distance(p, pos) < minSeparation);
                 if (!tooClose)
                 {
@@ -225,6 +253,8 @@ namespace TDR.Tools.Export
                         Matrix4x4 mat = SampleSplineAtDistance(spline, targetDist);
                         Vector3 pos = new Vector3(mat.M41, mat.M42, mat.M43);
 
+                        if (!IsPositionAllowed(pos)) continue;
+
                         bool tooClose = spawnedPositions.Any(p => Vector3.Distance(p, pos) < 35.0f);
                         if (!tooClose)
                         {
@@ -246,7 +276,7 @@ namespace TDR.Tools.Export
                     {
                         Matrix4x4 mat = ComputeSplineSpawnMatrix(spline, i);
                         Vector3 pos = new Vector3(mat.M41, mat.M42, mat.M43);
-                        if (!spawnedPositions.Any(p => Vector3.Distance(p, pos) < 15.0f))
+                        if (IsPositionAllowed(pos) && !spawnedPositions.Any(p => Vector3.Distance(p, pos) < 15.0f))
                         {
                             spawnedPositions.Add(pos);
                             spawnMatrices.Add(mat);

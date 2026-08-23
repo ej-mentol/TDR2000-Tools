@@ -1,7 +1,10 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
 
 namespace TDR.Tools.Services
 {
@@ -50,17 +53,25 @@ namespace TDR.Tools.Services
     }
 
     /// <summary>
-    /// Centralized, thread-safe logging service for TDR Tools.
-    /// Decouples export pipelines, parsers, and background tasks from Avalonia UI elements.
+    /// Centralized, dual-layer high-performance logging service for TDR Tools.
+    /// Layer 1 (Disk): Synchronous instant AutoFlush file persistence (guaranteed crash safety).
+    /// Layer 2 (UI): 50ms lock-free micro-batching with immediate bypass on Warnings/Errors.
     /// </summary>
-    public sealed class LogService
+    public sealed class LogService : IDisposable
     {
         private static readonly Lazy<LogService> _instance = new(() => new LogService());
         public static LogService Instance => _instance.Value;
 
         private readonly object _lock = new();
         private readonly Queue<LogEntry> _entries = new();
+        private readonly ConcurrentQueue<LogEntry> _pendingUiQueue = new();
+        private readonly Timer _batchTimer;
+        private StreamWriter? _diskLogWriter;
+        private readonly string _logFilePath;
+
         private const int MaxHistoryCount = 5000;
+        private const int BatchIntervalMs = 50;
+        private const int MaxBatchDrainSize = 400;
 
         public string? CurrentTrackContext { get; set; }
         public string? CurrentVariantContext { get; set; }
@@ -79,23 +90,67 @@ namespace TDR.Tools.Services
         }
 
         public event Action<LogEntry>? OnLogAdded;
+        public event Action<IReadOnlyList<LogEntry>>? OnLogBatchAdded;
         public event Action? OnLogCleared;
+
+        public LogService()
+        {
+            try
+            {
+                string logDir = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                    "TDR2000-Tools",
+                    "logs"
+                );
+                Directory.CreateDirectory(logDir);
+                _logFilePath = Path.Combine(logDir, "session.log");
+
+                var fileStream = new FileStream(_logFilePath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
+                _diskLogWriter = new StreamWriter(fileStream, Encoding.UTF8) { AutoFlush = true };
+                _diskLogWriter.WriteLine($"\n--- Session Started: {DateTime.Now:yyyy-MM-dd HH:mm:ss} ---");
+            }
+            catch
+            {
+                _logFilePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "session.log");
+            }
+
+            _batchTimer = new Timer(OnBatchTimerTick, null, BatchIntervalMs, BatchIntervalMs);
+        }
 
         public void Log(LogLevel level, string message, string? trackTag = null, string? variantTag = null)
         {
             if (!IsEnabled(level) || string.IsNullOrWhiteSpace(message)) return;
 
             var entry = new LogEntry(level, message, trackTag ?? CurrentTrackContext, variantTag ?? CurrentVariantContext);
-            lock (_lock)
+
+            // 1. Synchronous, instant disk write with AutoFlush (crash safe!)
+            try
             {
-                _entries.Enqueue(entry);
-                if (_entries.Count > MaxHistoryCount)
+                lock (_lock)
                 {
-                    _entries.Dequeue();
+                    _diskLogWriter?.WriteLine(entry.FormattedText);
+
+                    _entries.Enqueue(entry);
+                    if (_entries.Count > MaxHistoryCount)
+                    {
+                        _entries.Dequeue();
+                    }
                 }
             }
+            catch
+            {
+                // Never allow disk I/O logging errors to crash application workflows
+            }
 
+            // 2. Queue for UI micro-batching
+            _pendingUiQueue.Enqueue(entry);
             OnLogAdded?.Invoke(entry);
+
+            // 3. If Warning or Error, immediately flush UI batch so crash context appears without 50ms delay
+            if (level == LogLevel.Error || level == LogLevel.Warning)
+            {
+                FlushImmediate();
+            }
         }
 
         public void Info(string message) => Log(LogLevel.Info, message);
@@ -104,12 +159,139 @@ namespace TDR.Tools.Services
         public void Summary(string message) => Log(LogLevel.Summary, message);
         public void Debug(string message) => Log(LogLevel.Debug, message);
 
+        private void OnBatchTimerTick(object? state)
+        {
+            DrainAndDispatchUiBatch();
+        }
+
+        private void DrainAndDispatchUiBatch()
+        {
+            if (_pendingUiQueue.IsEmpty) return;
+
+            var batch = new List<LogEntry>();
+            while (batch.Count < MaxBatchDrainSize && _pendingUiQueue.TryDequeue(out var entry))
+            {
+                batch.Add(entry);
+            }
+
+            if (batch.Count > 0)
+            {
+                OnLogBatchAdded?.Invoke(batch);
+            }
+        }
+
+        public void FlushImmediate()
+        {
+            try
+            {
+                lock (_lock)
+                {
+                    _diskLogWriter?.Flush();
+                }
+            }
+            catch { }
+
+            var batch = new List<LogEntry>();
+            while (_pendingUiQueue.TryDequeue(out var entry))
+            {
+                batch.Add(entry);
+            }
+
+            if (batch.Count > 0)
+            {
+                OnLogBatchAdded?.Invoke(batch);
+            }
+        }
+
+        public void FatalCrash(object? exceptionObj)
+        {
+            DateTime now = DateTime.Now;
+            string crashFileName = $"crash-{now:yyyy-MM-dd_HH-mm-ss}.log";
+            string crashDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "TDR2000-Tools",
+                "logs"
+            );
+
+            var sb = new StringBuilder();
+            sb.AppendLine("================================================================================");
+            sb.AppendLine($" TDR2000 Tools — FATAL CRASH REPORT [{now:yyyy-MM-dd HH:mm:ss}]");
+            sb.AppendLine("================================================================================");
+            sb.AppendLine($"OS Version       : {Environment.OSVersion}");
+            sb.AppendLine($".NET Runtime     : {Environment.Version}");
+            sb.AppendLine($"64-bit Process   : {Environment.Is64BitProcess}");
+            sb.AppendLine($"Process ID       : {Environment.ProcessId}");
+            sb.AppendLine($"Working Directory: {Environment.CurrentDirectory}");
+            sb.AppendLine($"Track Context    : {CurrentTrackContext ?? "None"}");
+            sb.AppendLine($"Variant Context  : {CurrentVariantContext ?? "None"}");
+            sb.AppendLine("--------------------------------------------------------------------------------");
+            sb.AppendLine("EXCEPTION DETAILS:");
+            if (exceptionObj is Exception ex)
+            {
+                sb.AppendLine($"Type   : {ex.GetType().FullName}");
+                sb.AppendLine($"Message: {ex.Message}");
+                sb.AppendLine($"Trace  :\n{ex.StackTrace}");
+                if (ex.InnerException != null)
+                {
+                    sb.AppendLine($"\nInner Exception: {ex.InnerException.GetType().FullName}");
+                    sb.AppendLine($"Inner Message  : {ex.InnerException.Message}");
+                    sb.AppendLine($"Inner Trace    :\n{ex.InnerException.StackTrace}");
+                }
+            }
+            else
+            {
+                sb.AppendLine(exceptionObj?.ToString() ?? "(null exception object)");
+            }
+
+            sb.AppendLine("--------------------------------------------------------------------------------");
+            sb.AppendLine("RECENT LOG CONTEXT (Preceding Crash):");
+            lock (_lock)
+            {
+                var recent = _entries.TakeLast(150);
+                foreach (var entry in recent)
+                {
+                    sb.AppendLine(entry.FormattedText);
+                }
+            }
+            sb.AppendLine("================================================================================");
+
+            string report = sb.ToString();
+
+            // 1. Write dedicated crash log file
+            try
+            {
+                Directory.CreateDirectory(crashDir);
+                string crashFilePath = Path.Combine(crashDir, crashFileName);
+                File.WriteAllText(crashFilePath, report, Encoding.UTF8);
+
+                // Also maintain daily alias crash-yyyy-MM-dd.log
+                string dailyCrashPath = Path.Combine(crashDir, $"crash-{now:yyyy-MM-dd}.log");
+                File.AppendAllText(dailyCrashPath, "\n\n" + report, Encoding.UTF8);
+            }
+            catch { }
+
+            // 2. Append to main session.log
+            try
+            {
+                lock (_lock)
+                {
+                    _diskLogWriter?.WriteLine("\n" + report);
+                    _diskLogWriter?.Flush();
+                }
+            }
+            catch { }
+
+            Log(LogLevel.Error, $"[CRITICAL FATAL CRASH] Saved crash report: '{crashFileName}'");
+            FlushImmediate();
+        }
+
         public void Clear()
         {
             lock (_lock)
             {
                 _entries.Clear();
             }
+            while (_pendingUiQueue.TryDequeue(out _)) { }
             OnLogCleared?.Invoke();
         }
 
@@ -157,5 +339,16 @@ namespace TDR.Tools.Services
                                  e.Message.TrimStart().StartsWith("• Layers") ||
                                  e.Message.TrimStart().StartsWith("• Props") ||
                                  e.Message.TrimStart().StartsWith("• Spawns"));
+
+        public void Dispose()
+        {
+            _batchTimer.Dispose();
+            FlushImmediate();
+            lock (_lock)
+            {
+                _diskLogWriter?.Dispose();
+                _diskLogWriter = null;
+            }
+        }
     }
 }

@@ -20,6 +20,7 @@ namespace TDR.Tools.ViewModels
         public bool ShowTopSeparator { get; set; } = false;
         public string VirtualPath { get; set; } = string.Empty;
         public bool IsDirectory { get; set; }
+        public bool IsBaseTrackAsset { get; set; }
         public string NodeType { get; set; } = "MeshFile";
         public ObservableCollection<HieNodeViewModel> Children { get; } = new();
         public HieNodeViewModel? Parent { get; set; }
@@ -295,8 +296,8 @@ namespace TDR.Tools.ViewModels
             }
             else if (presetLower.StartsWith("base track only", StringComparison.OrdinalIgnoreCase))
             {
-                bool isVariant = nLower.Contains("race") || nLower.Contains("mission") ||
-                                 pathLower.Contains("race") || pathLower.Contains("mission");
+                bool isVariant = !node.IsBaseTrackAsset && (nLower.Contains("race") || nLower.Contains("mission") ||
+                                 pathLower.Contains("race") || pathLower.Contains("mission"));
                 shouldSelect = !isVariant && !isBlacklisted;
             }
             else if (presetLower.StartsWith("all races", StringComparison.OrdinalIgnoreCase))

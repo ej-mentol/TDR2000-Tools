@@ -162,57 +162,81 @@ namespace TDR.Tools.Export
                     mat.DoubleSided = true;
 
                     // Set AlphaMode & PBR parameters for materials:
-                    // 1. Water & Fluid surfaces: Opaque with clean depth write, DoubleSided to prevent backface culling disappearance
-                    if (texName.Contains("water", StringComparison.OrdinalIgnoreCase) ||
-                        texFileName.Contains("water", StringComparison.OrdinalIgnoreCase) ||
-                        texName.Contains("river", StringComparison.OrdinalIgnoreCase) ||
-                        texName.Contains("ocean", StringComparison.OrdinalIgnoreCase) ||
-                        texName.Contains("sea", StringComparison.OrdinalIgnoreCase))
-                    {
-                        mat.AlphaMode = "OPAQUE";
-                        mat.DoubleSided = true;
-                        mat.PbrMetallicRoughness.RoughnessFactor = 1.0f;
-                        mat.PbrMetallicRoughness.MetallicFactor = 0.0f;
-                    }
-                    // 2. Smooth Additive Alpha Blending (BLEND + Emissive Unlit) for halos, coronas, glows, flares, powerups, lens effects
-                    else if (texName.Contains("corona", StringComparison.OrdinalIgnoreCase) ||
-                             texFileName.Contains("corona", StringComparison.OrdinalIgnoreCase) ||
-                             texName.Contains("halo", StringComparison.OrdinalIgnoreCase) ||
-                             texName.Contains("glow", StringComparison.OrdinalIgnoreCase) ||
-                             texName.Contains("flare", StringComparison.OrdinalIgnoreCase) ||
-                             texName.Contains("beam", StringComparison.OrdinalIgnoreCase) ||
-                             texName.Contains("powerup", StringComparison.OrdinalIgnoreCase) ||
-                             texFileName.Contains("powerup", StringComparison.OrdinalIgnoreCase) ||
-                             texName.Contains("offen", StringComparison.OrdinalIgnoreCase) ||
-                             texFileName.Contains("offen", StringComparison.OrdinalIgnoreCase) ||
-                             texName.Contains("defen", StringComparison.OrdinalIgnoreCase) ||
-                             texFileName.Contains("defen", StringComparison.OrdinalIgnoreCase) ||
-                             texFileName.Contains("halo", StringComparison.OrdinalIgnoreCase) ||
-                             texFileName.Contains("glow", StringComparison.OrdinalIgnoreCase) ||
-                             texFileName.Contains("flare", StringComparison.OrdinalIgnoreCase))
+                    string normTex = texName.ToLowerInvariant();
+                    string normFile = texFileName.ToLowerInvariant();
+
+                    // 1. Level Shadows (smooth gradient shadow over ground/roads)
+                    if (normTex.Contains("shadow") || normFile.Contains("shadow"))
                     {
                         mat.AlphaMode = "BLEND";
-                        mat.EmissiveFactor = new[] { 1.0f, 1.0f, 1.0f };
-                        mat.EmissiveTexture = new GltfTextureInfo { Index = texIdx };
+                        mat.DoubleSided = true;
+                        mat.PbrMetallicRoughness.BaseColorFactor = new[] { 1.0f, 1.0f, 1.0f, 0.5f };
                         mat.PbrMetallicRoughness.RoughnessFactor = 1.0f;
                         mat.PbrMetallicRoughness.MetallicFactor = 0.0f;
                     }
-                    // 3. Cutout textures with alpha channel (foliage, fences, grates, signs)
-                    else if (texFileName.Contains("_32", StringComparison.OrdinalIgnoreCase) ||
-                             texName.Contains("sign", StringComparison.OrdinalIgnoreCase) ||
-                             texName.Contains("tree", StringComparison.OrdinalIgnoreCase) ||
-                             texName.Contains("fence", StringComparison.OrdinalIgnoreCase) ||
-                             texName.Contains("grate", StringComparison.OrdinalIgnoreCase))
+                    // 2. Water & Fluid surfaces (semi-transparent water showing ground floor beneath)
+                    else if (normTex.Contains("water") || normFile.Contains("water") ||
+                             normTex.Contains("river") || normTex.Contains("ocean") || normTex.Contains("sea"))
+                    {
+                        mat.AlphaMode = "BLEND";
+                        mat.DoubleSided = true;
+                        mat.PbrMetallicRoughness.BaseColorFactor = new[] { 1.0f, 1.0f, 1.0f, 0.7f };
+                        mat.PbrMetallicRoughness.RoughnessFactor = 0.1f;
+                        mat.PbrMetallicRoughness.MetallicFactor = 0.0f;
+                    }
+                    // 3. Glass, Windows, Cockpits (semi-transparent glazing)
+                    else if (normTex.Contains("glass") || normFile.Contains("glass") ||
+                             normTex.Contains("window") || normFile.Contains("window") ||
+                             normTex.Contains("windshield") || normTex.Contains("cockpit"))
+                    {
+                        mat.AlphaMode = "BLEND";
+                        mat.DoubleSided = true;
+                        mat.PbrMetallicRoughness.RoughnessFactor = 0.1f;
+                        mat.PbrMetallicRoughness.MetallicFactor = 0.0f;
+                    }
+                    // 4. Halos, Coronas, Glows, Flares (Additive/Emissive Unlit blend)
+                    else if (normTex.Contains("corona") || normFile.Contains("corona") ||
+                             normTex.Contains("halo") || normFile.Contains("halo") ||
+                             normTex.Contains("glow") || normFile.Contains("glow") ||
+                             normTex.Contains("flare") || normFile.Contains("flare") ||
+                             normTex.Contains("beam") || normFile.Contains("beam"))
+                    {
+                        mat.AlphaMode = "BLEND";
+                        mat.DoubleSided = true;
+                        mat.EmissiveFactor = new[] { 1.0f, 1.0f, 1.0f };
+                        mat.EmissiveTexture = new GltfTextureInfo { Index = texIdx };
+                        mat.PbrMetallicRoughness.BaseColorFactor = new[] { 1.0f, 1.0f, 1.0f, 0.8f };
+                        mat.PbrMetallicRoughness.RoughnessFactor = 1.0f;
+                        mat.PbrMetallicRoughness.MetallicFactor = 0.0f;
+                    }
+                    // 5. Translucent 3D Powerup Icons (Money, Spanner, Time, Random, APO, Helmet, Engine, Fist, PedSign)
+                    else if (normTex.Contains("money") || normTex.Contains("cash") ||
+                             normTex.Contains("spanner") || normTex.Contains("time") ||
+                             normTex.Contains("random") || normTex.Contains("apoall") ||
+                             normTex.Contains("helmet") || normTex.Contains("engine") ||
+                             normTex.Contains("fist") || normTex.Contains("pedsign") ||
+                             normTex.Contains("artillery") || normTex.Contains("bomb") ||
+                             normFile.Contains("powerup") || (archivePath != null && archivePath.ToLowerInvariant().Contains("powerup")))
+                    {
+                        mat.AlphaMode = "BLEND";
+                        mat.DoubleSided = true;
+                        mat.PbrMetallicRoughness.BaseColorFactor = new[] { 1.0f, 1.0f, 1.0f, 0.65f };
+                        mat.PbrMetallicRoughness.RoughnessFactor = 0.5f;
+                        mat.PbrMetallicRoughness.MetallicFactor = 0.0f;
+                    }
+                    // 6. Cutout textures with alpha channel (foliage, fences, grates, signs, pedestrians)
+                    else if (normFile.Contains("_32") || normTex.Contains("sign") ||
+                             normTex.Contains("tree") || normTex.Contains("fence") ||
+                             normTex.Contains("grate") || normTex.Contains("foliage") ||
+                             normTex.Contains("bush") || normTex.Contains("plant"))
                     {
                         mat.AlphaMode = "MASK";
                         mat.AlphaCutoff = 0.5f;
                     }
 
-                    // Sky Sphere / Sky Dome: make unlit with emissive texture so it renders authentic sky colors without white milk haze
-                    if (texName.Contains("sky", StringComparison.OrdinalIgnoreCase) ||
-                        texFileName.Contains("sky", StringComparison.OrdinalIgnoreCase) ||
-                        texName.Contains("cloud", StringComparison.OrdinalIgnoreCase) ||
-                        texName.Contains("horizon", StringComparison.OrdinalIgnoreCase))
+                    // 6. Sky Sphere / Sky Dome: make unlit with emissive texture
+                    if (normTex.Contains("sky") || normFile.Contains("sky") ||
+                        normTex.Contains("cloud") || normTex.Contains("horizon"))
                     {
                         mat.EmissiveFactor = new[] { 1.0f, 1.0f, 1.0f };
                         mat.EmissiveTexture = new GltfTextureInfo { Index = texIdx };
@@ -346,9 +370,7 @@ namespace TDR.Tools.Export
                 if (!IsHieSelected(hieName)) continue;
                 if (processedHieNames.Contains(hieName) || 
                     processedHieNames.Contains(cleanHieName) ||
-                    processedHieNames.Contains(cleanNoExt) ||
-                    assets.HieInstances.Any(inst => Path.GetFileName(inst.HieName).Equals(cleanHieName, StringComparison.OrdinalIgnoreCase) ||
-                                                    Path.GetFileNameWithoutExtension(inst.HieName).Equals(cleanNoExt, StringComparison.OrdinalIgnoreCase)))
+                    processedHieNames.Contains(cleanNoExt))
                 {
                     continue;
                 }
@@ -361,9 +383,8 @@ namespace TDR.Tools.Export
 
                 if (!meshMap.TryGetValue(meshKey, out int gltfMeshIdx))
                 {
-                    byte[]? hieBytes = _vfs.LoadFileContext(hieName, _trackContext ?? levelName) ??
-                                       (!string.IsNullOrEmpty(archivePath) ? _vfs.LoadFileContext(hieName, archivePath) : null) ??
-                                       _vfs.LoadFile(hieName);
+                    byte[]? hieBytes = (!string.IsNullOrEmpty(archivePath) ? _vfs.LoadFileContext(hieName, archivePath) : null) ??
+                                       LevelDescriptorParser.LoadDescriptorBytes(_vfs, _trackContext ?? levelName, hieName);
                     if (hieBytes != null && hieBytes.Length > 0)
                     {
                         var hie = GetOrLoadHierarchy(hieName, archivePath, _ => hieBytes);
@@ -428,7 +449,16 @@ namespace TDR.Tools.Export
             {
                 if (entity.Category == EntityCategory.Pedestrian)
                 {
-                    int pedMeshIdx = GetOrBuildPedestrianProxyMesh(gltf, meshMap, bw, GetOrAddMaterial);
+                    int pedMeshIdx = -1;
+                    if (entity.ModelHieName.EndsWith(".ski", StringComparison.OrdinalIgnoreCase))
+                    {
+                        pedMeshIdx = GetOrBuildSkiMesh(entity.ModelHieName, entity.Tag ?? "Default", gltf, meshMap, bw, GetOrAddMaterial);
+                    }
+                    if (pedMeshIdx < 0)
+                    {
+                        pedMeshIdx = GetOrBuildPedestrianProxyMesh(gltf, meshMap, bw, GetOrAddMaterial);
+                    }
+
                     if (pedMeshIdx >= 0)
                     {
                         int nodeIdx = gltf.Nodes.Count;
@@ -557,6 +587,218 @@ namespace TDR.Tools.Export
             return true;
         }
 
+        private int GetOrBuildSkiMesh(string skiName, string texName, GltfManifest gltf, Dictionary<string, int> meshMap, BinaryWriter bw, Func<string, string?, int> getMaterial)
+        {
+            string cacheKey = $"SKI#{skiName}#{texName}";
+            if (meshMap.TryGetValue(cacheKey, out int cachedIdx)) return cachedIdx;
+
+            byte[]? skiBytes =
+                (!string.IsNullOrEmpty(_trackContext) ? _vfs.LoadFileContext(skiName, _trackContext) : null) ??
+                _vfs.LoadFileContext(skiName, "animation") ??
+                _vfs.LoadFileContext(skiName, "humans") ??
+                _vfs.LoadFileContext(skiName, "zombies") ??
+                _vfs.LoadFileContext(skiName, "animals") ??
+                _vfs.LoadFileContext(skiName, "aliens") ??
+                _vfs.LoadFile(skiName);
+
+            if (skiBytes == null || skiBytes.Length == 0)
+            {
+                Log($"    [!] Warning: Could not find '{skiName}', falling back to 'man.ski'.");
+                skiBytes = _vfs.LoadFileContext("man.ski", "humans") ?? _vfs.LoadFile("man.ski");
+            }
+            if (skiBytes == null || skiBytes.Length == 0)
+            {
+                meshMap[cacheKey] = -1;
+                return -1;
+            }
+
+            var ski = SkiModel.Load(skiBytes, targetLod: 0);
+            if (ski == null || ski.Parts.Count == 0)
+            {
+                Log($"    [!] Warning: SkiModel.Load failed for '{skiName}'.");
+                meshMap[cacheKey] = -1;
+                return -1;
+            }
+
+            var gMesh = new GltfMesh { Name = Path.GetFileNameWithoutExtension(skiName) };
+
+            string faceTexName = texName;
+            string bodyTexName = texName;
+            if (texName.Contains('|'))
+            {
+                var tp = texName.Split('|');
+                faceTexName = tp[0];
+                bodyTexName = tp[1];
+            }
+
+            string? skiArchivePath = _vfs.GetArchivePath(skiName);
+            int faceMatIdx = getMaterial(faceTexName, skiArchivePath);
+            int bodyMatIdx = getMaterial(bodyTexName, skiArchivePath);
+
+            bool IsHeadPart(SkiPart part)
+            {
+                if (part.Positions.Count == 0) return false;
+                // Only humanoid characters with distinct face/body textures (M_BASIC, F_BASIC, ZOMBIE) split head geometry
+                bool bindsToHead = part.Polygons.Any(poly => poly.Vertices.Any(v => v.BoneIndices.Any(b => b == 4 || b == 5)));
+                bool bindsToLimbs = part.Polygons.Any(poly => poly.Vertices.Any(v => v.BoneIndices.Any(b => b >= 6)));
+                return bindsToHead && !bindsToLimbs;
+            }
+
+            // Calculate base ground offset so that creature feet/hooves touch Y = 0 in rest pose
+            float feetMinY = 0f;
+            foreach (var part in ski.Parts)
+            {
+                foreach (var pos in part.Positions)
+                {
+                    if (pos.Y < feetMinY && !float.IsNaN(pos.Y) && !float.IsInfinity(pos.Y))
+                    {
+                        feetMinY = pos.Y;
+                    }
+                }
+            }
+            float groundOffset = feetMinY < -0.01f ? -feetMinY : 0f;
+
+            void AddPrimitiveForParts(IEnumerable<SkiPart> parts, int materialIdx)
+            {
+                var pList = parts.ToList();
+                if (pList.Count == 0) return;
+
+                var positions = new List<Vector3>();
+                var normals = new List<Vector3>();
+                var uvs = new List<Vector2>();
+                var indices = new List<int>();
+
+                foreach (var part in pList)
+                {
+                    int baseV = positions.Count;
+                    foreach (var pos in part.Positions)
+                    {
+                        positions.Add(new Vector3(pos.X, pos.Y + groundOffset, pos.Z));
+                    }
+                    normals.AddRange(part.Normals);
+                    uvs.AddRange(part.UVs);
+                    foreach (var idx in part.Indices)
+                    {
+                        indices.Add(baseV + idx);
+                    }
+                }
+
+                if (positions.Count == 0 || indices.Count == 0) return;
+
+                // Alignment padding to 4 bytes
+                long currentPos = bw.BaseStream.Position;
+                long remainder = currentPos % 4;
+                if (remainder != 0)
+                {
+                    for (int pad = 0; pad < 4 - remainder; pad++) bw.Write((byte)0);
+                }
+
+                // 1. Positions
+                long posOffset = bw.BaseStream.Position;
+                float minX = float.MaxValue, minY = float.MaxValue, minZ = float.MaxValue;
+                float maxX = float.MinValue, maxY = float.MinValue, maxZ = float.MinValue;
+                foreach (var p in positions)
+                {
+                    bw.Write(p.X); bw.Write(p.Y); bw.Write(p.Z);
+                    if (p.X < minX) minX = p.X; if (p.X > maxX) maxX = p.X;
+                    if (p.Y < minY) minY = p.Y; if (p.Y > maxY) maxY = p.Y;
+                    if (p.Z < minZ) minZ = p.Z; if (p.Z > maxZ) maxZ = p.Z;
+                }
+                int posByteLength = (int)(bw.BaseStream.Position - posOffset);
+
+                // 2. Normals
+                long normOffset = bw.BaseStream.Position;
+                foreach (var n in normals)
+                {
+                    bw.Write(n.X); bw.Write(n.Y); bw.Write(n.Z);
+                }
+                int normByteLength = (int)(bw.BaseStream.Position - normOffset);
+
+                // 3. UVs
+                long uvOffset = bw.BaseStream.Position;
+                foreach (var u in uvs)
+                {
+                    bw.Write(u.X); bw.Write(u.Y);
+                }
+                int uvByteLength = (int)(bw.BaseStream.Position - uvOffset);
+
+                // 4. Indices (16-bit or 32-bit)
+                long idxOffset = bw.BaseStream.Position;
+                bool use16Bit = positions.Count <= 65535;
+                foreach (var idx in indices)
+                {
+                    if (use16Bit) bw.Write((ushort)idx);
+                    else bw.Write((uint)idx);
+                }
+                int idxByteLength = (int)(bw.BaseStream.Position - idxOffset);
+
+                // BufferViews
+                int bvPos = gltf.BufferViews.Count;
+                gltf.BufferViews.Add(new GltfBufferView { Buffer = 0, ByteOffset = (int)posOffset, ByteLength = posByteLength, Target = 34962 });
+                int bvNorm = gltf.BufferViews.Count;
+                gltf.BufferViews.Add(new GltfBufferView { Buffer = 0, ByteOffset = (int)normOffset, ByteLength = normByteLength, Target = 34962 });
+                int bvUv = gltf.BufferViews.Count;
+                gltf.BufferViews.Add(new GltfBufferView { Buffer = 0, ByteOffset = (int)uvOffset, ByteLength = uvByteLength, Target = 34962 });
+                int bvIdx = gltf.BufferViews.Count;
+                gltf.BufferViews.Add(new GltfBufferView { Buffer = 0, ByteOffset = (int)idxOffset, ByteLength = idxByteLength, Target = 34963 });
+
+                // Accessors
+                int accPos = gltf.Accessors.Count;
+                gltf.Accessors.Add(new GltfAccessor
+                {
+                    BufferView = bvPos,
+                    ComponentType = 5126,
+                    Count = positions.Count,
+                    Type = "VEC3",
+                    Min = new[] { minX, minY, minZ },
+                    Max = new[] { maxX, maxY, maxZ }
+                });
+                int accNorm = gltf.Accessors.Count;
+                gltf.Accessors.Add(new GltfAccessor { BufferView = bvNorm, ComponentType = 5126, Count = normals.Count, Type = "VEC3" });
+                int accUv = gltf.Accessors.Count;
+                gltf.Accessors.Add(new GltfAccessor { BufferView = bvUv, ComponentType = 5126, Count = uvs.Count, Type = "VEC2" });
+                int accIdx = gltf.Accessors.Count;
+                gltf.Accessors.Add(new GltfAccessor
+                {
+                    BufferView = bvIdx,
+                    ComponentType = use16Bit ? 5123 : 5125,
+                    Count = indices.Count,
+                    Type = "SCALAR"
+                });
+
+                var prim = new GltfPrimitive
+                {
+                    Material = materialIdx,
+                    Indices = accIdx
+                };
+                prim.Attributes["POSITION"] = accPos;
+                prim.Attributes["NORMAL"] = accNorm;
+                prim.Attributes["TEXCOORD_0"] = accUv;
+
+                gMesh.Primitives.Add(prim);
+            }
+
+            if (faceMatIdx == bodyMatIdx)
+            {
+                AddPrimitiveForParts(ski.Parts, faceMatIdx);
+            }
+            else
+            {
+                var headParts = ski.Parts.Where(IsHeadPart).ToList();
+                var bodyParts = ski.Parts.Where(p => !IsHeadPart(p)).ToList();
+
+                if (headParts.Count > 0) AddPrimitiveForParts(headParts, faceMatIdx);
+                if (bodyParts.Count > 0) AddPrimitiveForParts(bodyParts, bodyMatIdx);
+            }
+
+            if (gMesh.Primitives.Count == 0) return -1;
+
+            int gltfMeshIdx = gltf.Meshes.Count;
+            gltf.Meshes.Add(gMesh);
+            meshMap[cacheKey] = gltfMeshIdx;
+            return gltfMeshIdx;
+        }
+
         private int GetOrBuildPedestrianProxyMesh(GltfManifest gltf, Dictionary<string, int> meshMap, BinaryWriter bw, Func<string, string?, int> getMaterial)
         {
             string proxyKey = "__pedestrian_proxy__";
@@ -625,8 +867,36 @@ namespace TDR.Tools.Export
             string cacheKey = string.IsNullOrEmpty(archivePath) ? meshName : $"{archivePath}#{meshName}";
             if (_meshCache.TryGetValue(cacheKey, out container)) return container != null;
 
-            byte[]? meshData = (!string.IsNullOrEmpty(archivePath) ? _vfs.LoadFileContext(meshName, archivePath) : null) ??
-                               _vfs.LoadFileContext(meshName, _trackContext);
+            // Tier 1: Direct parent archive of the HIE (e.g. WALL.pak or PATHFOLLOWERS.pak)
+            byte[]? meshData = !string.IsNullOrEmpty(archivePath) ? _vfs.LoadFileContext(meshName, archivePath) : null;
+
+            // Tier 2: Specific track context (e.g. Hollowood_Race1)
+            if (meshData == null && !string.IsNullOrEmpty(_trackContext))
+            {
+                meshData = _vfs.LoadFileContext(meshName, _trackContext);
+            }
+
+            // Tier 3: Base track family (e.g. "Hollowood" if track is "Hollowood_Race1")
+            if (meshData == null && !string.IsNullOrEmpty(_trackContext))
+            {
+                string baseFamily = TrackDiscovery.GetBaseTrackName(_trackContext);
+                if (!string.IsNullOrEmpty(baseFamily) && !baseFamily.Equals(_trackContext, StringComparison.OrdinalIgnoreCase))
+                {
+                    meshData = _vfs.LoadFileContext(meshName, baseFamily);
+                }
+            }
+
+            // Tier 4: Global fallback with explicit warning logging
+            if (meshData == null)
+            {
+                meshData = _vfs.LoadFile(meshName);
+                if (meshData != null)
+                {
+                    string? actualArch = _vfs.GetArchivePath(meshName);
+                    Log($"[!] Mesh '{meshName}' resolved via GLOBAL fallback (from '{(actualArch ?? "Loose")}') — verify geometry if unexpected.", Services.LogLevel.Warning);
+                }
+            }
+
             if (meshData != null)
             {
                 container = MSHSContainer.Load(meshData, meshName);

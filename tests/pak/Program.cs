@@ -103,6 +103,7 @@ namespace TDR.Pak.Tests
 
             string[] candidates = new[]
             {
+                @"/home/dev/files/TDR/extracted_assets",
                 @"C:\Games\Carmageddon\Assets",
                 @"C:\Games\Carmageddon",
                 @"C:\GOG Games\Carmageddon TDR 2000\Assets",

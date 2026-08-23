@@ -11,19 +11,20 @@ namespace TDR.Json.Tests
     {
         public static int Main(string[] args)
         {
-            string assetsPath = args.Length > 0 ? args[0] : @"C:\Games\Carmageddon\Assets";
+            string? assetsPath = ResolveAssetsPath(args);
 
             Console.WriteLine("================================================================");
             Console.WriteLine("       TDR2000 SCENE JSON MANIFEST TEST SUITE (TEST 3)          ");
             Console.WriteLine("================================================================");
-            Console.WriteLine($"[+] Target Assets Path: '{Path.GetFullPath(assetsPath)}'\n");
 
-            if (!Directory.Exists(assetsPath))
+            if (assetsPath == null)
             {
-                Console.WriteLine($"[!] Warning: Directory '{assetsPath}' not found.");
+                Console.WriteLine("[!] Error: Could not locate game assets directory.");
                 Console.WriteLine("    Run: dotnet run --project tests/json/TDR.Json.Tests.csproj -- \"<assets_path>\"");
                 return 1;
             }
+
+            Console.WriteLine($"[+] Target Assets Path: '{Path.GetFullPath(assetsPath)}'\n");
 
             var vfs = new PakManager();
             vfs.IndexDirectory(assetsPath);
@@ -95,6 +96,36 @@ namespace TDR.Json.Tests
 
             Console.WriteLine("================================================================");
             return 0;
+        }
+
+        private static string? ResolveAssetsPath(string[] args)
+        {
+            if (args.Length > 0 && Directory.Exists(args[0]))
+                return args[0];
+
+            string[] candidates = new[]
+            {
+                @"/home/dev/files/TDR/extracted_assets",
+                @"C:\Games\Carmageddon\Assets",
+                @"C:\Games\Carmageddon",
+                @"C:\GOG Games\Carmageddon TDR 2000\Assets",
+                @"C:\GOG Games\Carmageddon TDR 2000",
+                @"C:\Program Files (x86)\GOG Galaxy\Games\Carmageddon TDR 2000\Assets",
+                @"C:\Program Files (x86)\GOG Galaxy\Games\Carmageddon TDR 2000",
+                @"C:\Program Files (x86)\Steam\steamapps\common\Carmageddon TDR 2000\Assets",
+                @"C:\Program Files (x86)\Steam\steamapps\common\Carmageddon TDR 2000",
+                @"C:\Program Files (x86)\Carmageddon TDR 2000\Assets",
+                @".\Assets",
+                @"."
+            };
+
+            foreach (string candidate in candidates)
+            {
+                if (Directory.Exists(candidate) && (Directory.GetFiles(candidate, "*.pak", SearchOption.AllDirectories).Length > 0 || Directory.Exists(Path.Combine(candidate, "tracks")) || Directory.Exists(Path.Combine(candidate, "Tracks"))))
+                    return candidate;
+            }
+
+            return null;
         }
     }
 }

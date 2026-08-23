@@ -25,7 +25,12 @@ namespace TDR.Tools.ViewModels
     {
         private PakManager _vfs = new();
         private string _sourceRootPath = string.Empty;
+        private string _sourceRootCeiling = string.Empty;
         private string _destinationRootPath = string.Empty;
+        private string _destinationSandboxRoot = string.Empty;
+
+        public string SourceRootCeiling => _sourceRootCeiling;
+        public string DestinationSandboxRoot => _destinationSandboxRoot;
 
         private FileViewMode _sourceViewMode = FileViewMode.Tree;
         private string _lastSortColumn = "Name";
@@ -420,27 +425,37 @@ namespace TDR.Tools.ViewModels
         {
             Preview = new PreviewViewModel(ReadAllBytesForNode, LogSession);
 
-            LogService.Instance.OnLogAdded += OnLogEntryAdded;
+            LogService.Instance.OnLogBatchAdded += OnLogBatchAdded;
             LogService.Instance.OnLogCleared += OnLogServiceCleared;
         }
 
-        private void OnLogEntryAdded(LogEntry entry)
+        private void OnLogBatchAdded(IReadOnlyList<LogEntry> batch)
         {
+            if (batch == null || batch.Count == 0) return;
+
             Avalonia.Threading.Dispatcher.UIThread.Post(() =>
             {
                 lock (_allLogEntries)
                 {
-                    _allLogEntries.Add(entry);
-                    if (_allLogEntries.Count > 3000)
+                    _allLogEntries.AddRange(batch);
+                    int excess = _allLogEntries.Count - 3000;
+                    if (excess > 0)
                     {
-                        _allLogEntries.RemoveAt(0);
+                        _allLogEntries.RemoveRange(0, excess);
                     }
                 }
 
-                if (MatchesLogFilter(entry, SelectedLogFilter))
+                var filter = SelectedLogFilter;
+                var matching = batch.Where(e => MatchesLogFilter(e, filter)).ToList();
+                if (matching.Count > 0)
                 {
-                    LogLines.Add(entry);
-                    if (LogLines.Count > 2500)
+                    foreach (var e in matching)
+                    {
+                        LogLines.Add(e);
+                    }
+
+                    int excessLines = LogLines.Count - 2500;
+                    while (excessLines-- > 0 && LogLines.Count > 0)
                     {
                         LogLines.RemoveAt(0);
                     }
@@ -462,7 +477,7 @@ namespace TDR.Tools.ViewModels
 
         public void Dispose()
         {
-            LogService.Instance.OnLogAdded -= OnLogEntryAdded;
+            LogService.Instance.OnLogBatchAdded -= OnLogBatchAdded;
             LogService.Instance.OnLogCleared -= OnLogServiceCleared;
 
             _sourceSearchDebounceTimer?.Dispose();
@@ -583,6 +598,11 @@ namespace TDR.Tools.ViewModels
             // nearest assets/tracks root by TrackDiscovery — otherwise navigating "up" out of
             // a resolved root just re-resolves back to the same root and the user gets stuck.
             string rootPath = autoResolveRoot ? TrackDiscoveryService.ResolveAssetsRootPath(path) : path;
+            if (autoResolveRoot || string.IsNullOrEmpty(_sourceRootCeiling))
+            {
+                _sourceRootCeiling = Path.GetFullPath(rootPath);
+            }
+
             if (!string.IsNullOrEmpty(_sourceRootPath) && !_sourceRootPath.Equals(rootPath, StringComparison.OrdinalIgnoreCase))
             {
                 _sourceHistoryBack.Push(_sourceRootPath);
@@ -621,7 +641,7 @@ namespace TDR.Tools.ViewModels
             RefreshSourceTree();
         }
 
-        public void SetDestinationDirectory(string path)
+        public void SetDestinationDirectory(string path, bool isExplicitRootChange = false)
         {
             if (string.IsNullOrWhiteSpace(path)) return;
 
@@ -630,6 +650,11 @@ namespace TDR.Tools.ViewModels
                 bool wasMissing = !Directory.Exists(path);
                 Directory.CreateDirectory(path);
                 string fullPath = Path.GetFullPath(path);
+
+                if (isExplicitRootChange || string.IsNullOrEmpty(_destinationSandboxRoot))
+                {
+                    _destinationSandboxRoot = fullPath;
+                }
 
                 if (!string.IsNullOrEmpty(_destinationRootPath) && !_destinationRootPath.Equals(fullPath, StringComparison.OrdinalIgnoreCase))
                 {
@@ -1114,7 +1139,7 @@ namespace TDR.Tools.ViewModels
             }
         }
 
-        public void ExtractNodeToDestination(FileNodeViewModel node, bool createSubfolderForPak = true, bool flatFiles = false, bool unpackOnly = false)
+        public void ExtractNodeToDestination(FileNodeViewModel node, bool createSubfolderForPak = true, bool flatFiles = false, bool unpackOnly = false, string? customTargetDir = null)
         {
             if (node == null) return;
 
@@ -1124,11 +1149,15 @@ namespace TDR.Tools.ViewModels
                 SetDestinationDirectory(defaultExport);
             }
 
-            string targetDir = _destinationRootPath;
+            string baseTarget = (!string.IsNullOrEmpty(customTargetDir) && Directory.Exists(customTargetDir))
+                ? customTargetDir
+                : _destinationRootPath;
+
+            string targetDir = baseTarget;
             if ((node.IsArchive || node.IsDirectory) && createSubfolderForPak)
             {
                 string subfolderName = Path.GetFileNameWithoutExtension(node.Name);
-                targetDir = Path.Combine(_destinationRootPath, subfolderName);
+                targetDir = Path.Combine(baseTarget, subfolderName);
             }
 
             _suppressWatcherEvents = true;
@@ -2300,21 +2329,48 @@ namespace TDR.Tools.ViewModels
             string tPrefix = cleanName.ToLowerInvariant();
             string trackFolderPrefix = $"tracks/{tPrefix}";
 
+            // Gather all HIE files referenced by level descriptors for this track family
+            var descriptorHies = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var baseDescriptorHies = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            string? baseTxt = TrackExportPipeline.ResolveTrackDescriptor(_vfs, cleanName, null);
+            if (baseTxt != null)
+            {
+                byte[]? baseBytes = _vfs.LoadFile(baseTxt);
+                if (baseBytes != null && baseBytes.Length > 0)
+                {
+                    var baseAssets = LevelDescriptorParser.ParseLevelDescriptorAssets(_vfs, cleanName, baseBytes);
+                    foreach (var h in baseAssets.HieFiles)
+                    {
+                        descriptorHies.Add(h);
+                        baseDescriptorHies.Add(h);
+                    }
+                    foreach (var inst in baseAssets.HieInstances)
+                    {
+                        descriptorHies.Add(inst.HieName);
+                        baseDescriptorHies.Add(inst.HieName);
+                    }
+                }
+            }
+
             var matchingFiles = _vfs.GetFiles()
                 .Where(f => f.Name.EndsWith(".hie", StringComparison.OrdinalIgnoreCase))
                 .Where(f => {
                     string normName = f.Name.Replace('\\', '/').ToLowerInvariant();
                     string normArchive = (f.ArchivePath ?? "").Replace('\\', '/').ToLowerInvariant();
-                    string fileName = Path.GetFileNameWithoutExtension(f.Name).ToLowerInvariant();
+                    string fileName = Path.GetFileName(f.Name);
+                    string fileNameWithoutExt = Path.GetFileNameWithoutExtension(f.Name).ToLowerInvariant();
+
+                    bool isDescriptorReferenced = descriptorHies.Contains(fileName) || descriptorHies.Contains(normName);
 
                     bool inTrackFolder = normName.StartsWith(trackFolderPrefix + "/") ||
                                          normName.StartsWith(trackFolderPrefix + "_") ||
                                          normArchive.Contains(trackFolderPrefix + "/") ||
                                          normArchive.Contains(trackFolderPrefix + "_");
 
-                    bool startsWithName = fileName.StartsWith(tPrefix, StringComparison.OrdinalIgnoreCase);
+                    bool startsWithName = fileNameWithoutExt.StartsWith(tPrefix, StringComparison.OrdinalIgnoreCase);
 
-                    return inTrackFolder || startsWithName;
+                    return isDescriptorReferenced || inTrackFolder || startsWithName;
                 })
                 .ToList();
 
@@ -2336,13 +2392,18 @@ namespace TDR.Tools.ViewModels
                 string pathLower = path.ToLowerInvariant();
                 string archiveLower = (file.ArchivePath ?? "").Replace('\\', '/').ToLowerInvariant();
 
+                bool isBaseReferenced = baseDescriptorHies.Contains(fileName) || baseDescriptorHies.Contains(path);
+
                 // 1. Determine physical layer root (Hollowood, Hollowood_Race1, Hollowood_Mission1, Hollowood_Mission3, etc.)
                 string layerRootKey = cleanName;
-                var layerMatch = System.Text.RegularExpressions.Regex.Match($"{fLower} {pathLower} {archiveLower}", @"(race\d+|mission\d+|multiplayer)");
-                if (layerMatch.Success)
+                if (!isBaseReferenced)
                 {
-                    string matchedVariant = System.Globalization.CultureInfo.InvariantCulture.TextInfo.ToTitleCase(layerMatch.Value);
-                    layerRootKey = $"{cleanName}_{matchedVariant}";
+                    var layerMatch = System.Text.RegularExpressions.Regex.Match($"{fLower} {pathLower} {archiveLower}", @"(race\d+|mission\d+|multiplayer)");
+                    if (layerMatch.Success)
+                    {
+                        string matchedVariant = System.Globalization.CultureInfo.InvariantCulture.TextInfo.ToTitleCase(layerMatch.Value);
+                        layerRootKey = $"{cleanName}_{matchedVariant}";
+                    }
                 }
 
                 if (!layerRootNodes.TryGetValue(layerRootKey, out var layerRootNode))
@@ -2355,6 +2416,7 @@ namespace TDR.Tools.ViewModels
                         VirtualPath = layerRootKey,
                         IsDirectory = true,
                         IsSelected = true,
+                        IsBaseTrackAsset = isBaseReferenced || layerRootKey.Equals(cleanName, StringComparison.OrdinalIgnoreCase),
                         ShowTopSeparator = false,
                         NodeType = "TrackLayerRoot",
                         OnSelectionChangedCallback = () => modalVm.NotifyUserTreeToggled()
@@ -2389,6 +2451,7 @@ namespace TDR.Tools.ViewModels
                             VirtualPath = folderKey,
                             IsDirectory = true,
                             IsSelected = true,
+                            IsBaseTrackAsset = isBaseReferenced || layerRootKey.Equals(cleanName, StringComparison.OrdinalIgnoreCase),
                             NodeType = "VfsSubfolder",
                             Parent = layerRootNode,
                             OnSelectionChangedCallback = () => modalVm.NotifyUserTreeToggled()
@@ -2411,6 +2474,7 @@ namespace TDR.Tools.ViewModels
                     VirtualPath = file.Name,
                     IsDirectory = false,
                     IsSelected = !isBlacklistedDefault,
+                    IsBaseTrackAsset = isBaseReferenced || layerRootKey.Equals(cleanName, StringComparison.OrdinalIgnoreCase),
                     NodeType = "MeshFile",
                     Parent = parentFolderNode,
                     OnSelectionChangedCallback = () => modalVm.NotifyUserTreeToggled()

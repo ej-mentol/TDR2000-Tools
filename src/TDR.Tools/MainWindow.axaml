@@ -27,6 +27,7 @@
                     <MenuItem Header="_Edit">
                         <MenuItem Header="_Unpack / Copy Selected" Click="OnExtractSelectedClick"/>
                         <MenuItem Header="_Delete Selected" InputGesture="Delete" Click="OnDeleteSelectedClick"/>
+                        <MenuItem Header="Delete _Permanently" InputGesture="Shift+Delete" Click="OnPermanentDeleteSelectedClick"/>
                     </MenuItem>
                     <MenuItem Header="_View">
                         <MenuItem Header="_Refresh" InputGesture="F5" Click="OnRefreshSourceClick"/>
@@ -172,6 +173,7 @@
                                     <MenuItem Header="Open Containing Folder" Click="OnOpenContainingFolderClick"/>
                                     <Separator/>
                                     <MenuItem Header="Delete" InputGesture="Delete" Click="OnSourceDeleteNodeClick"/>
+                                    <MenuItem Header="Delete Permanently" InputGesture="Shift+Delete" Click="OnSourcePermanentDeleteNodeClick"/>
                                     <Separator/>
                                     <MenuItem Header="Refresh" Click="OnRefreshSourceClick"/>
                                     <Separator/>
@@ -364,13 +366,13 @@
                                     <MenuItem Header="New Folder" Click="OnCreateNewFolderInDestinationClick"/>
                                     <Separator/>
                                     <MenuItem Header="Open" Click="OnOpenNodeClick"/>
-                                    <Separator/>
                                     <MenuItem Header="Rename" InputGesture="F2" Click="OnRenameNodeClick"/>
                                     <MenuItem Header="Copy File" Click="OnCopyFileClick"/>
                                     <MenuItem Header="Copy Path" Click="OnCopyPathClick"/>
                                     <MenuItem Header="Open Containing Folder" Click="OnOpenContainingFolderClick"/>
                                     <Separator/>
                                     <MenuItem Header="Delete" InputGesture="Delete" Click="OnDestinationDeleteNodeClick"/>
+                                    <MenuItem Header="Delete Permanently" InputGesture="Shift+Delete" Click="OnDestinationPermanentDeleteNodeClick"/>
                                     <Separator/>
                                     <MenuItem Header="Details Pane" InputGesture="Ctrl+D" Click="OnTogglePreviewClick">
                                         <MenuItem.Icon>

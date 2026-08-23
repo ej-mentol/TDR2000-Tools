@@ -198,7 +198,7 @@ namespace TDR.Tools.Export
 
             string lowerName = name.ToLowerInvariant();
 
-            // 1. Mission / Quest / System Special Items (from official TDR2000.exe disassembly)
+            // 1. Mission / Quest / System Special Items (from authentic TDR2000 mission data)
             if (lowerName.Contains("arrow")) return "ArrowArrow.hie";
             if (lowerName.Contains("bigbomb") || lowerName.Contains("big_bomb")) return "BIG_BOMBBomb.hie";
             if (lowerName.Contains("bomb")) return "BombPiececube1.hie";
@@ -206,96 +206,44 @@ namespace TDR.Tools.Export
             if (lowerName.Contains("enginepart") || lowerName.Contains("engine_part")) return "EnginePartobj3.hie";
             if (lowerName.Contains("moneybag") || lowerName.Contains("money_bag")) return "DingablesMoneyBagPowerup.hie";
             if (lowerName.Contains("artillery") || lowerName.Contains("shell")) return "DingablesArtilleryShellPow.hie";
-            if (lowerName.Contains("oil") || lowerName.Contains("drum")) return "Oil_DrumDrum_null.hie";
+            if (lowerName.Contains("oil_drum") || lowerName.Contains("oil drum") || lowerName.Contains("oildrum")) return "Oil_DrumDrum_null.hie";
+            if (lowerName.Contains("mortartail") || lowerName.Contains("mortar_tail")) return "mortarTail_Render.hie";
+            if (lowerName.Contains("joe")) return "joe.hie";
 
-            // 2. Repair & Spanner -> Spanner Icon (Check early before engine/powerup strings!)
-            if (lowerName.Contains("spanner") || lowerName.Contains("repair") || lowerName.Contains("fix"))
-                return "newIconsSPANNER.hie";
-
-            // 3. Armor & Defensive & Granite -> Helmet Icon
-            if (lowerName.Contains("armour") || lowerName.Contains("armor") || lowerName.Contains("defen") ||
-                lowerName.Contains("shield") || lowerName.Contains("helmet") || lowerName.Contains("granite") ||
-                lowerName.Contains("solid") || lowerName.Contains("weight") || lowerName.Contains("invulner"))
+            // 2. Permanent APO Upgrades (Explicit characteristic upgrades: Extra Armour, Extra Power, Extra Offensive)
+            if (typeId == 1 || lowerName.Contains("extra arm") || lowerName.Contains("armor_upgrade") || lowerName.Contains("armour_upgrade") || lowerName.Contains("apo_armor") || lowerName.Contains("apo armor"))
                 return "newIconsHELMET.hie";
-
-            // 4. Offensive & Fist & Damage & Mortar -> Fist Icon
-            if (lowerName.Contains("fist") || lowerName.Contains("offen") || lowerName.Contains("damage") ||
-                lowerName.Contains("punch") || lowerName.Contains("slaughter") || lowerName.Contains("attack") ||
-                lowerName.Contains("mortar") || lowerName.Contains("gun") || lowerName.Contains("weapon"))
-                return "newIconsFIST.hie";
-
-            // 5. Engine & Turbo & Speed -> Engine Icon
-            if (lowerName.Contains("turbo") || lowerName.Contains("engine") || lowerName.Contains("speed") ||
-                lowerName.Contains("boost") || lowerName.Contains("jump") || lowerName.Contains("hot rod") ||
-                lowerName.Contains("hot_rod") || lowerName.Contains("hotrod") || lowerName.Contains("drive"))
+            if (typeId == 2 || lowerName.Contains("extra pow") || lowerName.Contains("power_upgrade") || lowerName.Contains("engine_upgrade") || lowerName.Contains("apo_power") || lowerName.Contains("apo power"))
                 return "newIconsENGINE.hie";
+            if (typeId == 3 || lowerName.Contains("extra off") || lowerName.Contains("offense_upgrade") || lowerName.Contains("offensive_upgrade") || lowerName.Contains("apo_offense") || lowerName.Contains("apo offense"))
+                return "newIconsFIST.hie";
+            if (lowerName.Contains("apoall") || lowerName.Contains("apo_all") || lowerName.Contains("all_apo") || lowerName.Contains("all apo") || lowerName.Contains("apo upgrade"))
+                return "newIconsAPOall.hie";
 
-            // 6. Money & Cash -> Wadocash Icon
+            // 3. Pedestrian & Ray Powers (Yellow Pedestrian Triangle Icon)
+            if (lowerName.Contains("ped") || lowerName.Contains("zombie") ||
+                lowerName.Contains("ray") || lowerName.Contains("electro") ||
+                lowerName.Contains("lightning") || lowerName.Contains("flamethrower") ||
+                lowerName.Contains("dismember") || lowerName.Contains("suicide") ||
+                lowerName.Contains("zap"))
+                return "newIconsPEDSIGN.hie";
+
+            // 4. Money & Credits (Wadocash Icon)
             if (lowerName.Contains("cash") || lowerName.Contains("credit") || lowerName.Contains("money"))
                 return "newIconsWADOCASH.hie";
 
-            // 7. Time Bonus -> Time Icon
-            if (lowerName.Contains("time")) return "newIconsTIME.hie";
+            // 5. Bonus Time (Hourglass Icon)
+            if (lowerName.Contains("time") || lowerName.Contains("clock"))
+                return "newIconsTIME.hie";
 
-            // 8. Pedestrian Powers & Ray Weapons -> Pedestrian Sign Icon
-            if (lowerName.Contains("zombie") || lowerName.Contains("ped") ||
-                lowerName.Contains("flamethrower") || lowerName.Contains("ray") || lowerName.Contains("dismember") ||
-                lowerName.Contains("electrif") || lowerName.Contains("suicide"))
-                return "newIconsPEDSIGN.hie";
-
-            // 9. Random & Mystery & Physics -> Random Icon
-            if (lowerName.Contains("random") || lowerName.Contains("mystery") || lowerName.Contains("bouncy") ||
-                lowerName.Contains("spring") || lowerName.Contains("pinball") || lowerName.Contains("grav") ||
-                lowerName.Contains("grease") || lowerName.Contains("mutant"))
+            // 6. Question mark / Random / Mystery Powerups (Authentic '?' icon)
+            if (lowerName.Contains("random") || lowerName.Contains("mystery") || lowerName.Contains("surprise") || lowerName.Contains("?"))
                 return "newIconsRANDOM.hie";
 
-            // 10. Direct Type ID Table (Strictly mapped to authentic newIcons in POWERUPS.pak)
-            return typeId switch
-            {
-                1 => "newIconsHELMET.hie",
-                2 => "newIconsENGINE.hie",
-                3 => "newIconsFIST.hie",
-                4 => "newIconsTIME.hie",
-                5 => "newIconsWADOCASH.hie",
-                6 => "newIconsSPANNER.hie",
-                7 => "newIconsSPANNER.hie",
-                8 => "newIconsHELMET.hie",
-                9 => "newIconsPEDSIGN.hie",
-                10 => "newIconsPEDSIGN.hie",
-                11 => "newIconsPEDSIGN.hie",
-                12 => "newIconsPEDSIGN.hie",
-                13 => "newIconsPEDSIGN.hie",
-                14 => "newIconsPEDSIGN.hie",
-                15 => "newIconsPEDSIGN.hie",
-                16 => "newIconsENGINE.hie",
-                17 => "newIconsENGINE.hie",
-                18 => "newIconsHELMET.hie",
-                19 => "newIconsENGINE.hie",
-                20 => "newIconsENGINE.hie",
-                21 => "newIconsRANDOM.hie",
-                22 => "newIconsRANDOM.hie",
-                23 => "newIconsHELMET.hie",
-                24 => "newIconsPEDSIGN.hie",
-                25 => "newIconsFIST.hie",
-                26 => "newIconsRANDOM.hie",
-                27 => "newIconsRANDOM.hie",
-                28 => "newIconsRANDOM.hie",
-                29 => "newIconsRANDOM.hie",
-                30 => "newIconsENGINE.hie",
-                31 => "newIconsHELMET.hie",
-                32 => "newIconsENGINE.hie",
-                33 => "newIconsENGINE.hie",
-                34 => "newIconsFIST.hie",
-                35 => "newIconsFIST.hie",
-                36 => "newIconsRANDOM.hie",
-                37 => "newIconsRANDOM.hie",
-                38 => "newIconsHELMET.hie",
-                39 => "newIconsPEDSIGN.hie",
-                40 => "newIconsENGINE.hie",
-                41 => "newIconsHELMET.hie",
-                42 => "newIconsFIST.hie",
-                _ => "newIconsAPOall.hie"
-            };
+            // 7. Default authentic in-race pickup model: Spanner
+            // All standard in-game pickups (Mortar, Turbo, Oil, Kangaroo, Damage, Handbrake, Grip, Repair, etc.)
+            // are visually represented as Spanners, while retaining their exact descriptive tags in entity naming and metadata.
+            return "newIconsSPANNER.hie";
         }
     }
 }

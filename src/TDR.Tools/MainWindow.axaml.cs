@@ -489,12 +489,37 @@ namespace TDR.Tools
                 return;
             }
 
+            var hitControl = sender as Control;
+            var targetNode = hitControl?.DataContext as FileNodeViewModel
+                          ?? (hitControl as Visual)?.GetVisualAncestors().OfType<TreeViewItem>().FirstOrDefault()?.DataContext as FileNodeViewModel;
+
+            // Scenario 3: Drop files onto a PAK archive in Destination panel -> pack/add files into that archive
+            if (targetNode != null && (targetNode.IsArchive || targetNode.IsVirtual))
+            {
+                var validNodes = nodesToProcess.Where(n => n.Name != "..").ToList();
+                if (validNodes.Count > 0)
+                {
+                    var vfsSourceNodes = validNodes.Where(n => n.IsVirtual).ToList();
+                    var diskPaths = validNodes.Where(n => !n.IsVirtual && !string.IsNullOrEmpty(n.AbsolutePath)).Select(n => n.AbsolutePath).ToList();
+                    await _vm.AddFilesToArchiveAsync(targetNode, diskPaths, vfsSourceNodes.Count > 0 ? vfsSourceNodes : null);
+                }
+                _draggedNode = null;
+                _isRightClickDrag = false;
+                return;
+            }
+
+            string targetDir = _vm.DestinationRootPath;
+            if (targetNode != null && targetNode.IsDirectory && targetNode.Name != ".." && !string.IsNullOrEmpty(targetNode.AbsolutePath) && Directory.Exists(targetNode.AbsolutePath))
+            {
+                targetDir = targetNode.AbsolutePath;
+            }
+
             foreach (var node in nodesToProcess)
             {
                 if (node.Name == "..") continue;
 
                 bool isPakFile = !node.IsDirectory && node.Name.EndsWith(".pak", StringComparison.OrdinalIgnoreCase);
-                if (node.IsTrack || node.IsArchive || isPakFile)
+                if (node.IsDirectory || node.IsArchive || isPakFile)
                 {
                     var settings = Services.AppSettings.Load();
                     string action = settings.RememberPakDragAction ? settings.PakDragAction : "Ask";
@@ -531,7 +556,7 @@ namespace TDR.Tools
                                     settings.RememberPakDragAction = true;
                                     settings.Save();
                                 }
-                                _vm.ExtractNodeToDestination(node, createSubfolderForPak: dialog.CreateSubfolder, flatFiles: dialog.FlatFiles, unpackOnly: dialog.UnpackOnly);
+                                _vm.ExtractNodeToDestination(node, createSubfolderForPak: dialog.CreateSubfolder, flatFiles: dialog.FlatFiles, unpackOnly: dialog.UnpackOnly, customTargetDir: targetDir);
                             }
                             else if (userChoice == Views.PakUserAction.Convert)
                             {
@@ -547,7 +572,7 @@ namespace TDR.Tools
                     }
                     else if (action == "Extract")
                     {
-                        _vm.ExtractNodeToDestination(node, createSubfolderForPak: true, flatFiles: false);
+                        _vm.ExtractNodeToDestination(node, createSubfolderForPak: true, flatFiles: false, customTargetDir: targetDir);
                     }
                     else if (action == "Convert")
                     {
@@ -556,7 +581,7 @@ namespace TDR.Tools
                 }
                 else
                 {
-                    _vm.ExtractNodeToDestination(node, createSubfolderForPak: false, flatFiles: false);
+                    _vm.ExtractNodeToDestination(node, createSubfolderForPak: false, flatFiles: false, customTargetDir: targetDir);
                 }
             }
 
@@ -701,10 +726,79 @@ namespace TDR.Tools
                 return;
             }
 
-            if (e.Key == Key.Delete)
+            if (e.Key == Key.Tab)
+            {
+                if (_lastFocusedPanel == "Source")
+                {
+                    _lastFocusedPanel = "Destination";
+                    DestinationTreeView?.Focus();
+                }
+                else
+                {
+                    _lastFocusedPanel = "Source";
+                    SourceTreeView?.Focus();
+                }
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Back)
+            {
+                if (_lastFocusedPanel == "Destination")
+                {
+                    _vm.DestinationNavigateUp();
+                }
+                else
+                {
+                    _vm.SourceNavigateUp();
+                }
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Enter && !e.KeyModifiers.HasFlag(KeyModifiers.Alt) && !e.KeyModifiers.HasFlag(KeyModifiers.Control))
+            {
+                if (_lastFocusedPanel == "Destination" && _vm.SelectedDestinationNode != null)
+                {
+                    _vm.NavigateIntoDestinationNode(_vm.SelectedDestinationNode);
+                    e.Handled = true;
+                }
+                else if (_lastFocusedPanel == "Source" && _vm.SelectedSourceNode != null)
+                {
+                    OnOpenNodeClick(sender, e);
+                    e.Handled = true;
+                }
+            }
+            else if (e.Key == Key.F5)
+            {
+                // Safe Copy / Extract from active panel to destination
+                var nodesToCopy = _lastFocusedPanel == "Destination"
+                    ? _vm.SelectedDestinationNodes.ToList()
+                    : (_vm.SelectedSourceNodes.Count > 0 ? _vm.SelectedSourceNodes.ToList() : (_vm.SelectedSourceNode != null ? new List<FileNodeViewModel> { _vm.SelectedSourceNode } : new List<FileNodeViewModel>()));
+
+                if (nodesToCopy.Count > 0)
+                {
+                    foreach (var n in nodesToCopy)
+                    {
+                        _vm.ExtractNodeToDestination(n, createSubfolderForPak: true, flatFiles: false);
+                    }
+                    _vm.LogSession($"[F5 Copy] Safe-extracted {nodesToCopy.Count} items to Destination.");
+                }
+                e.Handled = true;
+            }
+            else if (e.Key == Key.F6)
+            {
+                if (_lastFocusedPanel == "Source")
+                {
+                    _vm.LogSession("[F6 Guard] Move from Source is prohibited to prevent damaging game installation. Use F5 Copy.");
+                }
+                else
+                {
+                    _vm.LogSession("[F6 Move] Destination sandbox item move.");
+                }
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Delete)
             {
                 bool isShift = e.KeyModifiers.HasFlag(KeyModifiers.Shift);
                 PerformDelete(isShift);
+                e.Handled = true;
             }
             else if (e.Key == Key.F2)
             {
@@ -822,11 +916,23 @@ namespace TDR.Tools
             PerformDelete(permanent: false);
         }
 
+        private void OnPermanentDeleteSelectedClick(object? sender, RoutedEventArgs e)
+        {
+            PerformDelete(permanent: true);
+        }
+
         private void OnSourceDeleteNodeClick(object? sender, RoutedEventArgs e)
         {
             _lastFocusedPanel = "Source";
             var itemNode = (sender as MenuItem)?.DataContext as FileNodeViewModel;
             PerformDeleteForPanel("Source", permanent: false, itemNode);
+        }
+
+        private void OnSourcePermanentDeleteNodeClick(object? sender, RoutedEventArgs e)
+        {
+            _lastFocusedPanel = "Source";
+            var itemNode = (sender as MenuItem)?.DataContext as FileNodeViewModel;
+            PerformDeleteForPanel("Source", permanent: true, itemNode);
         }
 
         private void OnDestinationDeleteNodeClick(object? sender, RoutedEventArgs e)
@@ -836,34 +942,27 @@ namespace TDR.Tools
             PerformDeleteForPanel("Destination", permanent: false, itemNode);
         }
 
+        private void OnDestinationPermanentDeleteNodeClick(object? sender, RoutedEventArgs e)
+        {
+            _lastFocusedPanel = "Destination";
+            var itemNode = (sender as MenuItem)?.DataContext as FileNodeViewModel;
+            PerformDeleteForPanel("Destination", permanent: true, itemNode);
+        }
+
         private List<FileNodeViewModel> GetSelectedNodesForPanel(string panel)
         {
             var list = new List<FileNodeViewModel>();
             var treeView = (panel == "Destination") ? DestinationGrid?.Children.OfType<TreeView>().FirstOrDefault() : SourceTreeView;
-            var vmNodes = (panel == "Destination") ? _vm.SelectedDestinationNodes : _vm.SelectedSourceNodes;
-            var vmSingle = (panel == "Destination") ? _vm.SelectedDestinationNode : _vm.SelectedSourceNode;
-
-            if (vmNodes != null && vmNodes.Count > 0)
-            {
-                foreach (var n in vmNodes) if (n != null && !list.Contains(n)) list.Add(n);
-            }
-            if (vmSingle != null && !list.Contains(vmSingle))
-            {
-                list.Add(vmSingle);
-            }
-
-            if (treeView?.SelectedItems != null && treeView.SelectedItems.Count > 0)
+            if (treeView != null)
             {
                 foreach (var item in treeView.SelectedItems)
                 {
-                    if (item is FileNodeViewModel node && !list.Contains(node)) list.Add(node);
+                    if (item is FileNodeViewModel fn && fn.Name != ".." && fn.Name != "(Empty Folder)")
+                    {
+                        list.Add(fn);
+                    }
                 }
             }
-            if (treeView?.SelectedItem is FileNodeViewModel singleNode && !list.Contains(singleNode))
-            {
-                list.Add(singleNode);
-            }
-
             return list;
         }
 
@@ -901,8 +1000,7 @@ namespace TDR.Tools
             var settings = Services.AppSettings.Load();
             if (permanent || settings.ConfirmOnDelete)
             {
-                string dialogTitle = permanent ? $"[PERMANENT DELETE] {displayName}" : displayName;
-                var dialog = new Views.ConfirmDeleteWindow(dialogTitle);
+                var dialog = new Views.ConfirmDeleteWindow(displayName, isPermanent: permanent);
                 bool? confirmed = await dialog.ShowDialog<bool?>(this);
                 if (confirmed != true) return;
 

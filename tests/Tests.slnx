@@ -4,5 +4,6 @@
     <Project Path="tracks/TDR.Track.Tests.csproj" />
     <Project Path="json/TDR.Json.Tests.csproj" />
     <Project Path="paklib/TDR.PakLib.Tests.csproj" />
+    <Project Path="pedestrians/TDR.Pedestrian.Tests.csproj" />
   </Folder>
 </Solution>

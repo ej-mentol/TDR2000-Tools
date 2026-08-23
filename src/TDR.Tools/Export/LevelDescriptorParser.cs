@@ -24,6 +24,7 @@ namespace TDR.Tools.Export
         public List<string> PedestrianDescriptors { get; } = new();
         public List<string> DroneDescriptors { get; } = new();
         public Dictionary<string, Matrix4x4> HieInitialTransforms { get; } = new(StringComparer.OrdinalIgnoreCase);
+        public Vector3? StartPosition { get; set; }
     }
 
     /// <summary>
@@ -44,7 +45,7 @@ namespace TDR.Tools.Export
             "BREAKABLES_DESCRIPTOR", "STATIC_MESH_DESCRIPTOR", "CONSOFT_DESCRIPTOR",
             "LEVEL_CONSOFT", "PRE_CALCULATED_SPLINES", "ANIMATED_SPECIAL_EFFECTS",
             "ANIMATED_PROPS", "ARTICULATED_BRIDGES", "SKY_DESCRIPTOR",
-            "SPECIAL_VOLUMES", "SPECIAL_VOLUMES_0", "LIGHTS_DESCRIPTOR"
+            "SPECIAL_VOLUMES", "SPECIAL_VOLUMES_0", "LIGHTS_DESCRIPTOR", "PATH_FOLLOWERS"
         };
 
         public static List<string> ExtractLineNamesFromHie(byte[] hieBytes)
@@ -69,6 +70,28 @@ namespace TDR.Tools.Export
                 }
             }
             return list;
+        }
+
+        public static byte[]? LoadDescriptorBytes(PakManager vfs, string? trackContext, string fileName)
+        {
+            if (string.IsNullOrWhiteSpace(fileName)) return null;
+
+            // Tier 1: Exact track context (e.g. "Hollowood_Race1")
+            byte[]? bytes = !string.IsNullOrEmpty(trackContext) ? vfs.LoadFileContext(fileName, trackContext) : null;
+
+            // Tier 2: Base track family (e.g. "Hollowood" if track is "Hollowood_Race1")
+            if (bytes == null && !string.IsNullOrEmpty(trackContext))
+            {
+                string baseFamily = TrackDiscovery.GetBaseTrackName(trackContext);
+                if (!string.IsNullOrEmpty(baseFamily) && !baseFamily.Equals(trackContext, StringComparison.OrdinalIgnoreCase))
+                {
+                    bytes = vfs.LoadFileContext(fileName, baseFamily);
+                }
+            }
+
+            // Tier 3: Global VFS search
+            bytes ??= vfs.LoadFile(fileName);
+            return bytes;
         }
 
         public static void ParseSubDescriptorHieFiles(
@@ -113,8 +136,74 @@ namespace TDR.Tools.Export
                 }
             }
 
-            // Spline-guided vehicle/train initial placement
-            if (hieCandidates.Count > 0 && (hieCandidates.Count > 1 || linCandidates.Count > 0))
+            // Dynamic Path Followers (e.g. Sharks, Boats, Biplanes, Stukas)
+            if (text.Contains("@") || text.Contains("sway", StringComparison.OrdinalIgnoreCase) || text.Contains("follower", StringComparison.OrdinalIgnoreCase))
+            {
+                var pathFollowers = PathFollowerDescriptor.Load(text);
+                if (pathFollowers.Followers.Count > 0)
+                {
+                    foreach (var follower in pathFollowers.Followers)
+                    {
+                        if (string.IsNullOrWhiteSpace(follower.ModelHie)) continue;
+
+                        TDRSpline? followerSpline = null;
+                        Matrix4x4 splineNodeTransform = Matrix4x4.Identity;
+
+                        if (!string.IsNullOrWhiteSpace(follower.PathHie))
+                        {
+                            byte[]? pathHieBytes = LoadDescriptorBytes(vfs, trackContext, follower.PathHie);
+                            if (pathHieBytes != null && pathHieBytes.Length > 0)
+                            {
+                                var hie = TDRHierarchy.Load(pathHieBytes, follower.PathHie);
+                                var lineNames = ExtractLineNamesFromHie(pathHieBytes);
+                                foreach (var node in hie.Nodes)
+                                {
+                                    if (node.Type == TDRNode.NodeType.Spline && lineNames.Count > 0 && node.Index < lineNames.Count)
+                                    {
+                                        string splineFileName = lineNames[node.Index];
+                                        byte[]? spBytes = LoadDescriptorBytes(vfs, trackContext, splineFileName);
+                                        if (spBytes != null && spBytes.Length > 0)
+                                        {
+                                            string optShortName = Path.ChangeExtension(Path.GetFileName(splineFileName), ".txt");
+                                            byte[]? optBytes = LoadDescriptorBytes(vfs, trackContext, optShortName);
+                                            var container = TDRSplineContainer.Load(spBytes, splineFileName, optBytes);
+                                            var sp = container.Splines.Find(s => s.Points.Count >= 2);
+                                            if (sp != null)
+                                            {
+                                                followerSpline = sp;
+                                                splineNodeTransform = node.Transform;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        if (followerSpline != null && followerSpline.Points.Count >= 2)
+                        {
+                            float totalSplineLen = 0f;
+                            for (int pi = 0; pi < followerSpline.Points.Count - 1; pi++)
+                            {
+                                totalSplineLen += Vector3.Distance(followerSpline.Points[pi], followerSpline.Points[pi + 1]);
+                            }
+                            float targetDist = (follower.StartProgress % 1.0f) * totalSplineLen;
+                            Matrix4x4 localSplineMat = SplineResolver.SampleSplineAtDistance(followerSpline, targetDist, 0.0f);
+                            Matrix4x4 spawnMat = splineNodeTransform * localSplineMat * parentMatrix;
+
+                            assets.HieInstances.Add(new HieInstanceInfo
+                            {
+                                HieName = follower.ModelHie,
+                                Transform = spawnMat
+                            });
+                            assets.HieInitialTransforms[follower.ModelHie] = spawnMat;
+                        }
+                    }
+                }
+            }
+
+            // Spline-guided vehicle/train initial placement (e.g. DocksTrain, SlumsTrain)
+            if (hieCandidates.Count > 0 && linCandidates.Count > 0)
             {
                 TDRSpline? propSpline = null;
                 Matrix4x4 splineNodeTransform = Matrix4x4.Identity;
@@ -219,40 +308,30 @@ namespace TDR.Tools.Export
                 string[] tokens = cleanLine.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
                 if (tokens.Length == 0) continue;
 
-                int coordStart = -1;
-                for (int i = 0; i < tokens.Length - 2; i++)
+                string firstEntry = tokens[0].Trim('"');
+                float px = 0, py = 0, pz = 0, qx = 0, qy = 0, qz = 0, qw = 1;
+                if (tokens.Length >= 8 &&
+                    firstEntry.EndsWith(".hie", StringComparison.OrdinalIgnoreCase) &&
+                    float.TryParse(tokens[1], NumberStyles.Float, CultureInfo.InvariantCulture, out px) &&
+                    float.TryParse(tokens[2], NumberStyles.Float, CultureInfo.InvariantCulture, out py) &&
+                    float.TryParse(tokens[3], NumberStyles.Float, CultureInfo.InvariantCulture, out pz) &&
+                    float.TryParse(tokens[4], NumberStyles.Float, CultureInfo.InvariantCulture, out qx) &&
+                    float.TryParse(tokens[5], NumberStyles.Float, CultureInfo.InvariantCulture, out qy) &&
+                    float.TryParse(tokens[6], NumberStyles.Float, CultureInfo.InvariantCulture, out qz) &&
+                    float.TryParse(tokens[7], NumberStyles.Float, CultureInfo.InvariantCulture, out qw))
                 {
-                    if (float.TryParse(tokens[i], NumberStyles.Float, CultureInfo.InvariantCulture, out _) &&
-                        float.TryParse(tokens[i + 1], NumberStyles.Float, CultureInfo.InvariantCulture, out _) &&
-                        float.TryParse(tokens[i + 2], NumberStyles.Float, CultureInfo.InvariantCulture, out _))
+                    var q = new Quaternion(qx, qy, qz, qw);
+                    Matrix4x4 rotMat = Matrix4x4.CreateFromQuaternion(q);
+                    Matrix4x4 localTransform = rotMat * Matrix4x4.CreateTranslation(px, py, pz);
+                    Matrix4x4 worldTransform = localTransform * parentMatrix;
+
+                    assets.HieInstances.Add(new HieInstanceInfo
                     {
-                        coordStart = i;
-                        break;
-                    }
+                        HieName = firstEntry,
+                        Transform = worldTransform
+                    });
+                    continue;
                 }
-
-                Matrix4x4 localTransform = Matrix4x4.Identity;
-                if (coordStart >= 0)
-                {
-                    float.TryParse(tokens[coordStart], NumberStyles.Float, CultureInfo.InvariantCulture, out float px);
-                    float.TryParse(tokens[coordStart + 1], NumberStyles.Float, CultureInfo.InvariantCulture, out float py);
-                    float.TryParse(tokens[coordStart + 2], NumberStyles.Float, CultureInfo.InvariantCulture, out float pz);
-
-                    Matrix4x4 rotMat = Matrix4x4.Identity;
-                    if (coordStart + 6 < tokens.Length &&
-                        float.TryParse(tokens[coordStart + 3], NumberStyles.Float, CultureInfo.InvariantCulture, out float qx) &&
-                        float.TryParse(tokens[coordStart + 4], NumberStyles.Float, CultureInfo.InvariantCulture, out float qy) &&
-                        float.TryParse(tokens[coordStart + 5], NumberStyles.Float, CultureInfo.InvariantCulture, out float qz) &&
-                        float.TryParse(tokens[coordStart + 6], NumberStyles.Float, CultureInfo.InvariantCulture, out float qw))
-                    {
-                        var q = new Quaternion(qx, qy, qz, qw);
-                        rotMat = Matrix4x4.CreateFromQuaternion(q);
-                    }
-
-                    localTransform = rotMat * Matrix4x4.CreateTranslation(px, py, pz);
-                }
-
-                Matrix4x4 worldTransform = localTransform * parentMatrix;
 
                 foreach (string rawToken in tokens)
                 {
@@ -261,28 +340,17 @@ namespace TDR.Tools.Export
 
                     if (entry.EndsWith(".hie", StringComparison.OrdinalIgnoreCase))
                     {
-                        if (coordStart >= 0)
+                        if (!assets.HieFiles.Contains(entry, StringComparer.OrdinalIgnoreCase))
                         {
-                            assets.HieInstances.Add(new HieInstanceInfo
-                            {
-                                HieName = entry,
-                                Transform = worldTransform
-                            });
-                        }
-                        else if (isStaticMeshDescriptor)
-                        {
-                            // If this HIE was already bound to a spline instance (like DocksTrain), do not treat it as unpositioned static scene layer
-                            bool alreadyInstanced = assets.HieInstances.Any(inst => inst.HieName.Equals(entry, StringComparison.OrdinalIgnoreCase));
-                            if (!alreadyInstanced && !assets.HieFiles.Contains(entry, StringComparer.OrdinalIgnoreCase))
-                                assets.HieFiles.Add(entry);
+                            assets.HieFiles.Add(entry);
                         }
                     }
                     else if (entry.EndsWith(".txt", StringComparison.OrdinalIgnoreCase) && visitedDescriptors.Add(entry))
                     {
-                        byte[]? subBytes = vfs.LoadFileContext(entry, trackContext);
+                        byte[]? subBytes = LoadDescriptorBytes(vfs, trackContext, entry);
                         if (subBytes != null && subBytes.Length > 0)
                         {
-                            ParseSubDescriptorHieFiles(vfs, trackContext, subBytes, visitedDescriptors, assets, worldTransform, isStaticMeshDescriptor);
+                            ParseSubDescriptorHieFiles(vfs, trackContext, subBytes, visitedDescriptors, assets, parentMatrix, isStaticMeshDescriptor);
                         }
                     }
                 }
@@ -318,6 +386,17 @@ namespace TDR.Tools.Export
                 string secondToken = tokens[1].Trim('"');
                 if (string.IsNullOrWhiteSpace(secondToken)) continue;
 
+                if (firstToken.Equals("START_POS", StringComparison.OrdinalIgnoreCase) && tokens.Length >= 4)
+                {
+                    if (float.TryParse(tokens[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float sx) &&
+                        float.TryParse(tokens[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float sy) &&
+                        float.TryParse(tokens[3], NumberStyles.Float, CultureInfo.InvariantCulture, out float sz))
+                    {
+                        result.StartPosition = new Vector3(sx, sy, sz);
+                    }
+                    continue;
+                }
+
                 if (firstToken.Equals("WATER_LEVEL", StringComparison.OrdinalIgnoreCase))
                 {
                     if (float.TryParse(secondToken, NumberStyles.Any, CultureInfo.InvariantCulture, out float wL))
@@ -345,6 +424,8 @@ namespace TDR.Tools.Export
                 }
 
                 if (firstToken.Equals("PEDS_DESCRIPTOR", StringComparison.OrdinalIgnoreCase) ||
+                    firstToken.Equals("ZOMBIES_DESCRIPTOR", StringComparison.OrdinalIgnoreCase) ||
+                    firstToken.Equals("ALIENS_DESCRIPTOR", StringComparison.OrdinalIgnoreCase) ||
                     firstToken.Equals("PEDESTRIAN_PLACEMENT", StringComparison.OrdinalIgnoreCase))
                 {
                     if (!result.PedestrianDescriptors.Contains(secondToken, StringComparer.OrdinalIgnoreCase))
@@ -368,12 +449,10 @@ namespace TDR.Tools.Export
                     }
                     else if (secondToken.EndsWith(".txt", StringComparison.OrdinalIgnoreCase) && visitedDescriptors.Add(secondToken))
                     {
-                        byte[]? subBytes = vfs.LoadFileContext(secondToken, trackContext);
+                        byte[]? subBytes = LoadDescriptorBytes(vfs, trackContext, secondToken);
                         if (subBytes != null && subBytes.Length > 0)
                         {
-                            bool isStatic = firstToken.Equals("STATIC_MESH", StringComparison.OrdinalIgnoreCase) ||
-                                            firstToken.Equals("LEVEL_MESH", StringComparison.OrdinalIgnoreCase);
-                            ParseSubDescriptorHieFiles(vfs, trackContext, subBytes, visitedDescriptors, result, Matrix4x4.Identity, isStatic);
+                            ParseSubDescriptorHieFiles(vfs, trackContext, subBytes, visitedDescriptors, result, Matrix4x4.Identity, isStaticMeshDescriptor: true);
                         }
                     }
                     continue;
@@ -383,11 +462,10 @@ namespace TDR.Tools.Export
                 {
                     if (secondToken.EndsWith(".txt", StringComparison.OrdinalIgnoreCase) && visitedDescriptors.Add(secondToken))
                     {
-                        byte[]? subBytes = vfs.LoadFileContext(secondToken, trackContext);
+                        byte[]? subBytes = LoadDescriptorBytes(vfs, trackContext, secondToken);
                         if (subBytes != null && subBytes.Length > 0)
                         {
-                            bool isStatic = !firstToken.Equals("BREAKABLES_DESCRIPTOR", StringComparison.OrdinalIgnoreCase);
-                            ParseSubDescriptorHieFiles(vfs, trackContext, subBytes, visitedDescriptors, result, Matrix4x4.Identity, isStatic);
+                            ParseSubDescriptorHieFiles(vfs, trackContext, subBytes, visitedDescriptors, result, Matrix4x4.Identity, isStaticMeshDescriptor: true);
                         }
                     }
                     continue;

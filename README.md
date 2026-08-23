@@ -12,6 +12,10 @@ A desktop application and C# library for inspecting, extracting, and converting 
 
 `TDR2000 Tools` consists of a cross-platform desktop UI (Avalonia UI, .NET 10) and a modular library layer (`TDR.PakLib`, `TDR.Formats`) providing access to game archives, geometry data, descriptors, and audio resources.
 
+<p align="center">
+  <img src="media/screenshot_ui.png" alt="TDR2000 Tools Desktop UI" width="850" />
+</p>
+
 ### Core Capabilities
 
 - **Virtual File System (VFS):**
@@ -21,6 +25,7 @@ A desktop application and C# library for inspecting, extracting, and converting 
 - **Geometry & Hierarchy Parsing:**
   - Node hierarchy trees and transform matrices (`.hie`).
   - Binary mesh containers with position, normal, UV, and polygon buffers (`.mshs`, `.msh`).
+  - Skinned character meshes (`.ski`), skeletal armatures (`.ske`), and keyframe animations (`.ani`).
   - Road and drone spline networks (`.lin`, `.lins`), evaluated directly or via parent scene graph matrices (`*Drone_Paths.hie`).
   - Level asset descriptors (`.txt`), movables (`MoveableDescriptor.txt`), animated props, and powerup item placements (`.pup`).
 
@@ -34,8 +39,12 @@ A desktop application and C# library for inspecting, extracting, and converting 
 
 - **Export Formats:**
   - **Wavefront OBJ:** Merged geometry with `.mtl` material libraries and texture assets.
-  - **glTF 2.0:** Scene graph nodes, mesh primitives, 4-byte buffer alignment, directional/ambient lighting (`KHR_lights_punctual`), and automated material alpha modes (`OPAQUE`, `MASK`, `BLEND` with emissive channels).
+  - **glTF 2.0 / GLB:** Scene graph nodes, skinned character meshes with rigid FK armature and multi-animation tracks, directional/ambient lighting, and automated material alpha modes.
   - **JSON Manifest:** Structured scene metadata (`scene.json`) containing level definitions, weather, lighting parameters, and object lists.
+
+<p align="center">
+  <img src="media/screenshot_blender.png" alt="Exported Track Scene Reconstruction in Blender" width="850" />
+</p>
 
 ---
 
@@ -79,6 +88,9 @@ The application interface is divided into two primary panes and a dedicated expo
 | **Archive Container** | `.pak` | Data container with XOR/zIG payloads | Read / Write |
 | **Model Hierarchy** | `.hie` | ASCII node hierarchy and transformation matrices | Read |
 | **Binary Mesh** | `.mshs`, `.msh` | Binary vertex, normal, UV, and face data | Read |
+| **Skinned Meshes** | `.ski` | Multi-LOD character meshes with bone blending | Read |
+| **Skeletons** | `.ske` | Dynamic N-bone skeletal hierarchy and rest matrices | Read |
+| **Animation Clips** | `.ani` | Keyframe bone delta transforms (25 FPS) | Read |
 | **Road Splines** | `.lin`, `.lins` | Waypoint vectors and path containers | Read |
 | **Textures** | `.tga`, `.tx`, `.pal` | TGA bitmaps, TTEX descriptors, palette files | Read / Convert |
 | **Level Descriptors** | `.txt` | Scene asset listings, props, lights, volumes | Read |
@@ -98,9 +110,12 @@ The application interface is divided into two primary panes and a dedicated expo
 ├── src/
 │   └── TDR.Tools/            # Desktop GUI application (Avalonia UI, .NET 10)
 ├── docs/
-│   ├── EXPORT_FORMAT.md      # Format and keyword mapping reference
-│   └── TDR2000_Tools_Architecture.md # Architecture notes and specifications
-├── tests/                    # Unit and format verification tests
+│   └── README.md             # Complete technical specifications & format reference
+├── tests/
+│   ├── pedestrians/          # SKI, SKE, ANI, and PedPlacement test suite
+│   ├── paklib/               # VFS archive and roundtrip tests
+│   ├── tracks/               # Track scene reconstruction tests
+│   └── json/                 # Scene manifest validation tests
 ├── clean_source.bat          # Build artifact cleanup script
 └── rebuild_release.bat       # Release single-file build script
 ```
@@ -133,6 +148,6 @@ On Windows, `rebuild_release.bat` publishes a self-contained executable to `.\pu
 ## Scope & Technical Notes
 
 - **Target Scope:** Specifically designed for Carmageddon: TDR 2000 formats and conventions.
-- **Skeletal & Runtime Animation:** Static hierarchy transforms and placements are fully resolved during export; dynamic runtime physics, deformers, and skeletal state machines are outside the scope of static format conversion.
+- **Skeletal Character Animation:** Character meshes (`.ski`), skeletal armatures (`.ske`), and animation tracks (`.ani`) are parsed with 25-bone forward kinematics, weight normalization, and DirectX $\to$ glTF coordinate conversion.
 - **Spline Coordinates:** Road splines referenced in `*Drone_Paths.hie` are transformed by their parent scene graph matrices to achieve world-space placement.
 - **Material Roughness:** Default export parameters set `RoughnessFactor = 1.0` and `MetallicFactor = 0.0` to preserve the original non-specular appearance in modern PBR renderers.

@@ -398,6 +398,11 @@ namespace TDR.Tools.Export
                 {
                     if (!string.IsNullOrEmpty(entity.Tag)) jsonEntity.Properties["drone_class"] = entity.Tag;
                 }
+                else if (entity.Category == EntityCategory.Pedestrian)
+                {
+                    jsonEntity.Properties["skin_index"] = entity.TypeId;
+                    if (!string.IsNullOrEmpty(entity.Tag)) jsonEntity.Properties["texture"] = entity.Tag;
+                }
 
                 manifest.Entities.Add(jsonEntity);
             }

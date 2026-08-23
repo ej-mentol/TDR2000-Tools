@@ -24,6 +24,16 @@ namespace TDR.Tools
         [STAThread]
         public static void Main(string[] args)
         {
+            AppDomain.CurrentDomain.UnhandledException += (s, e) =>
+            {
+                LogService.Instance.FatalCrash(e.ExceptionObject);
+            };
+            System.Threading.Tasks.TaskScheduler.UnobservedTaskException += (s, e) =>
+            {
+                LogService.Instance.Error($"[TaskScheduler] Unobserved Task Exception: {e.Exception}");
+                e.SetObserved();
+            };
+
             // If no arguments or explicitly --gui, launch Avalonia GUI
             if (args.Length == 0 || args.Contains("--gui", StringComparer.OrdinalIgnoreCase))
             {

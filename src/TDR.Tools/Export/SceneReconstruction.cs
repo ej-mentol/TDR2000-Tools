@@ -36,6 +36,13 @@ namespace TDR.Tools.Export
     /// </summary>
     public static class SceneReconstruction
     {
+        /// <summary>
+        /// Maximum number of drone instances to spawn per requested vehicle type.
+        /// In TDR2000, drone descriptors specify dynamic pool capacities (e.g. 4-10 per type).
+        /// Capping per type prevents traffic congestion and road clustering in static scene exports.
+        /// </summary>
+        public const int MaxSpawnedDronesPerType = 2;
+
         public static List<PlacedEntity> ReconstructDynamicEntities(
             PakManager vfs,
             string levelName,
@@ -71,6 +78,8 @@ namespace TDR.Tools.Export
                 var instCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
                 var spawnedMovableLocations = new List<(string Model, Vector3 Pos)>();
 
+                var rawMovables = new List<(string HieName, string ModelBaseName, float Px, float Py, float Pz, float Qx, float Qy, float Qz, float Qw)>();
+
                 foreach (string movDesc in allMovDescs)
                 {
                     byte[]? movData = vfs.LoadFileContext(movDesc, trackContext ?? cleanTrackName);
@@ -100,53 +109,74 @@ namespace TDR.Tools.Export
                         }
 
                         string modelBaseName = Path.GetFileNameWithoutExtension(hieName);
-                        var rawPos = new Vector3(px, py, pz);
-                        if (spawnedMovableLocations.Any(loc => loc.Model.Equals(modelBaseName, StringComparison.OrdinalIgnoreCase) &&
-                                                              Vector3.DistanceSquared(loc.Pos, rawPos) < 0.01f))
-                        {
-                            continue;
-                        }
-                        spawnedMovableLocations.Add((modelBaseName, rawPos));
+                        rawMovables.Add((hieName, modelBaseName, px, py, pz, qx, qy, qz, qw));
+                    }
+                }
 
-                        int instIdx = instCounts.GetValueOrDefault(modelBaseName, 0) + 1;
-                        instCounts[modelBaseName] = instIdx;
-                        string instanceId = $"Movable_{modelBaseName}_{instIdx:D3}";
+                // Sort movables by authored Py ascending so base/bottom objects are placed & registered into raycaster first.
+                // This preserves vertical stacks (e.g. crate pyramids, barrel stacks) so upper props rest atop lower props.
+                var sortedMovables = rawMovables.OrderBy(m => m.Py).ToList();
 
-                        float finalPy = py;
-                        if (terrainRaycaster.TriangleCount > 0)
+                foreach (var m in sortedMovables)
+                {
+                    var rawPos = new Vector3(m.Px, m.Py, m.Pz);
+                    if (spawnedMovableLocations.Any(loc => loc.Model.Equals(m.ModelBaseName, StringComparison.OrdinalIgnoreCase) &&
+                                                          Vector3.DistanceSquared(loc.Pos, rawPos) < 0.01f))
+                    {
+                        continue;
+                    }
+                    spawnedMovableLocations.Add((m.ModelBaseName, rawPos));
+
+                    int instIdx = instCounts.GetValueOrDefault(m.ModelBaseName, 0) + 1;
+                    instCounts[m.ModelBaseName] = instIdx;
+                    string instanceId = $"Movable_{m.ModelBaseName}_{instIdx:D3}";
+
+                    var quat = new Quaternion(m.Qx, m.Qy, m.Qz, m.Qw);
+                    Matrix4x4 rot = Matrix4x4.CreateFromQuaternion(quat);
+
+                    // Physical check: evaluate the world UP vector after rotation.
+                    // If tilted by more than ~25 deg (worldUp.Y < 0.90), preserve authored 3ds Max elevation.
+                    Vector3 worldUp = Vector3.Transform(Vector3.UnitY, quat);
+                    bool isTiltedOrFallen = worldUp.Y < 0.90f;
+
+                    float finalPy = m.Py;
+                    if (terrainRaycaster.TriangleCount > 0 && !isTiltedOrFallen)
+                    {
+                        // Start raycast strictly 10 cm above authored Y to stay below indoor ceilings/roofs (e.g. bar tables & chairs),
+                        // and search downward up to 30 meters to catch elevated outdoor models (e.g. large trees & towers).
+                        if (terrainRaycaster.RaycastGround(m.Px, m.Pz, m.Py + 0.1f, 30.0f, out float hitY))
                         {
-                            if (terrainRaycaster.RaycastGround(px, pz, py + 10.0f, 50.0f, out float hitY))
+                            // Only snap if authored model was significantly floating above ground or supporting prop
+                            if (m.Py - hitY > 0.35f)
                             {
                                 finalPy = hitY;
                             }
-                            else if (terrainRaycaster.RaycastGround(px, pz, 250.0f, 500.0f, out float highHitY))
-                            {
-                                finalPy = highHitY;
-                            }
                         }
-
-                        Matrix4x4 rot = Matrix4x4.CreateFromQuaternion(new Quaternion(qx, qy, qz, qw));
-                        Matrix4x4 worldMat = rot with { M41 = px, M42 = finalPy, M43 = pz };
-
-                        if (useLocalCoords && globalOrigin.HasValue)
-                        {
-                            worldMat = worldMat with
-                            {
-                                M41 = worldMat.M41 - globalOrigin.Value.X,
-                                M42 = worldMat.M42 - globalOrigin.Value.Y,
-                                M43 = worldMat.M43 - globalOrigin.Value.Z
-                            };
-                        }
-
-                        entities.Add(new PlacedEntity
-                        {
-                            Category = EntityCategory.MovableProp,
-                            InstanceId = instanceId,
-                            ModelHieName = hieName,
-                            WorldTransform = worldMat,
-                            Tag = modelBaseName
-                        });
                     }
+
+                    Matrix4x4 worldMat = rot with { M41 = m.Px, M42 = finalPy, M43 = m.Pz };
+
+                    // Register this placed movable's geometry into the raycaster so subsequent stacked objects land on top of it
+                    terrainRaycaster.AddHierarchyTriangles(vfs, m.HieName, worldMat, trackContext ?? cleanTrackName);
+
+                    if (useLocalCoords && globalOrigin.HasValue)
+                    {
+                        worldMat = worldMat with
+                        {
+                            M41 = worldMat.M41 - globalOrigin.Value.X,
+                            M42 = worldMat.M42 - globalOrigin.Value.Y,
+                            M43 = worldMat.M43 - globalOrigin.Value.Z
+                        };
+                    }
+
+                    entities.Add(new PlacedEntity
+                    {
+                        Category = EntityCategory.MovableProp,
+                        InstanceId = instanceId,
+                        ModelHieName = m.HieName,
+                        WorldTransform = worldMat,
+                        Tag = m.ModelBaseName
+                    });
                 }
             }
 
@@ -265,15 +295,16 @@ namespace TDR.Tools.Export
             if (droneRequests.Count > 0)
             {
                 var roadSplines = SplineResolver.ResolveRoadSplines(vfs, cleanTrackName, trackContext, log);
-                int totalActiveDrones = droneRequests.Sum(r => Math.Min(r.Count, 2));
-                var spawnMatrices = SplineResolver.GenerateSpawnMatrices(roadSplines, totalActiveDrones);
+                int totalActiveDrones = droneRequests.Sum(r => Math.Min(r.Count, MaxSpawnedDronesPerType));
+                var existingPositions = entities.Select(e => new Vector3(e.WorldTransform.M41, e.WorldTransform.M42, e.WorldTransform.M43)).ToList();
+                var spawnMatrices = SplineResolver.GenerateSpawnMatrices(roadSplines, totalActiveDrones, assets.StartPosition, existingPositions);
 
                 int spawnIdx = 0;
                 int globalDroneIndex = 0;
                 foreach (var req in droneRequests)
                 {
                     string resolvedHie = ResolveDroneModelHie(vfs, req.Name);
-                    int spawnCount = Math.Min(req.Count, 2);
+                    int spawnCount = Math.Min(req.Count, MaxSpawnedDronesPerType);
 
                     for (int i = 0; i < spawnCount; i++)
                     {
@@ -307,84 +338,131 @@ namespace TDR.Tools.Export
             }
 
             // 4. Pedestrian Spawners
-            var pedDescs = new List<string>(assets.PedestrianDescriptors);
+            // Sort descriptors so full PedDescriptors (which contain mesh & texture mappings) are processed before bare Placement.txt
+            var pedDescs = assets.PedestrianDescriptors
+                .OrderBy(d => d.EndsWith("Placement.txt", StringComparison.OrdinalIgnoreCase) ? 1 : 0)
+                .ToList();
+
             string defaultPed = $"{cleanBaseTrack}_PedDescriptor.txt";
             if (!pedDescs.Contains(defaultPed, StringComparer.OrdinalIgnoreCase) && vfs.FileExists(defaultPed))
             {
-                pedDescs.Add(defaultPed);
+                pedDescs.Insert(0, defaultPed);
             }
 
             int pedIndex = 0;
+            // Guard against multiple descriptors (PEDS/ZOMBIES/ALIENS) sharing the same PlacementFile.
+            // In TDR2000 each variant descriptor re-uses the base placement file but supplies its own skins/textures.
+            // To avoid duplicating all spawn points, each unique placement file is processed only once —
+            // using the FIRST descriptor that references it (the ped-class-specific mapping).
+            var processedPlacementFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
             foreach (string descName in pedDescs)
             {
-                byte[]? data = vfs.LoadFileContext(descName, trackContext ?? cleanTrackName);
+                byte[]? data = vfs.LoadFileContext(descName, trackContext ?? cleanTrackName) ?? vfs.LoadFile(descName);
                 if (data == null || data.Length == 0) continue;
 
-                string text = Encoding.ASCII.GetString(data);
-                string[] lines = text.Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
+                PedDescriptor? pedDesc = null;
+                List<PedPlacement> placements = new();
+                string placementKey;  // key used for deduplication
 
-                foreach (string rawLine in lines)
+                if (descName.EndsWith("Placement.txt", StringComparison.OrdinalIgnoreCase))
                 {
-                    string clean = rawLine.Contains("//") ? rawLine[..rawLine.IndexOf("//")].Trim() : rawLine.Trim();
-                    if (string.IsNullOrWhiteSpace(clean)) continue;
+                    placementKey = Path.GetFileName(descName);
+                    if (!processedPlacementFiles.Add(placementKey)) continue;
+                    placements = PedPlacement.Load(data);
 
-                    string[] parts = clean.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
-                    // Format: Type Skin Ani PosX PosY PosZ Dir(deg) -> 7 fields
-                    if (parts.Length >= 6 &&
-                        float.TryParse(parts[3], NumberStyles.Float, CultureInfo.InvariantCulture, out float px) &&
-                        float.TryParse(parts[4], NumberStyles.Float, CultureInfo.InvariantCulture, out float py) &&
-                        float.TryParse(parts[5], NumberStyles.Float, CultureInfo.InvariantCulture, out float pz))
+                    // If placement was loaded standalone, load the default track PedDescriptor for mesh & texture mapping
+                    byte[]? defDescData = vfs.LoadFileContext(defaultPed, trackContext ?? cleanTrackName) ?? vfs.LoadFile(defaultPed);
+                    if (defDescData != null && defDescData.Length > 0)
                     {
-                        pedIndex++;
-                        Vector3 pos = new Vector3(px, py, pz);
-                        float yawDeg = 0f;
-                        if (parts.Length >= 7 && float.TryParse(parts[6], NumberStyles.Float, CultureInfo.InvariantCulture, out float dir))
-                        {
-                            yawDeg = dir;
-                        }
-
-                        float yawRad = yawDeg * (MathF.PI / 180f);
-                        Matrix4x4 pedMat = Matrix4x4.CreateRotationY(yawRad) * Matrix4x4.CreateTranslation(pos.X, pos.Y, pos.Z);
-                        if (useLocalCoords && globalOrigin.HasValue)
-                        {
-                            pedMat.M41 -= globalOrigin.Value.X;
-                            pedMat.M42 -= globalOrigin.Value.Y;
-                            pedMat.M43 -= globalOrigin.Value.Z;
-                        }
-
-                        entities.Add(new PlacedEntity
-                        {
-                            Category = EntityCategory.Pedestrian,
-                            InstanceId = $"Pedestrian_{pedIndex:D3}",
-                            ModelHieName = "__pedestrian_proxy__",
-                            WorldTransform = pedMat,
-                            Tag = "Pedestrian"
-                        });
+                        pedDesc = PedDescriptor.Load(defDescData);
                     }
-                    else if (parts.Length == 3 &&
-                             float.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float sx) &&
-                             float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float sy) &&
-                             float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float sz))
+                }
+                else
+                {
+                    pedDesc = PedDescriptor.Load(data);
+                    if (pedDesc != null && !string.IsNullOrEmpty(pedDesc.PlacementFile))
                     {
-                        pedIndex++;
-                        Vector3 pos = new Vector3(sx, sy, sz);
-                        Matrix4x4 pedMat = Matrix4x4.CreateTranslation(pos.X, pos.Y, pos.Z);
-                        if (useLocalCoords && globalOrigin.HasValue)
+                        placementKey = Path.GetFileName(pedDesc.PlacementFile);
+                        if (!processedPlacementFiles.Add(placementKey))
                         {
-                            pedMat.M41 -= globalOrigin.Value.X;
-                            pedMat.M42 -= globalOrigin.Value.Y;
-                            pedMat.M43 -= globalOrigin.Value.Z;
+                            // This placement file was already emitted by a previous descriptor.
+                            // Skip to avoid N×duplication (e.g. Peds + Zombies + Aliens all share one placement).
+                            continue;
                         }
 
-                        entities.Add(new PlacedEntity
+                        byte[]? placeData = vfs.LoadFileContext(pedDesc.PlacementFile, trackContext ?? cleanTrackName) ?? vfs.LoadFile(pedDesc.PlacementFile);
+                        if (placeData != null && placeData.Length > 0)
                         {
-                            Category = EntityCategory.Pedestrian,
-                            InstanceId = $"Pedestrian_{pedIndex:D3}",
-                            ModelHieName = "__pedestrian_proxy__",
-                            WorldTransform = pedMat,
-                            Tag = "Pedestrian"
-                        });
+                            placements = PedPlacement.Load(placeData);
+                        }
                     }
+                }
+
+                foreach (var p in placements)
+                {
+                    pedIndex++;
+                    string skinMesh = "__pedestrian_proxy__";
+                    string texName = "Default";
+
+                    if (pedDesc != null)
+                    {
+                        // p.SkinIndex is the "skin type" from the placement file —
+                        // a direct index into PedDescriptor.Textures[] (the texture variant list),
+                        // NOT a direct index into SkinMeshes[].
+                        PedSkinTexture? texMatch = null;
+                        if (p.SkinIndex >= 0 && p.SkinIndex < pedDesc.Textures.Count)
+                        {
+                            texMatch = pedDesc.Textures[p.SkinIndex];
+                        }
+
+                        if (texMatch != null)
+                        {
+                            // Resolve the correct .ski mesh via the mesh-index stored in the texture entry
+                            if (texMatch.SkinIndex >= 0 && texMatch.SkinIndex < pedDesc.SkinMeshes.Count)
+                            {
+                                skinMesh = pedDesc.SkinMeshes[texMatch.SkinIndex];
+                            }
+                            string face = !string.IsNullOrEmpty(texMatch.FaceTexture) ? texMatch.FaceTexture : texMatch.BodyTexture;
+                            string body = !string.IsNullOrEmpty(texMatch.BodyTexture) ? texMatch.BodyTexture : texMatch.FaceTexture;
+                            texName = $"{face}|{body}";
+                        }
+                        else if (pedDesc.SkinMeshes.Count > 0)
+                        {
+                            // Fallback: placement refers to a skin index beyond the texture list
+                            // (e.g. mission-specific VIP peds). Use first available mesh.
+                            skinMesh = pedDesc.SkinMeshes[0];
+                            log?.Invoke($"    [Ped] SkinType={p.SkinIndex} out of Textures range ({pedDesc.Textures.Count}), using fallback mesh '{skinMesh}'.");
+                        }
+                    }
+
+                    float headingRad = p.HeadingRadians;
+                    if (MathF.Abs(p.HeadingDegrees) < 0.001f)
+                    {
+                        // Deterministic position-based hash to give ambient pedestrians natural randomized orientations
+                        // when the level designer left Dir = 0.0 (e.g. 1920s, Hell, Docks)
+                        int seed = (int)(p.Position.X * 100) ^ ((int)(p.Position.Z * 100) << 16) ^ (pedIndex * 265443576);
+                        float pseudoRandomDeg = MathF.Abs(seed % 360);
+                        headingRad = pseudoRandomDeg * (MathF.PI / 180.0f);
+                    }
+
+                    Matrix4x4 pedMat = Matrix4x4.CreateRotationY(-headingRad) * Matrix4x4.CreateTranslation(p.Position.X, p.Position.Y, p.Position.Z);
+                    if (useLocalCoords && globalOrigin.HasValue)
+                    {
+                        pedMat.M41 -= globalOrigin.Value.X;
+                        pedMat.M42 -= globalOrigin.Value.Y;
+                        pedMat.M43 -= globalOrigin.Value.Z;
+                    }
+
+                    entities.Add(new PlacedEntity
+                    {
+                        Category = EntityCategory.Pedestrian,
+                        InstanceId = $"Pedestrian_{pedIndex:D3}",
+                        ModelHieName = skinMesh,
+                        WorldTransform = pedMat,
+                        Tag = texName,
+                        TypeId = p.SkinIndex
+                    });
                 }
             }
 
@@ -427,16 +505,18 @@ namespace TDR.Tools.Export
         public readonly Vector3 A;
         public readonly Vector3 B;
         public readonly Vector3 C;
+        public readonly Vector3 Normal;
         public readonly float MinX;
         public readonly float MaxX;
         public readonly float MinZ;
         public readonly float MaxZ;
 
-        public TerrainTriangle(Vector3 a, Vector3 b, Vector3 c)
+        public TerrainTriangle(Vector3 a, Vector3 b, Vector3 c, Vector3 normal)
         {
             A = a;
             B = b;
             C = c;
+            Normal = normal;
             MinX = Math.Min(a.X, Math.Min(b.X, c.X));
             MaxX = Math.Max(a.X, Math.Max(b.X, c.X));
             MinZ = Math.Min(a.Z, Math.Min(b.Z, c.Z));
@@ -452,6 +532,8 @@ namespace TDR.Tools.Export
     {
         private const float CellSize = 15.0f;
         private readonly Dictionary<long, List<TerrainTriangle>> _grid = new();
+        private readonly Dictionary<string, MSHSContainer> _meshCache = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, TDRHierarchy> _hieCache = new(StringComparer.OrdinalIgnoreCase);
         public int TriangleCount { get; private set; }
 
         private static long GetCellKey(int gx, int gz)
@@ -472,6 +554,79 @@ namespace TDR.Tools.Export
                    !lower.Contains("drone");
         }
 
+        public void AddHierarchyTriangles(
+            PakManager vfs,
+            string hieName,
+            Matrix4x4 rootTransform,
+            string? trackContext)
+        {
+            if (string.IsNullOrWhiteSpace(hieName)) return;
+
+            if (!_hieCache.TryGetValue(hieName, out var hie))
+            {
+                byte[]? hieBytes = vfs.LoadFileContext(hieName, trackContext ?? string.Empty) ?? vfs.LoadFile(hieName);
+                if (hieBytes != null && hieBytes.Length > 0)
+                {
+                    hie = TDRHierarchy.Load(hieBytes, hieName);
+                    _hieCache[hieName] = hie;
+                }
+            }
+
+            if (hie?.Root == null) return;
+
+            void Recurse(TDRNode node, Matrix4x4 parentMatrix)
+            {
+                Matrix4x4 worldMat = node.Transform * parentMatrix;
+
+                if (node.Type == TDRNode.NodeType.Mesh && node.Index >= 0 && node.Index < hie.Meshes.Count)
+                {
+                    string mshName = hie.Meshes[node.Index];
+                    if (!_meshCache.TryGetValue(mshName, out var container))
+                    {
+                        byte[]? mshBytes = vfs.LoadFileContext(mshName, trackContext ?? string.Empty) ?? vfs.LoadFile(mshName);
+                        if (mshBytes != null && mshBytes.Length > 0)
+                        {
+                            container = MSHSContainer.Load(mshBytes, mshName);
+                            _meshCache[mshName] = container;
+                        }
+                    }
+
+                    if (container != null)
+                    {
+                        var stream = new TriangleStream();
+                        foreach (var meshData in container.Meshes)
+                        {
+                            MeshGeometryReader.AppendTriangles(meshData, worldMat, stream);
+                        }
+
+                        for (int i = 0; i + 2 < stream.Vertices.Count; i += 3)
+                        {
+                            Vector3 v0Norm = stream.Vertices[i].Normal;
+                            Vector3 v1Norm = stream.Vertices[i + 1].Normal;
+                            Vector3 v2Norm = stream.Vertices[i + 2].Normal;
+                            Vector3 sumNorm = v0Norm + v1Norm + v2Norm;
+                            Vector3 triNorm = sumNorm.LengthSquared() > 1e-4f
+                                ? Vector3.Normalize(sumNorm)
+                                : (v0Norm.LengthSquared() > 1e-4f ? Vector3.Normalize(v0Norm) : Vector3.UnitY);
+
+                            AddTriangle(new TerrainTriangle(
+                                stream.Vertices[i].Position,
+                                stream.Vertices[i + 1].Position,
+                                stream.Vertices[i + 2].Position,
+                                triNorm));
+                        }
+                    }
+                }
+
+                foreach (var child in node.Children)
+                {
+                    Recurse(child, worldMat);
+                }
+            }
+
+            Recurse(hie.Root, rootTransform);
+        }
+
         public static TerrainRaycaster Build(
             PakManager vfs,
             DescriptorAssets assets,
@@ -479,94 +634,19 @@ namespace TDR.Tools.Export
             Action<string>? log = null)
         {
             var raycaster = new TerrainRaycaster();
-            var meshCache = new Dictionary<string, MSHSContainer>(StringComparer.OrdinalIgnoreCase);
-            var hieCache = new Dictionary<string, TDRHierarchy>(StringComparer.OrdinalIgnoreCase);
-
-            TDRHierarchy? LoadHie(string hieName)
-            {
-                if (hieCache.TryGetValue(hieName, out var cached)) return cached;
-                byte[]? hieBytes = vfs.LoadFileContext(hieName, trackContext ?? string.Empty) ?? vfs.LoadFile(hieName);
-                if (hieBytes != null && hieBytes.Length > 0)
-                {
-                    var hie = TDRHierarchy.Load(hieBytes, hieName);
-                    hieCache[hieName] = hie;
-                    return hie;
-                }
-                return null;
-            }
-
-            MSHSContainer? LoadMsh(string mshName)
-            {
-                if (meshCache.TryGetValue(mshName, out var cached)) return cached;
-                byte[]? mshBytes = vfs.LoadFileContext(mshName, trackContext ?? string.Empty) ?? vfs.LoadFile(mshName);
-                if (mshBytes != null && mshBytes.Length > 0)
-                {
-                    var msh = MSHSContainer.Load(mshBytes, mshName);
-                    meshCache[mshName] = msh;
-                    return msh;
-                }
-                return null;
-            }
-
-            void ProcessHieHierarchy(TDRHierarchy hie, Matrix4x4 rootTransform)
-            {
-                if (hie?.Root == null) return;
-
-                void Recurse(TDRNode node, Matrix4x4 parentMatrix)
-                {
-                    Matrix4x4 worldMat = node.Transform * parentMatrix;
-
-                    if (node.Type == TDRNode.NodeType.Mesh && node.Index >= 0 && node.Index < hie.Meshes.Count)
-                    {
-                        string mshName = hie.Meshes[node.Index];
-                        var container = LoadMsh(mshName);
-                        if (container != null)
-                        {
-                            var stream = new TriangleStream();
-                            foreach (var meshData in container.Meshes)
-                            {
-                                MeshGeometryReader.AppendTriangles(meshData, worldMat, stream);
-                            }
-
-                            for (int i = 0; i + 2 < stream.Vertices.Count; i += 3)
-                            {
-                                raycaster.AddTriangle(new TerrainTriangle(
-                                    stream.Vertices[i].Position,
-                                    stream.Vertices[i + 1].Position,
-                                    stream.Vertices[i + 2].Position));
-                            }
-                        }
-                    }
-
-                    foreach (var child in node.Children)
-                    {
-                        Recurse(child, worldMat);
-                    }
-                }
-
-                Recurse(hie.Root, rootTransform);
-            }
 
             // 1. Process base level HIE files
             foreach (string hieFile in assets.HieFiles)
             {
                 if (!IsTerrainHie(hieFile)) continue;
-                var hie = LoadHie(hieFile);
-                if (hie != null)
-                {
-                    ProcessHieHierarchy(hie, Matrix4x4.Identity);
-                }
+                raycaster.AddHierarchyTriangles(vfs, hieFile, Matrix4x4.Identity, trackContext);
             }
 
             // 2. Process placed HIE instances
             foreach (var inst in assets.HieInstances)
             {
                 if (!IsTerrainHie(inst.HieName)) continue;
-                var hie = LoadHie(inst.HieName);
-                if (hie != null)
-                {
-                    ProcessHieHierarchy(hie, inst.Transform);
-                }
+                raycaster.AddHierarchyTriangles(vfs, inst.HieName, inst.Transform, trackContext);
             }
 
             if (raycaster.TriangleCount > 0)
@@ -622,10 +702,17 @@ namespace TDR.Tools.Export
                     continue;
                 }
 
+                // Filter surfaces by explicit author normal: only hit upward-facing walkable ground / floor surfaces.
+                // This reliably discards downward-facing ceilings/roof undersides (Normal.Y < 0) and vertical walls (Normal.Y ≈ 0)
+                // while preserving even steep mountain road ramps (e.g. up to ~84° slope).
+                if (tri.Normal.Y < 0.1f) continue;
+
                 Vector3 e1 = tri.B - tri.A;
                 Vector3 e2 = tri.C - tri.A;
                 Vector3 pvec = new Vector3(-e2.Z, 0.0f, e2.X);
                 float det = e1.X * pvec.X + e1.Y * pvec.Y + e1.Z * pvec.Z;
+
+                // Standard Möller-Trumbore non-degenerate triangle check
                 if (MathF.Abs(det) < 1e-7f) continue;
                 float invDet = 1.0f / det;
 

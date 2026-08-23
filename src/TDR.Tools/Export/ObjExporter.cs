@@ -102,23 +102,51 @@ namespace TDR.Tools.Export
             }
         }
 
-        // Keywords that point directly to a .hie or a .txt sub-descriptor (Stage 1 in EXPORT_FORMAT.md)
-        private static readonly string[] DirectHieKeywords = new[]
+        private bool TryLoadMesh(string meshName, string? sourceArchivePath, out MSHSContainer? container)
         {
-            "SKY_SPHERE", "SKY_BOX", "SKY_DOME", "SKY_MESH", "SKY", "SKYDOME", "SKYBOX",
-            "BACKGROUND_MESH", "BACKGROUND_HIE", "BACKGROUND_SPHERE", "BACKGROUND_DOME", "BACKGROUND_BOX", "BACKGROUND_TEXTURE", "BACKGROUND",
-            "WATER_MESH", "HARDSHADOW_HIE", "BASE_CONSOFT", "CONSOFT",
-            "LEVEL_MESH", "STATIC_MESH", "OCCLUDER_MESH"
-        };
+            string cacheKey = string.IsNullOrEmpty(sourceArchivePath) ? meshName : $"{sourceArchivePath}#{meshName}";
+            if (_meshCache.TryGetValue(cacheKey, out container)) return container != null;
 
-        // Keywords whose value is always a .txt sub-descriptor (Stage 2 in EXPORT_FORMAT.md)
-        // Sub-descriptors contain raw .hie paths per line, NO keyword prefix.
-        private static readonly string[] SubDescriptorKeywords = new[]
-        {
-            "STATIC_MESH_DESCRIPTOR", "BREAKABLES_DESCRIPTOR", "ANIMATED_PROPS",
-            "CONSOFT_DESCRIPTOR", "LEVEL_CONSOFT", "ARTICULATED_BRIDGES", "LIGHTS_DESCRIPTOR",
-            "SPECIAL_VOLUMES", "SPECIAL_VOLUMES_0", "LEVEL_SCRIPT", "SCRIPT", "MISSION_SCRIPT"
-        };
+            // Tier 1: Direct parent archive of the HIE (e.g. WALL.pak or PATHFOLLOWERS.pak)
+            byte[]? meshData = !string.IsNullOrEmpty(sourceArchivePath) ? _vfs.LoadFileContext(meshName, sourceArchivePath) : null;
+
+            // Tier 2: Specific track context (e.g. Hollowood_Race1)
+            if (meshData == null && !string.IsNullOrEmpty(_trackContext))
+            {
+                meshData = _vfs.LoadFileContext(meshName, _trackContext);
+            }
+
+            // Tier 3: Base track family (e.g. "Hollowood" if track is "Hollowood_Race1")
+            if (meshData == null && !string.IsNullOrEmpty(_trackContext))
+            {
+                string baseFamily = TrackDiscovery.GetBaseTrackName(_trackContext);
+                if (!string.IsNullOrEmpty(baseFamily) && !baseFamily.Equals(_trackContext, StringComparison.OrdinalIgnoreCase))
+                {
+                    meshData = _vfs.LoadFileContext(meshName, baseFamily);
+                }
+            }
+
+            // Tier 4: Global fallback with explicit warning logging
+            if (meshData == null)
+            {
+                meshData = _vfs.LoadFile(meshName);
+                if (meshData != null)
+                {
+                    string? actualArch = _vfs.GetArchivePath(meshName);
+                    Log($"[!] Mesh '{meshName}' resolved via GLOBAL fallback (from '{(actualArch ?? "Loose")}') — verify geometry if unexpected.", Services.LogLevel.Warning);
+                }
+            }
+
+            if (meshData != null)
+            {
+                container = MSHSContainer.Load(meshData, meshName);
+                _meshCache[cacheKey] = container;
+                return true;
+            }
+
+            container = null;
+            return false;
+        }
 
         public static List<string> ExtractLineNamesFromHie(byte[] hieBytes) =>
             LevelDescriptorParser.ExtractLineNamesFromHie(hieBytes);
@@ -224,10 +252,11 @@ namespace TDR.Tools.Export
                             int pct = (int)((float)(i + 1) / (totalInst + assets.HieFiles.Count + 1) * 70.0f);
                             progressCallback?.Invoke(pct, $"Baking OBJ mesh ({i + 1}/{totalInst}): {inst.HieName}");
 
-                            byte[]? hieBytes = _vfs.LoadFileContext(inst.HieName, _trackContext ?? levelName);
+                            string? sourceArchivePath = _vfs.GetArchivePath(inst.HieName);
+                            byte[]? hieBytes = (!string.IsNullOrEmpty(sourceArchivePath) ? _vfs.LoadFileContext(inst.HieName, sourceArchivePath) : null) ??
+                                               LevelDescriptorParser.LoadDescriptorBytes(_vfs, _trackContext ?? levelName, inst.HieName);
                             if (hieBytes != null && hieBytes.Length > 0)
                             {
-                                string? sourceArchivePath = _vfs.GetArchivePath(inst.HieName);
                                 if (_verbose) Log($"  [+] Baking HIE instance '{inst.HieName}' at position into combined scene...");
 
                                 AppendHieToWriter(hieBytes, inst.HieName, w, textures, ref v, ref vt, ref vn, sourceArchivePath, inst.Transform);
@@ -248,10 +277,11 @@ namespace TDR.Tools.Export
                         int pct = (int)(70.0f + (float)(i + 1) / (totalHies + 1) * 20.0f);
                         progressCallback?.Invoke(pct, $"Baking OBJ mesh layer ({i + 1}/{totalHies}): {hieName}");
 
-                        byte[]? hieBytes = _vfs.LoadFileContext(hieName, _trackContext ?? levelName);
+                        string? sourceArchivePath = _vfs.GetArchivePath(hieName);
+                        byte[]? hieBytes = (!string.IsNullOrEmpty(sourceArchivePath) ? _vfs.LoadFileContext(hieName, sourceArchivePath) : null) ??
+                                           LevelDescriptorParser.LoadDescriptorBytes(_vfs, _trackContext ?? levelName, hieName);
                         if (hieBytes != null && hieBytes.Length > 0)
                         {
-                            string? sourceArchivePath = _vfs.GetArchivePath(hieName);
                             if (_verbose) Log($"  [+] Baking HIE layer '{hieName}' into combined scene...");
 
                             Matrix4x4? initMat = assets.HieInitialTransforms.TryGetValue(hieName, out var im) ? im : null;
@@ -267,60 +297,65 @@ namespace TDR.Tools.Export
 
                     string cleanTrackName = TrackDiscovery.GetBaseTrackName(levelName);
 
-                    // 2. Bake Movable Objects into the combined stream (if enabled)
-                    if (_includeMovableProps)
-                    {
-                        // 2. Reconstruct Dynamic Scene Entities (Movables, Powerups, Drones, Pedestrians)
-                        var dynamicEntities = SceneReconstruction.ReconstructDynamicEntities(
-                            _vfs,
-                            levelName,
-                            assets,
-                            includeMovables: _includeMovableProps,
-                            useLocalCoords: _useLocalCoords,
-                            globalOrigin: _localOrigin,
-                            trackContext: _trackContext ?? cleanTrackName,
-                            log: msg => Log(msg));
+                    // 2. Reconstruct Dynamic Scene Entities (Movables, Powerups, Drones, Pedestrians)
+                    // Note: entities are retained in world space here because ProcessNode applies _localOrigin internally,
+                    // avoiding double-subtraction of _localOrigin.
+                    var dynamicEntities = SceneReconstruction.ReconstructDynamicEntities(
+                        _vfs,
+                        levelName,
+                        assets,
+                        includeMovables: _includeMovableProps,
+                        useLocalCoords: false,
+                        globalOrigin: null,
+                        trackContext: _trackContext ?? cleanTrackName,
+                        log: msg => Log(msg));
 
-                        foreach (var entity in dynamicEntities)
+                    foreach (var entity in dynamicEntities)
+                    {
+                        if (entity.Category == EntityCategory.Pedestrian)
                         {
-                            if (entity.Category == EntityCategory.Pedestrian)
+                            if (entity.ModelHieName.EndsWith(".ski", StringComparison.OrdinalIgnoreCase))
+                            {
+                                AppendSkiMeshToWriter(entity.ModelHieName, entity.Tag ?? "Default", entity.WorldTransform, w, textures, ref v, ref vt, ref vn, entity.InstanceId);
+                            }
+                            else
                             {
                                 AppendPedestrianProxyToWriter(entity.WorldTransform, w, textures, ref v, ref vt, ref vn, entity.InstanceId);
-                                continue;
                             }
+                            continue;
+                        }
 
-                            byte[]? hieBytes = _vfs.LoadFileContext(entity.ModelHieName, _trackContext ?? cleanTrackName) ??
-                                               _vfs.LoadFile(entity.ModelHieName);
-                            if (hieBytes == null || hieBytes.Length == 0) continue;
+                        byte[]? hieBytes = _vfs.LoadFileContext(entity.ModelHieName, _trackContext ?? cleanTrackName) ??
+                                           _vfs.LoadFile(entity.ModelHieName);
+                        if (hieBytes == null || hieBytes.Length == 0) continue;
 
-                            var hie = GetOrLoadHierarchy(entity.ModelHieName, _ => hieBytes);
-                            if (hie?.Root == null) continue;
+                        var hie = GetOrLoadHierarchy(entity.ModelHieName, _ => hieBytes);
+                        if (hie?.Root == null) continue;
 
-                            string? archivePath = _vfs.GetArchivePath(entity.ModelHieName);
+                        string? archivePath = _vfs.GetArchivePath(entity.ModelHieName);
 
-                            if (_useGrouping)
-                            {
-                                w.WriteLine($"o {entity.InstanceId}");
-                                w.WriteLine($"# WorldPos: {F(entity.WorldTransform.M41)} {F(entity.WorldTransform.M42)} {F(entity.WorldTransform.M43)}");
-                            }
+                        if (_useGrouping)
+                        {
+                            w.WriteLine($"o {entity.InstanceId}");
+                            w.WriteLine($"# WorldPos: {F(entity.WorldTransform.M41)} {F(entity.WorldTransform.M42)} {F(entity.WorldTransform.M43)}");
+                        }
 
-                            string currentTex = "Default";
-                            ProcessNode(hie.Root, entity.WorldTransform, ref currentTex, hie, textures, w, ref v, ref vt, ref vn, archivePath, null, 0, entity.InstanceId);
+                        string currentTex = "Default";
+                        ProcessNode(hie.Root, entity.WorldTransform, ref currentTex, hie, textures, w, ref v, ref vt, ref vn, archivePath, null, 0, entity.InstanceId);
 
-                            if (entity.Category == EntityCategory.MovableProp)
-                            {
-                                string shortName = Path.GetFileNameWithoutExtension(entity.ModelHieName);
-                                bakedMovableCounts[shortName] = bakedMovableCounts.GetValueOrDefault(shortName, 0) + 1;
-                            }
-                            else if (entity.Category == EntityCategory.TrafficDrone)
-                            {
-                                string shortName = Path.GetFileNameWithoutExtension(entity.ModelHieName);
-                                bakedDroneCounts[shortName] = bakedDroneCounts.GetValueOrDefault(shortName, 0) + 1;
-                            }
-                            else if (entity.Category == EntityCategory.PowerupItem)
-                            {
-                                bakedPowerups++;
-                            }
+                        if (entity.Category == EntityCategory.MovableProp)
+                        {
+                            string shortName = Path.GetFileNameWithoutExtension(entity.ModelHieName);
+                            bakedMovableCounts[shortName] = bakedMovableCounts.GetValueOrDefault(shortName, 0) + 1;
+                        }
+                        else if (entity.Category == EntityCategory.TrafficDrone)
+                        {
+                            string shortName = Path.GetFileNameWithoutExtension(entity.ModelHieName);
+                            bakedDroneCounts[shortName] = bakedDroneCounts.GetValueOrDefault(shortName, 0) + 1;
+                        }
+                        else if (entity.Category == EntityCategory.PowerupItem)
+                        {
+                            bakedPowerups++;
                         }
                     }
                 }
@@ -418,17 +453,7 @@ namespace TDR.Tools.Export
                 string defaultTex = hie.Textures.Count > 0 ? hie.Textures[0].Trim('"') : "Default";
                 foreach (var meshName in hie.Meshes)
                 {
-                    if (!_meshCache.TryGetValue(meshName, out var container))
-                    {
-                        byte[]? meshData = _vfs.LoadFileContext(meshName, _trackContext);
-                        if (meshData != null)
-                        {
-                            container = MSHSContainer.Load(meshData, meshName);
-                            _meshCache[meshName] = container;
-                        }
-                    }
-
-                    if (container != null)
+                    if (TryLoadMesh(meshName, sourceArchivePath, out var container) && container != null)
                     {
                         for (int i = 0; i < container.Meshes.Count; i++)
                         {
@@ -486,27 +511,7 @@ namespace TDR.Tools.Export
                         string defaultTex = hie.Textures.Count > 0 ? hie.Textures[0].Trim('"') : "Default";
                         foreach (var meshName in hie.Meshes)
                         {
-                            if (!_meshCache.TryGetValue(meshName, out var container))
-                            {
-                                byte[]? meshData = _vfs.LoadFileContext(meshName, _trackContext);
-                                if (meshData != null)
-                                {
-                                    container = MSHSContainer.Load(meshData, meshName);
-                                    _meshCache[meshName] = container;
-                                    if (_verbose)
-                                    {
-                                        int totalV = container.Meshes.Sum(m => m.VertexCount > 0 ? m.VertexCount : m.Vertices.Count);
-                                        int totalF = container.Meshes.Sum(m => m.FaceCount);
-                                        Log($"        [MSHS Parser] Loaded '{meshName}': {container.Meshes.Count} submesh(es), {totalV} verts, {totalF} faces");
-                                    }
-                                }
-                                else if (_verbose)
-                                {
-                                    Log($"        [MSHS Parser] MISS: Could not locate '{meshName}' in VFS!");
-                                }
-                            }
-
-                            if (container != null)
+                            if (TryLoadMesh(meshName, sourceArchivePath, out var container) && container != null)
                             {
                                 w.WriteLine($"o {Path.GetFileNameWithoutExtension(meshName)}");
                                 for (int i = 0; i < container.Meshes.Count; i++)
@@ -651,17 +656,7 @@ namespace TDR.Tools.Export
                                 int subMeshIdx = 1;
                                 foreach (var meshName in hie.Meshes)
                                 {
-                                    if (!_meshCache.TryGetValue(meshName, out var container))
-                                    {
-                                        byte[]? meshData = _vfs.LoadFileContext(meshName, _trackContext);
-                                        if (meshData != null)
-                                        {
-                                            container = MSHSContainer.Load(meshData, meshName);
-                                            _meshCache[meshName] = container;
-                                        }
-                                    }
-
-                                    if (container != null)
+                                    if (TryLoadMesh(meshName, movableArchive, out var container) && container != null)
                                     {
                                         for (int i = 0; i < container.Meshes.Count; i++)
                                         {
@@ -697,6 +692,17 @@ namespace TDR.Tools.Export
             }
         }
 
+        /// <summary>
+        /// Exports pedestrian spawn placements to a separate _pedestrians.obj file.
+        /// </summary>
+        /// <remarks>
+        /// OBSOLETE: This standalone method is superseded by the unified
+        /// <see cref="ExportLevelToObj"/> path which calls
+        /// <see cref="SceneReconstruction.ReconstructDynamicEntities"/> and correctly resolves
+        /// .ski meshes and textures via <see cref="PedDescriptor"/>. This method is retained
+        /// only for standalone/debug usage.
+        /// </remarks>
+        [Obsolete("Use ExportLevelToObj with includeMovableProps=true. SceneReconstruction handles pedestrians correctly.")]
         public void ExportTrackProps(string trackName, Func<string, byte[]?> loader, Action<int, string>? progressCallback = null)
         {
             progressCallback?.Invoke(10, $"Exporting track props: {trackName}");
@@ -708,25 +714,10 @@ namespace TDR.Tools.Export
                 return;
             }
 
-            // Parse PedDescriptor to get skeleton/class names
-            string pedDesc = $"{trackName}_PedDescriptor.txt";
-            byte[]? descData = loader(pedDesc);
-            var classNames = new List<string>();
-            if (descData != null)
-            {
-                string descText = Encoding.ASCII.GetString(descData);
-                foreach (string rawLine in descText.Split('\n'))
-                {
-                    string line = rawLine.Contains("//") ? rawLine[..rawLine.IndexOf("//")].Trim() : rawLine.Trim();
-                    if (string.IsNullOrWhiteSpace(line)) continue;
-                    if (line.EndsWith(".txt", StringComparison.OrdinalIgnoreCase))
-                    {
-                        string name = Path.GetFileNameWithoutExtension(line);
-                        name = name.Replace("Skeleton Descriptor", "").Replace("Descriptor", "").Trim();
-                        classNames.Add(name);
-                    }
-                }
-            }
+            // Load PedDescriptor to correctly map skin types to .ski meshes and textures
+            string pedDescName = $"{trackName}_PedDescriptor.txt";
+            byte[]? descData = loader(pedDescName);
+            PedDescriptor? pedDesc = descData != null ? PedDescriptor.Load(descData) : null;
 
             string objPath = Path.Combine(_exportDir, $"{trackName}_pedestrians.obj");
             string mtlPath = Path.ChangeExtension(objPath, ".mtl");
@@ -742,72 +733,54 @@ namespace TDR.Tools.Export
                     w.WriteLine($"# TDR2000 Pedestrian Spawn Placements - {trackName}");
                     w.WriteLine($"mtllib {Path.GetFileName(mtlPath)}");
 
-                    string pedText = Encoding.ASCII.GetString(pedData);
-                    string[] lines = pedText.Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
-
+                    var placements = PedPlacement.Load(pedData);
                     int pedIdx = 0;
-                    foreach (string rawLine in lines)
+                    foreach (var p in placements)
                     {
-                        string clean = rawLine.Contains("//") ? rawLine[..rawLine.IndexOf("//")].Trim() : rawLine.Trim();
-                        if (string.IsNullOrWhiteSpace(clean)) continue;
-
-                        string[] parts = clean.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
-                        if (parts.Length < 7) continue;
-
-                        if (parts[0] != "1") continue; // 0 = disabled
-
-                        if (!int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out int classId) ||
-                            !float.TryParse(parts[3], NumberStyles.Float, CultureInfo.InvariantCulture, out float px) ||
-                            !float.TryParse(parts[4], NumberStyles.Float, CultureInfo.InvariantCulture, out float py) ||
-                            !float.TryParse(parts[5], NumberStyles.Float, CultureInfo.InvariantCulture, out float pz) ||
-                            !float.TryParse(parts[6], NumberStyles.Float, CultureInfo.InvariantCulture, out float heading))
-                        {
-                            continue;
-                        }
+                        // Type==0 means disabled/inactive in some track variants;
+                        // Type==1 is standard active ped; other values are mission-specific.
+                        // Previously this code filtered out everything except Type==1,
+                        // discarding mission VIPs, zombies, etc.
+                        if (p.Type == 0) continue;
 
                         pedIdx++;
-                        string className = classId >= 0 && classId < classNames.Count ? classNames[classId] : $"PedClass_{classId}";
-                        string instanceId = $"{className}_{pedIdx:D3}";
 
-                        Matrix4x4 worldMatrix = Matrix4x4.CreateRotationY(heading * (float)(Math.PI / 180.0)) * Matrix4x4.CreateTranslation(px, py, pz);
+                        // Resolve mesh and texture using PedDescriptor (same logic as SceneReconstruction)
+                        string skinMesh = "__pedestrian_proxy__";
+                        string texName = "Default";
+
+                        if (pedDesc != null)
+                        {
+                            PedSkinTexture? texMatch = null;
+                            if (p.SkinIndex >= 0 && p.SkinIndex < pedDesc.Textures.Count)
+                                texMatch = pedDesc.Textures[p.SkinIndex];
+
+                            if (texMatch != null)
+                            {
+                                if (texMatch.SkinIndex >= 0 && texMatch.SkinIndex < pedDesc.SkinMeshes.Count)
+                                    skinMesh = pedDesc.SkinMeshes[texMatch.SkinIndex];
+                                if (!string.IsNullOrEmpty(texMatch.BodyTexture))
+                                    texName = texMatch.BodyTexture;
+                            }
+                        }
+
+                        string instanceId = $"Ped_{pedIdx:D3}_Skin{p.SkinIndex}";
+                        Matrix4x4 worldMatrix = Matrix4x4.CreateRotationY(p.HeadingRadians)
+                                                * Matrix4x4.CreateTranslation(p.Position.X, p.Position.Y, p.Position.Z);
 
                         if (_useGrouping)
                         {
                             w.WriteLine($"o {instanceId}");
-                            w.WriteLine($"# WorldPos: {F(px)} {F(py)} {F(pz)}");
-                            w.WriteLine($"# Heading: {F(heading)}");
+                            w.WriteLine($"# WorldPos: {F(p.Position.X)} {F(p.Position.Y)} {F(p.Position.Z)}");
+                            w.WriteLine($"# Heading: {F(p.HeadingDegrees)}");
                         }
 
-                        bool exportedMesh = false;
-                        string hieName = $"{className}.hie";
-                        var hie = GetOrLoadHierarchy(hieName, loader);
-                        if (hie?.Root != null)
+                        if (skinMesh.EndsWith(".ski", StringComparison.OrdinalIgnoreCase))
                         {
-                            string? archivePath = _vfs.GetArchivePath(hieName);
-                            string defaultTex = "Default";
-                            ProcessNode(hie.Root, worldMatrix, ref defaultTex, hie, textures, w, ref v, ref vt, ref vn, archivePath);
-                            exportedMesh = true;
+                            AppendSkiMeshToWriter(skinMesh, texName, worldMatrix, w, textures, ref v, ref vt, ref vn, instanceId);
                         }
-
-                        if (!exportedMesh)
+                        else
                         {
-                            // Write 3D Standing Character Proxy Box (0.5m x 1.8m x 0.5m)
-                            float hw = 0.25f;
-                            float h = 1.80f;
-                            float hd = 0.25f;
-
-                            Vector3[] localBox = new[]
-                            {
-                                new Vector3(-hw, 0, -hd), new Vector3( hw, 0, -hd),
-                                new Vector3( hw, 0,  hd), new Vector3(-hw, 0,  hd),
-                                new Vector3(-hw, h, -hd), new Vector3( hw, h, -hd),
-                                new Vector3( hw, h,  hd), new Vector3(-hw, h,  hd)
-                            };
-
-                            w.WriteLine("usemtl PedestrianProxy");
-                            textures.TryAdd("PedestrianProxy", null);
-
-                            int startV = v;
                             AppendPedestrianProxyToWriter(worldMatrix, w, textures, ref v, ref vt, ref vn, instanceId);
                         }
                     }
@@ -827,6 +800,179 @@ namespace TDR.Tools.Export
                 {
                     try { File.Delete(tempObj); } catch { }
                 }
+            }
+        }
+
+        private void AppendSkiMeshToWriter(
+            string skiName,
+            string texName,
+            Matrix4x4 transform,
+            StreamWriter w,
+            Dictionary<string, string?> textures,
+            ref int v,
+            ref int vt,
+            ref int vn,
+            string instanceId)
+        {
+            // Try multiple tiers: track-specific animation folder, generic "animation" path, global fallback.
+            // Bare ski names like "man.ski" may live under Animation/HUMANS.pak/, Animation/ZOMBIES.pak/, etc.
+            byte[]? skiBytes =
+                (!string.IsNullOrEmpty(_trackContext) ? _vfs.LoadFileContext(skiName, _trackContext) : null) ??
+                _vfs.LoadFileContext(skiName, "animation") ??
+                _vfs.LoadFileContext(skiName, "humans") ??
+                _vfs.LoadFileContext(skiName, "zombies") ??
+                _vfs.LoadFileContext(skiName, "animals") ??
+                _vfs.LoadFileContext(skiName, "aliens") ??
+                _vfs.LoadFile(skiName);
+            if (skiBytes == null || skiBytes.Length == 0)
+            {
+                Log($"    [!] Warning: Could not find '{skiName}', falling back to 'man.ski' for '{instanceId}'.");
+                skiBytes = _vfs.LoadFileContext("man.ski", "humans") ?? _vfs.LoadFile("man.ski");
+            }
+            if (skiBytes == null || skiBytes.Length == 0)
+            {
+                AppendPedestrianProxyToWriter(transform, w, textures, ref v, ref vt, ref vn, instanceId);
+                return;
+            }
+
+            var ski = SkiModel.Load(skiBytes, targetLod: 0);
+            if (ski == null || ski.Parts.Count == 0)
+            {
+                Log($"    [!] Warning: SkiModel.Load failed for '{skiName}' ({instanceId}), falling back to proxy box.");
+                AppendPedestrianProxyToWriter(transform, w, textures, ref v, ref vt, ref vn, instanceId);
+                return;
+            }
+
+            if (_useGrouping)
+            {
+                w.WriteLine($"o {instanceId}");
+                w.WriteLine($"# WorldPos: {F(transform.M41)} {F(transform.M42)} {F(transform.M43)}");
+            }
+
+            string faceTexName = texName;
+            string bodyTexName = texName;
+            if (texName.Contains('|'))
+            {
+                var tp = texName.Split('|');
+                faceTexName = tp[0];
+                                            bodyTexName = tp[1];
+            }
+
+            string? skiArchivePath = _vfs.GetArchivePath(skiName);
+            string faceMat = RegisterAndGetCanonicalTexture(faceTexName, skiArchivePath, textures);
+            string bodyMat = RegisterAndGetCanonicalTexture(bodyTexName, skiArchivePath, textures);
+
+            bool IsHeadPart(SkiPart part)
+            {
+                if (part.Positions.Count == 0) return false;
+                // Only humanoid characters with distinct face/body textures (M_BASIC, F_BASIC, ZOMBIE) split head geometry
+                bool bindsToHead = part.Polygons.Any(poly => poly.Vertices.Any(v => v.BoneIndices.Any(b => b == 4 || b == 5)));
+                bool bindsToLimbs = part.Polygons.Any(poly => poly.Vertices.Any(v => v.BoneIndices.Any(b => b >= 6)));
+                return bindsToHead && !bindsToLimbs;
+            }
+
+            // Calculate base ground offset so that creature feet/hooves touch Y = 0 in rest pose
+            float feetMinY = 0f;
+            foreach (var part in ski.Parts)
+            {
+                foreach (var pos in part.Positions)
+                {
+                    if (pos.Y < feetMinY && !float.IsNaN(pos.Y) && !float.IsInfinity(pos.Y))
+                    {
+                        feetMinY = pos.Y;
+                    }
+                }
+            }
+            float groundOffset = feetMinY < -0.01f ? -feetMinY : 0f;
+
+            void WritePartsGeometry(IEnumerable<SkiPart> parts, string materialName, ref int curV, ref int curVt, ref int curVn)
+            {
+                var pList = parts.ToList();
+                if (pList.Count == 0) return;
+
+                w.WriteLine($"usemtl {materialName}");
+
+                int baseV = curV;
+                int baseVt = curVt;
+                int baseVn = curVn;
+
+                var posList = new List<Vector3>();
+                var normList = new List<Vector3>();
+                var uvList = new List<Vector2>();
+                var idxList = new List<int>();
+
+                foreach (var part in pList)
+                {
+                    int pBase = posList.Count;
+                    foreach (var pos in part.Positions)
+                    {
+                        posList.Add(new Vector3(pos.X, pos.Y + groundOffset, pos.Z));
+                    }
+                    normList.AddRange(part.Normals);
+                    uvList.AddRange(part.UVs);
+                    foreach (var idx in part.Indices)
+                    {
+                        idxList.Add(pBase + idx);
+                    }
+                }
+
+                foreach (var pos in posList)
+                {
+                    Vector3 worldPt = Vector3.Transform(pos, transform);
+                    if (_useLocalCoords && _localOrigin.HasValue)
+                    {
+                        worldPt -= _localOrigin.Value;
+                    }
+                    w.WriteLine($"v {F(worldPt.X)} {F(worldPt.Y)} {F(worldPt.Z)}");
+                    curV++;
+                }
+
+                foreach (var uv in uvList)
+                {
+                    w.WriteLine($"vt {F(uv.X)} {F(1.0f - uv.Y)}");
+                    curVt++;
+                }
+
+                foreach (var norm in normList)
+                {
+                    Vector3 worldNorm = Vector3.TransformNormal(norm, transform);
+                    if (worldNorm.LengthSquared() > 1e-6f)
+                    {
+                        worldNorm = Vector3.Normalize(worldNorm);
+                    }
+                    w.WriteLine($"vn {F(worldNorm.X)} {F(worldNorm.Y)} {F(worldNorm.Z)}");
+                    curVn++;
+                }
+
+                for (int i = 0; i < idxList.Count; i += 3)
+                {
+                    int i0 = baseV + idxList[i];
+                    int i1 = baseV + idxList[i + 1];
+                    int i2 = baseV + idxList[i + 2];
+
+                    int uv0 = baseVt + idxList[i];
+                    int uv1 = baseVt + idxList[i + 1];
+                    int uv2 = baseVt + idxList[i + 2];
+
+                    int n0 = baseVn + idxList[i];
+                    int n1 = baseVn + idxList[i + 1];
+                    int n2 = baseVn + idxList[i + 2];
+
+                    w.WriteLine($"f {i0}/{uv0}/{n0} {i1}/{uv1}/{n1} {i2}/{uv2}/{n2}");
+                }
+            }
+
+            if (faceMat.Equals(bodyMat, StringComparison.OrdinalIgnoreCase))
+            {
+                WritePartsGeometry(ski.Parts, faceMat, ref v, ref vt, ref vn);
+            }
+            else
+            {
+                var headParts = ski.Parts.Where(IsHeadPart).ToList();
+                var bodyParts = ski.Parts.Where(p => !IsHeadPart(p)).ToList();
+
+                if (headParts.Count > 0) WritePartsGeometry(headParts, faceMat, ref v, ref vt, ref vn);
+                if (bodyParts.Count > 0) WritePartsGeometry(bodyParts, bodyMat, ref v, ref vt, ref vn);
             }
         }
 
@@ -851,6 +997,10 @@ namespace TDR.Tools.Export
             foreach (var pt in localPts)
             {
                 Vector3 worldPt = Vector3.Transform(pt, transform);
+                if (_useLocalCoords && _localOrigin.HasValue)
+                {
+                    worldPt -= _localOrigin.Value;
+                }
                 w.WriteLine($"v {F(worldPt.X)} {F(worldPt.Y)} {F(worldPt.Z)}");
                 v++;
             }
@@ -921,25 +1071,8 @@ namespace TDR.Tools.Export
             if (node.Type == TDRNode.NodeType.Mesh)
             {
                 string? meshName = hie.Meshes.Count == 1 ? hie.Meshes[0] : (node.Index >= 0 && node.Index < hie.Meshes.Count ? hie.Meshes[node.Index] : null);
-                if (meshName != null)
+                if (meshName != null && TryLoadMesh(meshName, archivePath, out var container) && container != null)
                 {
-                    if (!_meshCache.TryGetValue(meshName, out var container))
-                    {
-                        byte[]? meshData = _vfs.LoadFileContext(meshName, _trackContext);
-                        if (meshData != null)
-                        {
-                            if (_verbose) Log($"      [MESH] Loaded: {meshName}");
-                            container = MSHSContainer.Load(meshData, meshName);
-                            _meshCache[meshName] = container;
-                        }
-                        else if (_verbose)
-                        {
-                            Log($"      [MESH] MISS : {meshName}");
-                        }
-                    }
-
-                    if (container != null)
-                    {
                         // Directive 'o' creates a distinct Scene Object in Blender/Unity Outliner;
                         // Directive 'g' creates sub-face groups/materials inside that object.
                         if (_useGrouping)
@@ -984,7 +1117,6 @@ namespace TDR.Tools.Export
                         }
                     }
                 }
-            }
 
             foreach (var child in node.Children)
             {
@@ -1034,9 +1166,69 @@ namespace TDR.Tools.Export
                 if (string.IsNullOrWhiteSpace(t) || t == "Default") continue;
                 mtl.WriteLine($"\nnewmtl {t}\nKd 1.0 1.0 1.0");
 
+                // OBJ/MTL transparency approximations — symmetric with GltfExporter alpha branches.
+                // NOTE: glTF (BLEND/MASK + AlphaCutoff) is the authoritative path for per-pixel alpha.
+                //       OBJ scalar 'd' is a per-material approximation: correct viewers also apply
+                //       the alpha channel from map_d (written unconditionally below for every texture).
+                string normMat = t.ToLowerInvariant();
                 var resolveResult = TextureResolver.ResolveBestMatch(_vfs, t, archivePath, _trackContext);
                 PakManager.IndexedFile? bestMatch = resolveResult?.File;
                 string tierName = resolveResult?.TierName ?? "NOT FOUND";
+                string bestArchivePath = (bestMatch?.ArchivePath ?? "").ToLowerInvariant();
+                string normArchive = (archivePath ?? "").ToLowerInvariant();
+
+                bool hasAlpha = false;
+
+                // 1. Shadows (projected decals from HARDSHADOW_HIE or shadow textures)
+                if (normMat.Contains("shadow") || normArchive.Contains("shadow") || bestArchivePath.Contains("shadow"))
+                {
+                    mtl.WriteLine("d 0.5\nTr 0.5");
+                    hasAlpha = true;
+                }
+                // 2. Water & Fluid surfaces
+                else if (normMat.Contains("water") || normMat.Contains("river") ||
+                         normMat.Contains("ocean") || normMat.Contains("sea") ||
+                         normArchive.Contains("water") || bestArchivePath.Contains("water"))
+                {
+                    mtl.WriteLine("d 0.6\nTr 0.4");
+                    mtl.WriteLine("Ns 150");
+                    hasAlpha = true;
+                }
+                // 3. Glass, Windows, Cockpits
+                else if (normMat.Contains("glass") || normMat.Contains("window") || normMat.Contains("windshield") || normMat.Contains("cockpit"))
+                {
+                    mtl.WriteLine("d 0.35\nTr 0.65");
+                    mtl.WriteLine("Ns 200");
+                    hasAlpha = true;
+                }
+                // 4. Halos, Coronas, Glows, Flares, Beams
+                else if (normMat.Contains("corona") || normMat.Contains("halo") || normMat.Contains("glow") ||
+                         normMat.Contains("flare") || normMat.Contains("beam"))
+                {
+                    mtl.WriteLine("d 0.75\nTr 0.25");
+                    hasAlpha = true;
+                }
+                // 5. Translucent 3D Powerup Icons
+                else if (normMat.Contains("money") || normMat.Contains("cash") ||
+                         normMat.Contains("spanner") || normMat.Contains("time") ||
+                         normMat.Contains("random") || normMat.Contains("apoall") ||
+                         normMat.Contains("helmet") || normMat.Contains("engine") ||
+                         normMat.Contains("fist") || normMat.Contains("pedsign") ||
+                         normMat.Contains("artillery") || normMat.Contains("bomb") ||
+                         normArchive.Contains("powerup") || bestArchivePath.Contains("powerup"))
+                {
+                    mtl.WriteLine("d 0.65\nTr 0.35");
+                    hasAlpha = true;
+                }
+                // 6. Cutout textures (foliage, fences, signs, pedestrian skins — rely on map_d alpha channel)
+                else if (normMat.Contains("_32") || normMat.Contains("sign") ||
+                         normMat.Contains("tree") || normMat.Contains("fence") ||
+                         normMat.Contains("grate") || normMat.Contains("foliage") ||
+                         normMat.Contains("bush") || normMat.Contains("plant"))
+                {
+                    mtl.WriteLine("d 1.0");
+                    hasAlpha = true;
+                }
 
                 if (_verbose)
                 {
@@ -1054,7 +1246,10 @@ namespace TDR.Tools.Export
                 if (!string.IsNullOrEmpty(savedTexName))
                 {
                     mtl.WriteLine($"map_Kd {savedTexName}");
-                    mtl.WriteLine($"map_d {savedTexName}");
+                    if (hasAlpha)
+                    {
+                        mtl.WriteLine($"map_d {savedTexName}");
+                    }
 
                     if (t.Contains("water", StringComparison.OrdinalIgnoreCase) || t.Contains("bump", StringComparison.OrdinalIgnoreCase))
                     {
