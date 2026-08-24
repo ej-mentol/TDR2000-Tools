@@ -20,11 +20,28 @@ namespace TDR.Tools.Export
         private readonly bool _useLocalCoords;
         private readonly bool _verbose;
         private readonly bool _convertTexturesToPng;
+        public bool ExportArmatures { get; set; }
         private readonly string? _trackContext;
         private readonly Action<string>? _logger;
         private readonly HashSet<string>? _selectedHieFiles;
         private readonly Dictionary<string, MSHSContainer> _meshCache = new(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, TDRHierarchy> _hieCache = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, List<SkeBone>?> _skeletonCache = new(StringComparer.OrdinalIgnoreCase);
+
+        private List<SkeBone>? GetOrLoadActiveBones(string skeName)
+        {
+            if (_skeletonCache.TryGetValue(skeName, out var cachedBones)) return cachedBones;
+
+            byte[]? skeBytes = _vfs.LoadFileContext(skeName, "humans") ??
+                               _vfs.LoadFileContext(skeName, "animals") ??
+                               _vfs.LoadFileContext(skeName, "aliens") ??
+                               _vfs.LoadFile(skeName);
+
+            SkeSkeleton? ske = (skeBytes != null && skeBytes.Length > 0) ? SkeSkeleton.Load(skeBytes) : null;
+            var activeBones = ske?.GetActiveBones();
+            _skeletonCache[skeName] = activeBones;
+            return activeBones;
+        }
 
         private TDRHierarchy? GetOrLoadHierarchy(string hieName, string? archivePath, Func<string, byte[]?> loader)
         {
@@ -47,7 +64,16 @@ namespace TDR.Tools.Export
             }
         }
 
-        public GltfExporter(PakManager vfs, string exportDir, bool useLocalCoords = false, bool verbose = false, string? trackContext = null, Action<string>? logger = null, bool convertTexturesToPng = true, IEnumerable<string>? selectedHieFiles = null)
+        public GltfExporter(
+            PakManager vfs,
+            string exportDir,
+            bool useLocalCoords = false,
+            bool verbose = false,
+            string? trackContext = null,
+            Action<string>? logger = null,
+            bool convertTexturesToPng = true,
+            IEnumerable<string>? selectedHieFiles = null,
+            bool exportArmatures = false)
         {
             _vfs = vfs;
             _exportDir = exportDir;
@@ -56,6 +82,7 @@ namespace TDR.Tools.Export
             _trackContext = trackContext;
             _logger = logger;
             _convertTexturesToPng = convertTexturesToPng;
+            ExportArmatures = exportArmatures;
             if (selectedHieFiles != null)
             {
                 _selectedHieFiles = new HashSet<string>(selectedHieFiles, StringComparer.OrdinalIgnoreCase);
@@ -132,6 +159,7 @@ namespace TDR.Tools.Export
                 var mat = new GltfMaterial
                 {
                     Name = texName,
+                    DoubleSided = true,
                     PbrMetallicRoughness = new GltfPbr
                     {
                         BaseColorFactor = new[] { 1.0f, 1.0f, 1.0f, 1.0f },
@@ -158,48 +186,58 @@ namespace TDR.Tools.Export
 
                     mat.PbrMetallicRoughness.BaseColorTexture = new GltfTextureInfo { Index = texIdx };
 
-                    // By default, render DoubleSided for game assets to avoid inverted normal / backface culling issues
-                    mat.DoubleSided = true;
+                    // 1. Primary Authority: Read official native TDR2000 TTEX (.tx) descriptor
+                    byte[]? txBytes = (!string.IsNullOrEmpty(archivePath) ? _vfs.LoadFileContext($"{texName}.tx", archivePath) : null) ??
+                                      (!string.IsNullOrEmpty(_trackContext) ? _vfs.LoadFileContext($"{texName}.tx", _trackContext) : null) ??
+                                      _vfs.LoadFile($"{texName}.tx");
+                    var txDesc = TxDescriptor.Load(txBytes, texName);
 
-                    // Set AlphaMode & PBR parameters for materials:
                     string normTex = texName.ToLowerInvariant();
-                    string normFile = texFileName.ToLowerInvariant();
+                    string normFile = (texFileName ?? "").ToLowerInvariant();
 
-                    // 1. Level Shadows (smooth gradient shadow over ground/roads)
-                    if (normTex.Contains("shadow") || normFile.Contains("shadow"))
+                    TxTransparencyMode transMode;
+                    if (txDesc != null)
+                    {
+                        transMode = txDesc.TransparencyMode;
+                    }
+                    else
+                    {
+                        // 2. Secondary Authority: Inspect actual TGA image bytes directly
+                        byte[]? tgaBytes = (!string.IsNullOrEmpty(archivePath) ? _vfs.LoadFileContext(texFileName, archivePath) : null) ??
+                                           (!string.IsNullOrEmpty(_trackContext) ? _vfs.LoadFileContext(texFileName, _trackContext) : null) ??
+                                           _vfs.LoadFile(texFileName);
+                        transMode = TgaDecoder.DetectTgaTransparency(tgaBytes);
+                    }
+
+                    if (transMode == TxTransparencyMode.Blend)
                     {
                         mat.AlphaMode = "BLEND";
                         mat.DoubleSided = true;
-                        mat.PbrMetallicRoughness.BaseColorFactor = new[] { 1.0f, 1.0f, 1.0f, 0.5f };
-                        mat.PbrMetallicRoughness.RoughnessFactor = 1.0f;
                         mat.PbrMetallicRoughness.MetallicFactor = 0.0f;
+                        mat.PbrMetallicRoughness.RoughnessFactor = 0.5f;
                     }
-                    // 2. Water & Fluid surfaces (semi-transparent water showing ground floor beneath)
-                    else if (normTex.Contains("water") || normFile.Contains("water") ||
-                             normTex.Contains("river") || normTex.Contains("ocean") || normTex.Contains("sea"))
+                    else if (transMode == TxTransparencyMode.Mask)
                     {
-                        mat.AlphaMode = "BLEND";
+                        mat.AlphaMode = "MASK";
+                        mat.AlphaCutoff = 0.5f;
                         mat.DoubleSided = true;
-                        mat.PbrMetallicRoughness.BaseColorFactor = new[] { 1.0f, 1.0f, 1.0f, 0.7f };
-                        mat.PbrMetallicRoughness.RoughnessFactor = 0.1f;
-                        mat.PbrMetallicRoughness.MetallicFactor = 0.0f;
                     }
-                    // 3. Glass, Windows, Cockpits (semi-transparent glazing)
-                    else if (normTex.Contains("glass") || normFile.Contains("glass") ||
-                             normTex.Contains("window") || normFile.Contains("window") ||
-                             normTex.Contains("windshield") || normTex.Contains("cockpit"))
+                    else
                     {
-                        mat.AlphaMode = "BLEND";
-                        mat.DoubleSided = true;
-                        mat.PbrMetallicRoughness.RoughnessFactor = 0.1f;
-                        mat.PbrMetallicRoughness.MetallicFactor = 0.0f;
+                        mat.AlphaMode = "OPAQUE";
                     }
-                    // 4. Halos, Coronas, Glows, Flares (Additive/Emissive Unlit blend)
-                    else if (normTex.Contains("corona") || normFile.Contains("corona") ||
-                             normTex.Contains("halo") || normFile.Contains("halo") ||
-                             normTex.Contains("glow") || normFile.Contains("glow") ||
-                             normTex.Contains("flare") || normFile.Contains("flare") ||
-                             normTex.Contains("beam") || normFile.Contains("beam"))
+
+                    if (_verbose && txDesc != null)
+                    {
+                        Log($"      [TX MAT] '{texName}' resolved via TTEX -> Mode: {txDesc.TransparencyMode} (Flags: 0x{txDesc.Flags:X})", Services.LogLevel.Debug);
+                    }
+
+                    // 3. Emissive overlays (Halos, Coronas, Glows, Flares) applied additively
+                    if (normTex.Contains("corona") || normFile.Contains("corona") ||
+                        normTex.Contains("halo") || normFile.Contains("halo") ||
+                        normTex.Contains("glow") || normFile.Contains("glow") ||
+                        normTex.Contains("flare") || normFile.Contains("flare") ||
+                        normTex.Contains("beam") || normFile.Contains("beam"))
                     {
                         mat.AlphaMode = "BLEND";
                         mat.DoubleSided = true;
@@ -208,30 +246,6 @@ namespace TDR.Tools.Export
                         mat.PbrMetallicRoughness.BaseColorFactor = new[] { 1.0f, 1.0f, 1.0f, 0.8f };
                         mat.PbrMetallicRoughness.RoughnessFactor = 1.0f;
                         mat.PbrMetallicRoughness.MetallicFactor = 0.0f;
-                    }
-                    // 5. Translucent 3D Powerup Icons (Money, Spanner, Time, Random, APO, Helmet, Engine, Fist, PedSign)
-                    else if (normTex.Contains("money") || normTex.Contains("cash") ||
-                             normTex.Contains("spanner") || normTex.Contains("time") ||
-                             normTex.Contains("random") || normTex.Contains("apoall") ||
-                             normTex.Contains("helmet") || normTex.Contains("engine") ||
-                             normTex.Contains("fist") || normTex.Contains("pedsign") ||
-                             normTex.Contains("artillery") || normTex.Contains("bomb") ||
-                             normFile.Contains("powerup") || (archivePath != null && archivePath.ToLowerInvariant().Contains("powerup")))
-                    {
-                        mat.AlphaMode = "BLEND";
-                        mat.DoubleSided = true;
-                        mat.PbrMetallicRoughness.BaseColorFactor = new[] { 1.0f, 1.0f, 1.0f, 0.65f };
-                        mat.PbrMetallicRoughness.RoughnessFactor = 0.5f;
-                        mat.PbrMetallicRoughness.MetallicFactor = 0.0f;
-                    }
-                    // 6. Cutout textures with alpha channel (foliage, fences, grates, signs, pedestrians)
-                    else if (normFile.Contains("_32") || normTex.Contains("sign") ||
-                             normTex.Contains("tree") || normTex.Contains("fence") ||
-                             normTex.Contains("grate") || normTex.Contains("foliage") ||
-                             normTex.Contains("bush") || normTex.Contains("plant"))
-                    {
-                        mat.AlphaMode = "MASK";
-                        mat.AlphaCutoff = 0.5f;
                     }
 
                     // 6. Sky Sphere / Sky Dome: make unlit with emissive texture
@@ -262,7 +276,7 @@ namespace TDR.Tools.Export
                 foreach (string hieName in terrainHies)
                 {
                     if (hieName.Contains("sky", StringComparison.OrdinalIgnoreCase)) continue;
-                    string? archivePath = _vfs.GetArchivePath(hieName);
+                    string? archivePath = _vfs.GetArchivePath(hieName, _trackContext);
                     var preHie = GetOrLoadHierarchy(hieName, archivePath, name => _vfs.LoadFileContext(name, _trackContext ?? levelName));
                     if (preHie == null) continue;
                     float hieMinY = MeshGeometryReader.ComputeHierarchyMinimumY(preHie, (path) => _vfs.LoadFileContext(path, _trackContext ?? levelName));
@@ -301,7 +315,7 @@ namespace TDR.Tools.Export
                     }
                     spawnedHieLocations.Add((modelBaseName, instPos));
 
-                    string? archivePath = _vfs.GetArchivePath(hieName);
+                    string? archivePath = _vfs.GetArchivePath(hieName, _trackContext);
                     string meshKey = string.IsNullOrEmpty(archivePath) ? hieName : $"{archivePath}#{hieName}";
 
                     if (!meshMap.TryGetValue(meshKey, out int gltfMeshIdx))
@@ -378,7 +392,7 @@ namespace TDR.Tools.Export
                 int pct = (int)((float)(i + 1) / (totalHies + 1) * 80.0f);
                 progressCallback?.Invoke(pct, $"Processing glTF mesh ({i + 1}/{totalHies}): {hieName}");
 
-                string? archivePath = _vfs.GetArchivePath(hieName);
+                string? archivePath = _vfs.GetArchivePath(hieName, _trackContext);
                 string meshKey = string.IsNullOrEmpty(archivePath) ? hieName : $"{archivePath}#{hieName}";
 
                 if (!meshMap.TryGetValue(meshKey, out int gltfMeshIdx))
@@ -445,35 +459,17 @@ namespace TDR.Tools.Export
                 trackContext: _trackContext ?? cleanBaseTrack,
                 log: msg => Log(msg));
 
+            var ibmMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
             foreach (var entity in dynamicEntities)
             {
                 if (entity.Category == EntityCategory.Pedestrian)
                 {
-                    int pedMeshIdx = -1;
-                    if (entity.ModelHieName.EndsWith(".ski", StringComparison.OrdinalIgnoreCase))
-                    {
-                        pedMeshIdx = GetOrBuildSkiMesh(entity.ModelHieName, entity.Tag ?? "Default", gltf, meshMap, bw, GetOrAddMaterial);
-                    }
-                    if (pedMeshIdx < 0)
-                    {
-                        pedMeshIdx = GetOrBuildPedestrianProxyMesh(gltf, meshMap, bw, GetOrAddMaterial);
-                    }
-
-                    if (pedMeshIdx >= 0)
-                    {
-                        int nodeIdx = gltf.Nodes.Count;
-                        gltf.Nodes.Add(new GltfNode
-                        {
-                            Name = entity.InstanceId,
-                            Mesh = pedMeshIdx,
-                            Matrix = ToGltfMatrix(entity.WorldTransform)
-                        });
-                        rootNode.AddChild(nodeIdx);
-                    }
+                    ExportPedestrianEntity(entity, gltf, meshMap, ibmMap, bw, GetOrAddMaterial, rootNode);
                     continue;
                 }
 
-                string? archivePath = _vfs.GetArchivePath(entity.ModelHieName);
+                string? archivePath = _vfs.GetArchivePath(entity.ModelHieName, _trackContext);
                 string meshKey = string.IsNullOrEmpty(archivePath) ? entity.ModelHieName : $"{archivePath}#{entity.ModelHieName}";
 
                 if (!meshMap.TryGetValue(meshKey, out int gltfMeshIdx))
@@ -631,7 +627,7 @@ namespace TDR.Tools.Export
                 bodyTexName = tp[1];
             }
 
-            string? skiArchivePath = _vfs.GetArchivePath(skiName);
+            string? skiArchivePath = _vfs.GetArchivePath(skiName, _trackContext);
             int faceMatIdx = getMaterial(faceTexName, skiArchivePath);
             int bodyMatIdx = getMaterial(bodyTexName, skiArchivePath);
 
@@ -666,6 +662,8 @@ namespace TDR.Tools.Export
                 var positions = new List<Vector3>();
                 var normals = new List<Vector3>();
                 var uvs = new List<Vector2>();
+                var joints = new List<ushort[]>();
+                var weights = new List<Vector4>();
                 var indices = new List<int>();
 
                 foreach (var part in pList)
@@ -677,6 +675,8 @@ namespace TDR.Tools.Export
                     }
                     normals.AddRange(part.Normals);
                     uvs.AddRange(part.UVs);
+                    joints.AddRange(part.Joints);
+                    weights.AddRange(part.Weights);
                     foreach (var idx in part.Indices)
                     {
                         indices.Add(baseV + idx);
@@ -732,6 +732,39 @@ namespace TDR.Tools.Export
                 }
                 int idxByteLength = (int)(bw.BaseStream.Position - idxOffset);
 
+                bool hasSkinning = joints.Count == positions.Count && weights.Count == positions.Count;
+                int accJoints = -1;
+                int accWeights = -1;
+
+                if (hasSkinning)
+                {
+                    // 5. Joints (4 unsigned shorts per vertex)
+                    long jointsOffset = bw.BaseStream.Position;
+                    foreach (var j in joints)
+                    {
+                        bw.Write(j[0]); bw.Write(j[1]); bw.Write(j[2]); bw.Write(j[3]);
+                    }
+                    int jointsByteLength = (int)(bw.BaseStream.Position - jointsOffset);
+
+                    // 6. Weights (4 floats per vertex)
+                    long weightsOffset = bw.BaseStream.Position;
+                    foreach (var w in weights)
+                    {
+                        bw.Write(w.X); bw.Write(w.Y); bw.Write(w.Z); bw.Write(w.W);
+                    }
+                    int weightsByteLength = (int)(bw.BaseStream.Position - weightsOffset);
+
+                    int bvJoints = gltf.BufferViews.Count;
+                    gltf.BufferViews.Add(new GltfBufferView { Buffer = 0, ByteOffset = (int)jointsOffset, ByteLength = jointsByteLength, Target = 34962 });
+                    int bvWeights = gltf.BufferViews.Count;
+                    gltf.BufferViews.Add(new GltfBufferView { Buffer = 0, ByteOffset = (int)weightsOffset, ByteLength = weightsByteLength, Target = 34962 });
+
+                    accJoints = gltf.Accessors.Count;
+                    gltf.Accessors.Add(new GltfAccessor { BufferView = bvJoints, ComponentType = 5123, Count = joints.Count, Type = "VEC4" });
+                    accWeights = gltf.Accessors.Count;
+                    gltf.Accessors.Add(new GltfAccessor { BufferView = bvWeights, ComponentType = 5126, Count = weights.Count, Type = "VEC4" });
+                }
+
                 // BufferViews
                 int bvPos = gltf.BufferViews.Count;
                 gltf.BufferViews.Add(new GltfBufferView { Buffer = 0, ByteOffset = (int)posOffset, ByteLength = posByteLength, Target = 34962 });
@@ -768,12 +801,17 @@ namespace TDR.Tools.Export
 
                 var prim = new GltfPrimitive
                 {
-                    Material = materialIdx,
+                    Material = materialIdx >= 0 ? materialIdx : null,
                     Indices = accIdx
                 };
                 prim.Attributes["POSITION"] = accPos;
                 prim.Attributes["NORMAL"] = accNorm;
                 prim.Attributes["TEXCOORD_0"] = accUv;
+                if (hasSkinning)
+                {
+                    prim.Attributes["JOINTS_0"] = accJoints;
+                    prim.Attributes["WEIGHTS_0"] = accWeights;
+                }
 
                 gMesh.Primitives.Add(prim);
             }
@@ -797,6 +835,191 @@ namespace TDR.Tools.Export
             gltf.Meshes.Add(gMesh);
             meshMap[cacheKey] = gltfMeshIdx;
             return gltfMeshIdx;
+        }
+
+        private void ExportPedestrianEntity(
+            PlacedEntity entity,
+            GltfManifest gltf,
+            Dictionary<string, int> meshMap,
+            Dictionary<string, int> ibmMap,
+            BinaryWriter bw,
+            Func<string, string?, int> getMaterial,
+            GltfNode rootNode)
+        {
+            int pedMeshIdx = -1;
+            if (entity.ModelHieName.EndsWith(".ski", StringComparison.OrdinalIgnoreCase))
+            {
+                pedMeshIdx = GetOrBuildSkiMesh(entity.ModelHieName, entity.Tag ?? "Default", gltf, meshMap, bw, getMaterial);
+            }
+            if (pedMeshIdx < 0)
+            {
+                pedMeshIdx = GetOrBuildPedestrianProxyMesh(gltf, meshMap, bw, getMaterial);
+            }
+
+            if (pedMeshIdx < 0) return;
+
+            // 1. Fast Proxy Instancing (Level Scene Mode - zero overhead, instant load)
+            if (!ExportArmatures)
+            {
+                int nodeIdx = gltf.Nodes.Count;
+                gltf.Nodes.Add(new GltfNode
+                {
+                    Name = entity.InstanceId,
+                    Mesh = pedMeshIdx,
+                    Matrix = ToGltfMatrix(entity.WorldTransform)
+                });
+                rootNode.AddChild(nodeIdx);
+                return;
+            }
+
+            string baseSki = Path.GetFileName(entity.ModelHieName).ToLowerInvariant();
+            string skeName = ResolveSkeletonName(baseSki);
+            var activeBones = GetOrLoadActiveBones(skeName);
+
+            if (activeBones != null && activeBones.Count > 0)
+            {
+                int accIbm = GetOrBuildIbmAccessor(skeName, activeBones, gltf, bw, ibmMap);
+
+                // 1. Pedestrian Instance Root Node with World Transform
+                int pedRootIdx = gltf.Nodes.Count;
+                var pedRootNode = new GltfNode
+                {
+                    Name = entity.InstanceId,
+                    Matrix = ToGltfMatrix(entity.WorldTransform)
+                };
+                gltf.Nodes.Add(pedRootNode);
+                rootNode.AddChild(pedRootIdx);
+
+                // 2. Instanced Bones under Pedestrian Root
+                var jointNodeIndices = new List<int>(activeBones.Count);
+                for (int i = 0; i < activeBones.Count; i++)
+                {
+                    var bone = activeBones[i];
+                    int boneNodeIdx = gltf.Nodes.Count;
+                    jointNodeIndices.Add(boneNodeIdx);
+
+                    gltf.Nodes.Add(new GltfNode
+                    {
+                        Name = $"{entity.InstanceId}_Bone_{bone.ID:D2}",
+                        Matrix = ToGltfMatrix(bone.LocalMatrix)
+                    });
+                }
+
+                // Connect Parent-Child Bone Hierarchy
+                for (int i = 0; i < activeBones.Count; i++)
+                {
+                    var bone = activeBones[i];
+                    if (bone.ParentID >= 0 && bone.ParentID < activeBones.Count && bone.ParentID != i)
+                    {
+                        int parentNodeIdx = jointNodeIndices[bone.ParentID];
+                        int childNodeIdx = jointNodeIndices[i];
+                        gltf.Nodes[parentNodeIdx].AddChild(childNodeIdx);
+                    }
+                    else
+                    {
+                        pedRootNode.AddChild(jointNodeIndices[i]);
+                    }
+                }
+
+                // 3. Register Skin for this instance
+                gltf.Skins ??= new List<GltfSkin>();
+                int skinIdx = gltf.Skins.Count;
+                gltf.Skins.Add(new GltfSkin
+                {
+                    Name = $"Armature_{entity.InstanceId}",
+                    InverseBindMatrices = accIbm,
+                    Joints = jointNodeIndices,
+                    Skeleton = jointNodeIndices[0]
+                });
+
+                // 4. Mesh Node referencing Skin
+                int pedMeshNodeIdx = gltf.Nodes.Count;
+                var meshNode = new GltfNode
+                {
+                    Name = $"{entity.InstanceId}_Mesh",
+                    Mesh = pedMeshIdx,
+                    Skin = skinIdx
+                };
+                gltf.Nodes.Add(meshNode);
+                pedRootNode.AddChild(pedMeshNodeIdx);
+            }
+            else
+            {
+                // Fallback unskinned node
+                int nodeIdx = gltf.Nodes.Count;
+                gltf.Nodes.Add(new GltfNode
+                {
+                    Name = entity.InstanceId,
+                    Mesh = pedMeshIdx,
+                    Matrix = ToGltfMatrix(entity.WorldTransform)
+                });
+                rootNode.AddChild(nodeIdx);
+            }
+        }
+
+        private int GetOrBuildIbmAccessor(
+            string skeName,
+            List<SkeBone> activeBones,
+            GltfManifest gltf,
+            BinaryWriter bw,
+            Dictionary<string, int> ibmMap)
+        {
+            if (ibmMap.TryGetValue(skeName, out int cachedAcc)) return cachedAcc;
+
+            // Alignment padding to 4 bytes
+            long currentPos = bw.BaseStream.Position;
+            long remainder = currentPos % 4;
+            if (remainder != 0)
+            {
+                for (int pad = 0; pad < 4 - remainder; pad++) bw.Write((byte)0);
+            }
+
+            // Write Inverse Bind Matrices (IBM) (16 floats per bone)
+            long ibmOffset = bw.BaseStream.Position;
+            foreach (var bone in activeBones)
+            {
+                Matrix4x4.Invert(bone.WorldMatrix, out Matrix4x4 invBind);
+                bw.Write(invBind.M11); bw.Write(invBind.M12); bw.Write(invBind.M13); bw.Write(invBind.M14);
+                bw.Write(invBind.M21); bw.Write(invBind.M22); bw.Write(invBind.M23); bw.Write(invBind.M24);
+                bw.Write(invBind.M31); bw.Write(invBind.M32); bw.Write(invBind.M33); bw.Write(invBind.M34);
+                bw.Write(invBind.M41); bw.Write(invBind.M42); bw.Write(invBind.M43); bw.Write(invBind.M44);
+            }
+            int ibmByteLength = (int)(bw.BaseStream.Position - ibmOffset);
+
+            int bvIbm = gltf.BufferViews.Count;
+            gltf.BufferViews.Add(new GltfBufferView { Buffer = 0, ByteOffset = (int)ibmOffset, ByteLength = ibmByteLength });
+
+            int accIbm = gltf.Accessors.Count;
+            gltf.Accessors.Add(new GltfAccessor
+            {
+                BufferView = bvIbm,
+                ComponentType = 5126, // FLOAT
+                Count = activeBones.Count,
+                Type = "MAT4"
+            });
+
+            ibmMap[skeName] = accIbm;
+            return accIbm;
+        }
+
+        private static string ResolveSkeletonName(string baseSki)
+        {
+            return baseSki switch
+            {
+                var s when s.Contains("woman") && s.Contains("flag") => "Flag_woman.ske",
+                var s when s.Contains("woman") => "woman.ske",
+                var s when s.Contains("horse") => "horse.ske",
+                var s when s.Contains("bull") => "bull.ske",
+                var s when s.Contains("sheep") => "sheep.ske",
+                var s when s.Contains("dog") => "dog.ske",
+                var s when s.Contains("cat") => "cat.ske",
+                var s when s.Contains("kanga") => "kanga.ske",
+                var s when s.Contains("rat") => "GiantRat.ske",
+                var s when s.Contains("alien1") => "alien1.ske",
+                var s when s.Contains("alien2") => "alien2.ske",
+                var s when s.Contains("alien3") => "alien3.ske",
+                _ => "man.ske"
+            };
         }
 
         private int GetOrBuildPedestrianProxyMesh(GltfManifest gltf, Dictionary<string, int> meshMap, BinaryWriter bw, Func<string, string?, int> getMaterial)
@@ -892,7 +1115,7 @@ namespace TDR.Tools.Export
                 meshData = _vfs.LoadFile(meshName);
                 if (meshData != null)
                 {
-                    string? actualArch = _vfs.GetArchivePath(meshName);
+                    string? actualArch = _vfs.GetArchivePath(meshName, _trackContext);
                     Log($"[!] Mesh '{meshName}' resolved via GLOBAL fallback (from '{(actualArch ?? "Loose")}') — verify geometry if unexpected.", Services.LogLevel.Warning);
                 }
             }
@@ -1016,8 +1239,14 @@ namespace TDR.Tools.Export
             var uvs = new List<Vector2>();
             var indices = new List<int>();
 
+            string nTex = texName.ToLowerInvariant();
+            bool isDoubleSided = nTex.Contains("water") || nTex.Contains("tank") || nTex.Contains("river") ||
+                                 nTex.Contains("sea") || nTex.Contains("ocean") || nTex.Contains("glass") ||
+                                 nTex.Contains("fence") || nTex.Contains("sign") || nTex.Contains("foliage") ||
+                                 nTex.Contains("tree") || nTex.Contains("corona") || nTex.Contains("grate");
+
             var stream = new TriangleStream();
-            MeshGeometryReader.AppendTriangles(subMesh, transform, stream);
+            MeshGeometryReader.AppendTriangles(subMesh, transform, stream, doubleSided: isDoubleSided);
 
             // Single unified vertex deduplication across all mesh modes
             var vertMap = new Dictionary<(Vector3 pos, Vector3 norm, Vector2 uv), int>();
@@ -1177,7 +1406,7 @@ namespace TDR.Tools.Export
 
         private string? ResolveTextureFile(string texName, string? archivePath)
         {
-            var texService = new TextureResolutionService(_vfs, _exportDir, _trackContext, _convertTexturesToPng);
+            var texService = new TextureResolutionService(_vfs, _exportDir, _trackContext, _convertTexturesToPng, Log);
             return texService.ResolveAndSave(texName, archivePath);
         }
 
@@ -1220,6 +1449,10 @@ namespace TDR.Tools.Export
         [JsonPropertyName("bufferViews")]
         public List<GltfBufferView> BufferViews { get; set; } = new();
 
+        [JsonPropertyName("skins")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public List<GltfSkin>? Skins { get; set; }
+
         [JsonPropertyName("extensionsUsed")]
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public List<string>? ExtensionsUsed { get; set; }
@@ -1230,6 +1463,23 @@ namespace TDR.Tools.Export
 
         [JsonPropertyName("buffers")]
         public List<GltfBuffer> Buffers { get; set; } = new();
+    }
+
+    public sealed class GltfSkin
+    {
+        [JsonPropertyName("name")]
+        public string Name { get; set; } = string.Empty;
+
+        [JsonPropertyName("inverseBindMatrices")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public int? InverseBindMatrices { get; set; }
+
+        [JsonPropertyName("joints")]
+        public List<int> Joints { get; set; } = new();
+
+        [JsonPropertyName("skeleton")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public int? Skeleton { get; set; }
     }
 
     public sealed class GltfLightsExtension
@@ -1312,6 +1562,10 @@ namespace TDR.Tools.Export
             Children.Add(childIndex);
         }
 
+        [JsonPropertyName("skin")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public int? Skin { get; set; }
+
         [JsonPropertyName("extensions")]
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public Dictionary<string, object>? Extensions { get; set; }
@@ -1363,8 +1617,7 @@ namespace TDR.Tools.Export
         public GltfTextureInfo? EmissiveTexture { get; set; }
 
         [JsonPropertyName("doubleSided")]
-        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
-        public bool DoubleSided { get; set; }
+        public bool DoubleSided { get; set; } = true;
 
         [JsonPropertyName("extensions")]
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

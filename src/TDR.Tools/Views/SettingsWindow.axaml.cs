@@ -38,6 +38,7 @@ namespace TDR.Tools.Views
 
             ExportObjCheckBox.IsChecked = _settings.ExportObj;
             ExportGltfCheckBox.IsChecked = _settings.ExportGltf;
+            ExportArmaturesCheckBox.IsChecked = _settings.ExportArmatures;
             ExportPngTexturesCheckBox.IsChecked = _settings.ExportPngTextures;
             IncludeMovablePropsCheckBox.IsChecked = _settings.IncludeMovableProps;
             ExportSceneJsonCheckBox.IsChecked = _settings.ExportSceneJson;
@@ -85,6 +86,7 @@ namespace TDR.Tools.Views
 
             _settings.ExportObj = ExportObjCheckBox.IsChecked == true;
             _settings.ExportGltf = ExportGltfCheckBox.IsChecked == true;
+            _settings.ExportArmatures = ExportArmaturesCheckBox.IsChecked == true;
             _settings.ExportPngTextures = ExportPngTexturesCheckBox.IsChecked == true;
             _settings.IncludeMovableProps = IncludeMovablePropsCheckBox.IsChecked == true;
             _settings.ExportSceneJson = ExportSceneJsonCheckBox.IsChecked == true;

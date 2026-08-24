@@ -226,6 +226,10 @@ namespace TDR.PakLib.Formats
                     {
                         desc.PedBodyFile = firstToken;
                     }
+                    else if (tokens.Count == 1 && !firstToken.Contains('.') && !DescriptorReader.TryParseFloat(firstToken, out _))
+                    {
+                        desc.SkeletonName = firstToken;
+                    }
                 }
                 else
                 {

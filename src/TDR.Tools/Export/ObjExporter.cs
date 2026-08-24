@@ -132,7 +132,7 @@ namespace TDR.Tools.Export
                 meshData = _vfs.LoadFile(meshName);
                 if (meshData != null)
                 {
-                    string? actualArch = _vfs.GetArchivePath(meshName);
+                    string? actualArch = _vfs.GetArchivePath(meshName, _trackContext);
                     Log($"[!] Mesh '{meshName}' resolved via GLOBAL fallback (from '{(actualArch ?? "Loose")}') — verify geometry if unexpected.", Services.LogLevel.Warning);
                 }
             }
@@ -252,7 +252,7 @@ namespace TDR.Tools.Export
                             int pct = (int)((float)(i + 1) / (totalInst + assets.HieFiles.Count + 1) * 70.0f);
                             progressCallback?.Invoke(pct, $"Baking OBJ mesh ({i + 1}/{totalInst}): {inst.HieName}");
 
-                            string? sourceArchivePath = _vfs.GetArchivePath(inst.HieName);
+                            string? sourceArchivePath = _vfs.GetArchivePath(inst.HieName, _trackContext);
                             byte[]? hieBytes = (!string.IsNullOrEmpty(sourceArchivePath) ? _vfs.LoadFileContext(inst.HieName, sourceArchivePath) : null) ??
                                                LevelDescriptorParser.LoadDescriptorBytes(_vfs, _trackContext ?? levelName, inst.HieName);
                             if (hieBytes != null && hieBytes.Length > 0)
@@ -277,7 +277,7 @@ namespace TDR.Tools.Export
                         int pct = (int)(70.0f + (float)(i + 1) / (totalHies + 1) * 20.0f);
                         progressCallback?.Invoke(pct, $"Baking OBJ mesh layer ({i + 1}/{totalHies}): {hieName}");
 
-                        string? sourceArchivePath = _vfs.GetArchivePath(hieName);
+                        string? sourceArchivePath = _vfs.GetArchivePath(hieName, _trackContext);
                         byte[]? hieBytes = (!string.IsNullOrEmpty(sourceArchivePath) ? _vfs.LoadFileContext(hieName, sourceArchivePath) : null) ??
                                            LevelDescriptorParser.LoadDescriptorBytes(_vfs, _trackContext ?? levelName, hieName);
                         if (hieBytes != null && hieBytes.Length > 0)
@@ -332,7 +332,7 @@ namespace TDR.Tools.Export
                         var hie = GetOrLoadHierarchy(entity.ModelHieName, _ => hieBytes);
                         if (hie?.Root == null) continue;
 
-                        string? archivePath = _vfs.GetArchivePath(entity.ModelHieName);
+                        string? archivePath = _vfs.GetArchivePath(entity.ModelHieName, _trackContext);
 
                         if (_useGrouping)
                         {
@@ -640,7 +640,7 @@ namespace TDR.Tools.Export
                             Log($"  [?] {hieName} (not found)");
                             continue;
                         }
-                        string? movableArchive = _vfs.GetArchivePath(hieName);
+                        string? movableArchive = _vfs.GetArchivePath(hieName, _trackContext);
                         if (_verbose) Log($"    [MOV] HIE loaded OK : {hieName} ({hieData.Length} bytes), archive: {movableArchive ?? "loose/unknown"}");
                         var hie = GetOrLoadHierarchy(hieName, _ => hieData);
                         if (hie != null)
@@ -737,12 +737,6 @@ namespace TDR.Tools.Export
                     int pedIdx = 0;
                     foreach (var p in placements)
                     {
-                        // Type==0 means disabled/inactive in some track variants;
-                        // Type==1 is standard active ped; other values are mission-specific.
-                        // Previously this code filtered out everything except Type==1,
-                        // discarding mission VIPs, zombies, etc.
-                        if (p.Type == 0) continue;
-
                         pedIdx++;
 
                         // Resolve mesh and texture using PedDescriptor (same logic as SceneReconstruction)
@@ -858,7 +852,7 @@ namespace TDR.Tools.Export
                                             bodyTexName = tp[1];
             }
 
-            string? skiArchivePath = _vfs.GetArchivePath(skiName);
+            string? skiArchivePath = _vfs.GetArchivePath(skiName, _trackContext);
             string faceMat = RegisterAndGetCanonicalTexture(faceTexName, skiArchivePath, textures);
             string bodyMat = RegisterAndGetCanonicalTexture(bodyTexName, skiArchivePath, textures);
 
@@ -1103,16 +1097,22 @@ namespace TDR.Tools.Export
                         string canonicalMat = RegisterAndGetCanonicalTexture(currentTexture, archivePath, textureSet);
                         w.WriteLine($"usemtl {canonicalMat}");
 
+                        string nTex = currentTexture.ToLowerInvariant();
+                        bool isDoubleSided = nTex.Contains("water") || nTex.Contains("tank") || nTex.Contains("river") ||
+                                             nTex.Contains("sea") || nTex.Contains("ocean") || nTex.Contains("glass") ||
+                                             nTex.Contains("fence") || nTex.Contains("sign") || nTex.Contains("foliage") ||
+                                             nTex.Contains("tree") || nTex.Contains("corona") || nTex.Contains("grate");
+
                         int subIndex = hie.Meshes.Count == 1 ? node.Index : -1;
                         if (subIndex >= 0 && subIndex < container.Meshes.Count)
                         {
-                            WriteSubMesh(container.Meshes[subIndex], drawMatrix, w, ref v, ref vt, ref vn);
+                            WriteSubMesh(container.Meshes[subIndex], drawMatrix, w, ref v, ref vt, ref vn, isDoubleSided);
                         }
                         else
                         {
                             foreach (var subMesh in container.Meshes)
                             {
-                                WriteSubMesh(subMesh, drawMatrix, w, ref v, ref vt, ref vn);
+                                WriteSubMesh(subMesh, drawMatrix, w, ref v, ref vt, ref vn, isDoubleSided);
                             }
                         }
                     }
@@ -1124,10 +1124,10 @@ namespace TDR.Tools.Export
             }
         }
 
-        private void WriteSubMesh(TDRMeshData mesh, Matrix4x4 transform, StreamWriter w, ref int v, ref int vt, ref int vn)
+        private void WriteSubMesh(TDRMeshData mesh, Matrix4x4 transform, StreamWriter w, ref int v, ref int vt, ref int vn, bool doubleSided = false)
         {
             var stream = new TriangleStream();
-            MeshGeometryReader.AppendTriangles(mesh, transform, stream);
+            MeshGeometryReader.AppendTriangles(mesh, transform, stream, doubleSided: doubleSided);
 
             for (int i = 0; i < stream.Vertices.Count; i += 3)
             {
@@ -1179,52 +1179,33 @@ namespace TDR.Tools.Export
 
                 bool hasAlpha = false;
 
-                // 1. Shadows (projected decals from HARDSHADOW_HIE or shadow textures)
-                if (normMat.Contains("shadow") || normArchive.Contains("shadow") || bestArchivePath.Contains("shadow"))
+                // 1. Primary Authority: Read official native TDR2000 TTEX (.tx) descriptor
+                byte[]? txBytes = (!string.IsNullOrEmpty(archivePath) ? _vfs.LoadFileContext($"{t}.tx", archivePath) : null) ??
+                                  (!string.IsNullOrEmpty(_trackContext) ? _vfs.LoadFileContext($"{t}.tx", _trackContext) : null) ??
+                                  _vfs.LoadFile($"{t}.tx");
+                var txDesc = TxDescriptor.Load(txBytes, t);
+
+                TxTransparencyMode transMode;
+                if (txDesc != null)
                 {
-                    mtl.WriteLine("d 0.5\nTr 0.5");
-                    hasAlpha = true;
+                    transMode = txDesc.TransparencyMode;
                 }
-                // 2. Water & Fluid surfaces
-                else if (normMat.Contains("water") || normMat.Contains("river") ||
-                         normMat.Contains("ocean") || normMat.Contains("sea") ||
-                         normArchive.Contains("water") || bestArchivePath.Contains("water"))
+                else
+                {
+                    // 2. Secondary Authority: Inspect actual TGA image bytes directly
+                    byte[]? tgaBytes = bestMatch != null
+                        ? _vfs.LoadFile(bestMatch.Name)
+                        : (!string.IsNullOrEmpty(archivePath) ? _vfs.LoadFileContext(t, archivePath) : null) ?? _vfs.LoadFile(t);
+                    transMode = TgaDecoder.DetectTgaTransparency(tgaBytes);
+                }
+
+                if (transMode == TxTransparencyMode.Blend)
                 {
                     mtl.WriteLine("d 0.6\nTr 0.4");
                     mtl.WriteLine("Ns 150");
                     hasAlpha = true;
                 }
-                // 3. Glass, Windows, Cockpits
-                else if (normMat.Contains("glass") || normMat.Contains("window") || normMat.Contains("windshield") || normMat.Contains("cockpit"))
-                {
-                    mtl.WriteLine("d 0.35\nTr 0.65");
-                    mtl.WriteLine("Ns 200");
-                    hasAlpha = true;
-                }
-                // 4. Halos, Coronas, Glows, Flares, Beams
-                else if (normMat.Contains("corona") || normMat.Contains("halo") || normMat.Contains("glow") ||
-                         normMat.Contains("flare") || normMat.Contains("beam"))
-                {
-                    mtl.WriteLine("d 0.75\nTr 0.25");
-                    hasAlpha = true;
-                }
-                // 5. Translucent 3D Powerup Icons
-                else if (normMat.Contains("money") || normMat.Contains("cash") ||
-                         normMat.Contains("spanner") || normMat.Contains("time") ||
-                         normMat.Contains("random") || normMat.Contains("apoall") ||
-                         normMat.Contains("helmet") || normMat.Contains("engine") ||
-                         normMat.Contains("fist") || normMat.Contains("pedsign") ||
-                         normMat.Contains("artillery") || normMat.Contains("bomb") ||
-                         normArchive.Contains("powerup") || bestArchivePath.Contains("powerup"))
-                {
-                    mtl.WriteLine("d 0.65\nTr 0.35");
-                    hasAlpha = true;
-                }
-                // 6. Cutout textures (foliage, fences, signs, pedestrian skins — rely on map_d alpha channel)
-                else if (normMat.Contains("_32") || normMat.Contains("sign") ||
-                         normMat.Contains("tree") || normMat.Contains("fence") ||
-                         normMat.Contains("grate") || normMat.Contains("foliage") ||
-                         normMat.Contains("bush") || normMat.Contains("plant"))
+                else if (transMode == TxTransparencyMode.Mask)
                 {
                     mtl.WriteLine("d 1.0");
                     hasAlpha = true;
@@ -1240,7 +1221,7 @@ namespace TDR.Tools.Export
                 }
 
                 string exportFolder = Path.GetDirectoryName(mtlPath) ?? _exportDir;
-                var texService = new TextureResolutionService(_vfs, _exportDir, _trackContext, _convertTexturesToPng);
+                var texService = new TextureResolutionService(_vfs, _exportDir, _trackContext, _convertTexturesToPng, Log);
                 string? savedTexName = texService.ResolveAndSave(t, archivePath, exportFolder);
 
                 if (!string.IsNullOrEmpty(savedTexName))

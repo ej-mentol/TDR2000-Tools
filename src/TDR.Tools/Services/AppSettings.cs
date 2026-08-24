@@ -23,6 +23,7 @@ namespace TDR.Tools.Services
 
         public bool ExportObj { get; set; } = true;
         public bool ExportGltf { get; set; } = true;
+        public bool ExportArmatures { get; set; } = false;
         public bool ExportPngTextures { get; set; } = true;
         public bool IncludeMovableProps { get; set; } = true;
         public bool ExportSceneJson { get; set; } = true;

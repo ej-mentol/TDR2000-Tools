@@ -18,6 +18,8 @@ namespace TDR.Tools
         private static bool Verbose = false;
         private static bool UseGrouping = true;
         private static bool ExportJson = false;
+        private static bool ExportGltf = false;
+        private static bool ExportArmatures = false;
         private static bool DumpAll = false;
         private static bool IncludeMovableProps = true;
 
@@ -88,6 +90,8 @@ namespace TDR.Tools
                                    || args.Contains("-v",            StringComparer.OrdinalIgnoreCase);
                 UseGrouping         = !args.Contains("--no-group",   StringComparer.OrdinalIgnoreCase);
                 ExportJson          = args.Contains("--json",        StringComparer.OrdinalIgnoreCase);
+                ExportGltf          = args.Contains("--gltf",        StringComparer.OrdinalIgnoreCase);
+                ExportArmatures     = args.Contains("--rigged-peds", StringComparer.OrdinalIgnoreCase) || args.Contains("--export-armatures", StringComparer.OrdinalIgnoreCase);
                 DumpAll             = args.Contains("--dump-all",    StringComparer.OrdinalIgnoreCase);
                 IncludeMovableProps = !args.Contains("--no-props",   StringComparer.OrdinalIgnoreCase);
 
@@ -148,6 +152,8 @@ namespace TDR.Tools
 
             var options = new TrackExportOptions(
                 ExportObj:           true,
+                ExportGltf:          ExportGltf,
+                ExportArmatures:     ExportArmatures,
                 IncludeMovableProps: IncludeMovableProps,
                 ExportSceneJson:     ExportJson,
                 NoMaterials:         NoMaterials,

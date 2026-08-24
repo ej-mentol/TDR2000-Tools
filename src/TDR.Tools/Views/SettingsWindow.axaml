@@ -63,6 +63,7 @@
 
                         <CheckBox x:Name="ExportObjCheckBox" Content="Wavefront 3D Scene (.OBJ / .MTL)" Foreground="{DynamicResource TextPrimaryBrush}"/>
                         <CheckBox x:Name="ExportGltfCheckBox" Content="Export glTF 2.0 Scene (.GLTF / .GLB)" Foreground="{DynamicResource TextPrimaryBrush}"/>
+                        <CheckBox x:Name="ExportArmaturesCheckBox" Content="Rigged Pedestrian Skeletons (25 Bones per Ped)" Foreground="{DynamicResource TextPrimaryBrush}" Margin="20,0,0,0" ToolTip.Tip="Exports fully-rigged FK bone hierarchies and Armatures for all pedestrians on the track."/>
                         <CheckBox x:Name="ExportPngTexturesCheckBox" Content="Convert Textures to PNG (.png)" Foreground="{DynamicResource TextPrimaryBrush}"/>
                         <CheckBox x:Name="IncludeMovablePropsCheckBox" Content="Bake Props, Signs &amp; Checkpoints into .OBJ / glTF" Foreground="{DynamicResource TextPrimaryBrush}" Margin="20,0,0,0"/>
                         <CheckBox x:Name="ExportSceneJsonCheckBox" Content="Export Engine Scene Manifesto (.JSON)" Foreground="{DynamicResource TextPrimaryBrush}"/>

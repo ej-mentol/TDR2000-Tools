@@ -8,6 +8,45 @@ namespace TDR.Tools.Export
 {
     public static class TgaDecoder
     {
+        public static TDR.PakLib.Formats.TxTransparencyMode DetectTgaTransparency(byte[]? tgaBytes)
+        {
+            if (tgaBytes == null || tgaBytes.Length < 18) return TDR.PakLib.Formats.TxTransparencyMode.Opaque;
+
+            byte idLength = tgaBytes[0];
+            byte imageType = tgaBytes[2];
+            ushort width = (ushort)(tgaBytes[12] | (tgaBytes[13] << 8));
+            ushort height = (ushort)(tgaBytes[14] | (tgaBytes[15] << 8));
+            byte bpp = tgaBytes[16];
+
+            if (width == 0 || height == 0 || bpp != 32) return TDR.PakLib.Formats.TxTransparencyMode.Opaque;
+
+            int pixelOffset = 18 + idLength;
+            if (imageType == 2 && pixelOffset < tgaBytes.Length) // Uncompressed TrueColor 32-bit
+            {
+                bool hasZero = false;
+                bool hasTranslucent = false;
+
+                for (int i = pixelOffset + 3; i < tgaBytes.Length; i += 4)
+                {
+                    byte a = tgaBytes[i];
+                    if (a == 0)
+                    {
+                        hasZero = true;
+                    }
+                    else if (a < 255)
+                    {
+                        hasTranslucent = true;
+                        break;
+                    }
+                }
+
+                if (hasTranslucent) return TDR.PakLib.Formats.TxTransparencyMode.Blend;
+                if (hasZero) return TDR.PakLib.Formats.TxTransparencyMode.Mask;
+            }
+
+            return TDR.PakLib.Formats.TxTransparencyMode.Opaque;
+        }
+
         public static Bitmap? DecodeTga(byte[] tgaBytes)
         {
             if (tgaBytes == null || tgaBytes.Length < 18) return null;

@@ -17,7 +17,7 @@ namespace TDR.PakLib.Tests
             Console.WriteLine("================================================================");
 
             var vfs = new PakManager();
-            vfs.Initialize(assetsPath);
+            vfs.IndexDirectory(assetsPath);
 
             // 1. Load races.txt from VFS
             byte[]? racesBytes = vfs.LoadFile("races.txt");

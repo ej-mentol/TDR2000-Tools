@@ -162,7 +162,7 @@
                                     <Separator/>
                                     <MenuItem Header="Open" Click="OnOpenNodeClick"/>
                                     <Separator/>
-                                    <MenuItem Header="Export Track to OBJ..." Click="OnConvertTrackMenuClick" IsEnabled="{Binding SelectedSourceNode.IsTrack}"/>
+                                    <MenuItem Header="Export Track (OBJ / glTF)..." Click="OnConvertTrackMenuClick" IsEnabled="{Binding SelectedSourceNode.IsTrack}"/>
                                     <MenuItem Header="Quick Export Track" Click="OnQuickConvertTrackMenuClick" IsEnabled="{Binding SelectedSourceNode.IsTrack}"/>
                                     <MenuItem Header="Extract to Destination" Click="OnExtractMenuClick"/>
                                     <MenuItem Header="Rebuild Archive (Defrag)" Click="OnRebuildArchiveClick" IsEnabled="{Binding SelectedSourceNode.IsArchive}"/>

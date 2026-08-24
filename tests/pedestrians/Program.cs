@@ -85,18 +85,18 @@ namespace TDR.Pedestrian.Tests
                 if (ske != null && ske.RawBones.Count > 0)
                 {
                     var activeBones = ske.GetActiveBones();
-                    bool activeBonesOk = activeBones.Count == ske.BoneCount;
-                    bool hierarchyOk = activeBones.All(b => b.ParentIndex < b.Index);
+                    bool activeBonesOk = activeBones.Count == ske.HeaderBoneCount;
+                    bool hierarchyOk = activeBones.All(b => b.ParentID < b.ID);
 
                     if (activeBonesOk && hierarchyOk)
                     {
                         passed++;
-                        Console.WriteLine($"  [✓] {Path.GetFileName(skeFile)}: Active Bones={activeBones.Count}/{ske.BoneCount}, DFS Parent Hierarchy Verified (Root Y={activeBones[0].Position.Y:F2}m)");
+                        Console.WriteLine($"  [✓] {Path.GetFileName(skeFile)}: Active Bones={activeBones.Count}/{ske.HeaderBoneCount}, DFS Parent Hierarchy Verified (Root Y={activeBones[0].Position.Y:F2}m)");
                     }
                     else
                     {
                         failed++;
-                        Console.WriteLine($"  [✗] {Path.GetFileName(skeFile)}: Hierarchy mismatch (Active={activeBones.Count}/{ske.BoneCount}, HierarchyOk={hierarchyOk})!");
+                        Console.WriteLine($"  [✗] {Path.GetFileName(skeFile)}: Hierarchy mismatch (Active={activeBones.Count}/{ske.HeaderBoneCount}, HierarchyOk={hierarchyOk})!");
                     }
                 }
                 else

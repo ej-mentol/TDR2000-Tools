@@ -96,6 +96,7 @@ namespace TDR.PakLib
         public static byte RotateRight8(byte value, int count)
         {
             int c = count & 7;
+            if (c == 0) return value;
             return (byte)((value >> c) | (value << (8 - c)));
         }
 

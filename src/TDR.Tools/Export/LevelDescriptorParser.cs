@@ -25,6 +25,7 @@ namespace TDR.Tools.Export
         public List<string> DroneDescriptors { get; } = new();
         public Dictionary<string, Matrix4x4> HieInitialTransforms { get; } = new(StringComparer.OrdinalIgnoreCase);
         public Vector3? StartPosition { get; set; }
+        public float? StartAngle { get; set; }
     }
 
     /// <summary>
@@ -199,11 +200,14 @@ namespace TDR.Tools.Export
                             assets.HieInitialTransforms[follower.ModelHie] = spawnMat;
                         }
                     }
+
+                    // Path followers have been placed explicitly along their splines; do not fall through to unplaced loading
+                    return;
                 }
             }
 
             // Spline-guided vehicle/train initial placement (e.g. DocksTrain, SlumsTrain)
-            if (hieCandidates.Count > 0 && linCandidates.Count > 0)
+            if (hieCandidates.Count > 0)
             {
                 TDRSpline? propSpline = null;
                 Matrix4x4 splineNodeTransform = Matrix4x4.Identity;
@@ -294,6 +298,7 @@ namespace TDR.Tools.Export
                         });
                         assets.HieInitialTransforms[modelHie] = spawnMat;
                     }
+                    return;
                 }
             }
 
@@ -309,9 +314,9 @@ namespace TDR.Tools.Export
                 if (tokens.Length == 0) continue;
 
                 string firstEntry = tokens[0].Trim('"');
+                string hieCandidate = firstEntry.EndsWith(".hie", StringComparison.OrdinalIgnoreCase) ? firstEntry : $"{firstEntry}.hie";
                 float px = 0, py = 0, pz = 0, qx = 0, qy = 0, qz = 0, qw = 1;
                 if (tokens.Length >= 8 &&
-                    firstEntry.EndsWith(".hie", StringComparison.OrdinalIgnoreCase) &&
                     float.TryParse(tokens[1], NumberStyles.Float, CultureInfo.InvariantCulture, out px) &&
                     float.TryParse(tokens[2], NumberStyles.Float, CultureInfo.InvariantCulture, out py) &&
                     float.TryParse(tokens[3], NumberStyles.Float, CultureInfo.InvariantCulture, out pz) &&
@@ -327,7 +332,7 @@ namespace TDR.Tools.Export
 
                     assets.HieInstances.Add(new HieInstanceInfo
                     {
-                        HieName = firstEntry,
+                        HieName = hieCandidate,
                         Transform = worldTransform
                     });
                     continue;
@@ -393,6 +398,15 @@ namespace TDR.Tools.Export
                         float.TryParse(tokens[3], NumberStyles.Float, CultureInfo.InvariantCulture, out float sz))
                     {
                         result.StartPosition = new Vector3(sx, sy, sz);
+                    }
+                    continue;
+                }
+
+                if (firstToken.Equals("START_ANGLE", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (float.TryParse(secondToken, NumberStyles.Float, CultureInfo.InvariantCulture, out float sa))
+                    {
+                        result.StartAngle = sa;
                     }
                     continue;
                 }

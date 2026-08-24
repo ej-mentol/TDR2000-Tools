@@ -340,6 +340,28 @@ namespace TDR.Tools.Services
                                  e.Message.TrimStart().StartsWith("• Props") ||
                                  e.Message.TrimStart().StartsWith("• Spawns"));
 
+        public int GetErrorCount(DateTime? since = null)
+        {
+            lock (_lock)
+            {
+                return _entries.Count(e => (since == null || e.Timestamp >= since.Value) &&
+                                           (e.Level == LogLevel.Error ||
+                                            e.Message.Contains("[ERROR]", StringComparison.OrdinalIgnoreCase) ||
+                                            e.Message.Contains("exception", StringComparison.OrdinalIgnoreCase)));
+            }
+        }
+
+        public int GetWarningCount(DateTime? since = null)
+        {
+            lock (_lock)
+            {
+                return _entries.Count(e => (since == null || e.Timestamp >= since.Value) &&
+                                           (e.Level == LogLevel.Warning ||
+                                            e.Message.Contains("[!]") ||
+                                            e.Message.Contains("[WARN]", StringComparison.OrdinalIgnoreCase)));
+            }
+        }
+
         public void Dispose()
         {
             _batchTimer.Dispose();

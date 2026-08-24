@@ -30,7 +30,7 @@ namespace TDR.Tools.Export
     /// </summary>
     public static class MeshGeometryReader
     {
-        public static void AppendTriangles(TDRMeshData mesh, Matrix4x4 transform, TriangleStream output)
+        public static void AppendTriangles(TDRMeshData mesh, Matrix4x4 transform, TriangleStream output, bool doubleSided = false)
         {
             if (mesh == null || output == null) return;
 
@@ -39,15 +39,26 @@ namespace TDR.Tools.Export
                 case MeshMode.TriIndexedPosition:
                     foreach (var face in mesh.Faces)
                     {
+                        var fv = new GeometryVertex[3];
+                        bool valid = true;
                         for (int i = 0; i < 3; i++)
                         {
                             var vert = face.Vertices[i];
-                            if (vert.PositionIndex < 0 || vert.PositionIndex >= mesh.Positions.Count) continue;
+                            if (vert.PositionIndex < 0 || vert.PositionIndex >= mesh.Positions.Count) { valid = false; break; }
                             Vector3 pos = Vector3.Transform(mesh.Positions[vert.PositionIndex], transform);
                             Vector3 norm = Vector3.TransformNormal(vert.Normal, transform);
                             Vector2 uv = vert.UV;
-
-                            output.Vertices.Add(new GeometryVertex(pos, norm, uv));
+                            fv[i] = new GeometryVertex(pos, norm, uv);
+                        }
+                        if (!valid) continue;
+                        output.Vertices.Add(fv[0]);
+                        output.Vertices.Add(fv[1]);
+                        output.Vertices.Add(fv[2]);
+                        if (doubleSided)
+                        {
+                            output.Vertices.Add(new GeometryVertex(fv[0].Position, -fv[0].Normal, fv[0].UV));
+                            output.Vertices.Add(new GeometryVertex(fv[2].Position, -fv[2].Normal, fv[2].UV));
+                            output.Vertices.Add(new GeometryVertex(fv[1].Position, -fv[1].Normal, fv[1].UV));
                         }
                     }
                     break;
@@ -69,9 +80,18 @@ namespace TDR.Tools.Export
                             face.V2 >= 0 && face.V2 < triVertices.Count &&
                             face.V3 >= 0 && face.V3 < triVertices.Count)
                         {
-                            output.Vertices.Add(triVertices[face.V1]);
-                            output.Vertices.Add(triVertices[face.V2]);
-                            output.Vertices.Add(triVertices[face.V3]);
+                            var v0 = triVertices[face.V1];
+                            var v1 = triVertices[face.V2];
+                            var v2 = triVertices[face.V3];
+                            output.Vertices.Add(v0);
+                            output.Vertices.Add(v1);
+                            output.Vertices.Add(v2);
+                            if (doubleSided)
+                            {
+                                output.Vertices.Add(new GeometryVertex(v0.Position, -v0.Normal, v0.UV));
+                                output.Vertices.Add(new GeometryVertex(v2.Position, -v2.Normal, v2.UV));
+                                output.Vertices.Add(new GeometryVertex(v1.Position, -v1.Normal, v1.UV));
+                            }
                         }
                     }
                     break;
@@ -95,9 +115,18 @@ namespace TDR.Tools.Export
                         // Fan triangulation (0, k, k+1)
                         for (int k = 1; k < faceVerts.Count - 1; k++)
                         {
-                            output.Vertices.Add(faceVerts[0]);
-                            output.Vertices.Add(faceVerts[k]);
-                            output.Vertices.Add(faceVerts[k + 1]);
+                            var v0 = faceVerts[0];
+                            var v1 = faceVerts[k];
+                            var v2 = faceVerts[k + 1];
+                            output.Vertices.Add(v0);
+                            output.Vertices.Add(v1);
+                            output.Vertices.Add(v2);
+                            if (doubleSided)
+                            {
+                                output.Vertices.Add(new GeometryVertex(v0.Position, -v0.Normal, v0.UV));
+                                output.Vertices.Add(new GeometryVertex(v2.Position, -v2.Normal, v2.UV));
+                                output.Vertices.Add(new GeometryVertex(v1.Position, -v1.Normal, v1.UV));
+                            }
                         }
                     }
                     break;

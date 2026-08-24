@@ -19,7 +19,8 @@ namespace TDR.Tools.Export
         bool UseGrouping = true,
         bool DumpAll = false,
         bool Verbose = false,
-        List<string>? SelectedHieFiles = null
+        List<string>? SelectedHieFiles = null,
+        bool ExportArmatures = false
     );
 
     public static class TrackExportPipeline
@@ -37,6 +38,7 @@ namespace TDR.Tools.Export
 
                 var vfsMatch = vfs.GetFiles()
                     .FirstOrDefault(f => {
+                        if (!f.Name.EndsWith(".txt", StringComparison.OrdinalIgnoreCase)) return false;
                         string fn = Path.GetFileNameWithoutExtension(f.Name).ToLowerInvariant();
                         return fn.Equals($"{tName}_{vLower}", StringComparison.OrdinalIgnoreCase) ||
                                fn.Equals($"{tName}{vLower}", StringComparison.OrdinalIgnoreCase) ||
@@ -50,8 +52,9 @@ namespace TDR.Tools.Export
 
             string targetPattern = $"tracks/{tName}/{tName}.txt";
             var baseMatch = vfs.GetFiles()
-                .FirstOrDefault(f => f.Name.Replace('\\', '/').ToLowerInvariant().EndsWith(targetPattern) ||
-                                     Path.GetFileName(f.Name).Equals($"{tName}.txt", StringComparison.OrdinalIgnoreCase));
+                .FirstOrDefault(f => f.Name.EndsWith(".txt", StringComparison.OrdinalIgnoreCase) &&
+                                     (f.Name.Replace('\\', '/').ToLowerInvariant().EndsWith(targetPattern) ||
+                                      Path.GetFileName(f.Name).Equals($"{tName}.txt", StringComparison.OrdinalIgnoreCase)));
 
             if (baseMatch != null) return baseMatch.Name;
 
@@ -77,6 +80,7 @@ namespace TDR.Tools.Export
             Services.LogService.Instance.CurrentTrackContext = cleanName;
             Services.LogService.Instance.CurrentVariantContext = variantSuffix ?? "Base";
 
+            DateTime exportStartTime = DateTime.Now;
             log($"[+] Starting Track Export Pipeline for '{trackName}' (Variant: {variantSuffix ?? "Base"}) → '{outputDir}'");
             Directory.CreateDirectory(outputDir);
 
@@ -85,9 +89,9 @@ namespace TDR.Tools.Export
             // 1. OBJ Export (Standard Descriptor Pipeline with Keyword Blacklisting/Filtering)
             if (options.ExportObj)
             {
-                string? activeTxtPath = ResolveTrackDescriptor(vfs, cleanName, variantSuffix);
-                byte[]? descriptorData = activeTxtPath != null ? vfs.LoadFile(activeTxtPath) : null;
                 string variantTrackName = !string.IsNullOrWhiteSpace(variantSuffix) ? $"{cleanName}_{variantSuffix}" : cleanName;
+                string? activeTxtPath = ResolveTrackDescriptor(vfs, cleanName, variantSuffix);
+                byte[]? descriptorData = activeTxtPath != null ? (vfs.LoadFileContext(activeTxtPath, variantTrackName) ?? vfs.LoadFile(activeTxtPath)) : null;
 
                 if (descriptorData != null && descriptorData.Length > 0)
                 {
@@ -119,16 +123,20 @@ namespace TDR.Tools.Export
             // 1c. Modern glTF 2.0 Scene Export (.GLTF / .GLB)
             if (options.ExportGltf)
             {
-                string? activeTxtPath = ResolveTrackDescriptor(vfs, cleanName, variantSuffix);
-                byte[]? descriptorData = activeTxtPath != null ? vfs.LoadFile(activeTxtPath) : null;
                 string variantTrackName = !string.IsNullOrWhiteSpace(variantSuffix) ? $"{cleanName}_{variantSuffix}" : cleanName;
+                string? activeTxtPath = ResolveTrackDescriptor(vfs, cleanName, variantSuffix);
+                byte[]? descriptorData = activeTxtPath != null ? (vfs.LoadFileContext(activeTxtPath, variantTrackName) ?? vfs.LoadFile(activeTxtPath)) : null;
 
                 if (descriptorData != null && descriptorData.Length > 0)
                 {
-                    var gltfExporter = new GltfExporter(vfs, outputDir, options.UseLocalCoords, options.Verbose, variantTrackName, log, options.ExportPngTextures, options.SelectedHieFiles);
+                    var gltfExporter = new GltfExporter(vfs, outputDir, options.UseLocalCoords, options.Verbose, variantTrackName, log, options.ExportPngTextures, options.SelectedHieFiles, options.ExportArmatures);
                     string outputGltfPath = Path.Combine(outputDir, variantTrackName + ".gltf");
                     log?.Invoke($"[►] Exporting Modern glTF 2.0 Scene: '{variantTrackName}.gltf'");
-                    gltfExporter.ExportLevelToGltf(descriptorData, variantTrackName, outputGltfPath, options.IncludeMovableProps, progressCallback);
+                    bool gltfOk = gltfExporter.ExportLevelToGltf(descriptorData, variantTrackName, outputGltfPath, options.IncludeMovableProps, progressCallback);
+                    if (!gltfOk)
+                    {
+                        Services.LogService.Instance.Error($"glTF export failed for '{variantTrackName}'");
+                    }
                 }
             }
 
@@ -202,7 +210,7 @@ namespace TDR.Tools.Export
                     {
                         string subName = Path.GetFileNameWithoutExtension(hieFile);
                         string outPath = Path.Combine(outputDir, $"{subName}.obj");
-                        objExporter.ExportHieToObj(hieBytes, hieFile, outPath, vfs.GetArchivePath(hieFile));
+                        objExporter.ExportHieToObj(hieBytes, hieFile, outPath, vfs.GetArchivePath(hieFile, variantTrackName));
                         dumpedCount++;
                     }
                 }
@@ -228,18 +236,8 @@ namespace TDR.Tools.Export
                 log?.Invoke($"[+] 'scene.json' manifest successfully generated.");
             }
 
-            // Clean up intermediate .tx descriptor files in export folder
-            try
-            {
-                foreach (string txPath in Directory.GetFiles(outputDir, "*.tx", SearchOption.AllDirectories))
-                {
-                    try { File.Delete(txPath); } catch { }
-                }
-            }
-            catch { }
-
-            log?.Invoke($"[+] Track Export Pipeline completed for '{trackName}'.\n");
-            return true;
+            int errCount = Services.LogService.Instance.GetErrorCount(exportStartTime);
+            return errCount == 0;
         }
     }
 }

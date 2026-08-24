@@ -56,7 +56,11 @@ namespace TDR.Tools.Export
             var entities = new List<PlacedEntity>();
             string cleanTrackName = TrackDiscovery.GetBaseTrackName(levelName);
 
-
+            TerrainRaycaster? terrainRaycaster = null;
+            if (includeMovables || assets.StartPosition.HasValue)
+            {
+                terrainRaycaster = TerrainRaycaster.Build(vfs, assets, trackContext ?? cleanTrackName, log);
+            }
 
             // 1. Movables (Cumulative Base Track + Variant Track Descriptors)
             if (includeMovables)
@@ -74,7 +78,6 @@ namespace TDR.Tools.Export
                     allMovDescs.Add(defaultBaseMov);
                 }
 
-                var terrainRaycaster = TerrainRaycaster.Build(vfs, assets, trackContext ?? cleanTrackName, log);
                 var instCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
                 var spawnedMovableLocations = new List<(string Model, Vector3 Pos)>();
 
@@ -139,8 +142,18 @@ namespace TDR.Tools.Export
                     Vector3 worldUp = Vector3.Transform(Vector3.UnitY, quat);
                     bool isTiltedOrFallen = worldUp.Y < 0.90f;
 
+                    // Wall-mounted, hinged fixtures (doors, gates, hinges, attachments)
+                    // MUST strictly hang from their authored pivot axes and must not be snapped down to the floor.
+                    // Ground-standing props (poles, streetlights, traffic lights, signs, trees) snap cleanly to the ground.
+                    bool isWallOrHingedMount = (m.ModelBaseName.Contains("Door", StringComparison.OrdinalIgnoreCase) ||
+                                                m.ModelBaseName.Contains("Gate", StringComparison.OrdinalIgnoreCase) ||
+                                                m.ModelBaseName.Contains("Hinge", StringComparison.OrdinalIgnoreCase) ||
+                                                m.ModelBaseName.Contains("Attach", StringComparison.OrdinalIgnoreCase)) &&
+                                               !m.ModelBaseName.Contains("pole", StringComparison.OrdinalIgnoreCase) &&
+                                               !m.ModelBaseName.Contains("post", StringComparison.OrdinalIgnoreCase);
+
                     float finalPy = m.Py;
-                    if (terrainRaycaster.TriangleCount > 0 && !isTiltedOrFallen)
+                    if (terrainRaycaster != null && terrainRaycaster.TriangleCount > 0 && !isTiltedOrFallen && !isWallOrHingedMount)
                     {
                         // Start raycast strictly 10 cm above authored Y to stay below indoor ceilings/roofs (e.g. bar tables & chairs),
                         // and search downward up to 30 meters to catch elevated outdoor models (e.g. large trees & towers).
@@ -157,7 +170,7 @@ namespace TDR.Tools.Export
                     Matrix4x4 worldMat = rot with { M41 = m.Px, M42 = finalPy, M43 = m.Pz };
 
                     // Register this placed movable's geometry into the raycaster so subsequent stacked objects land on top of it
-                    terrainRaycaster.AddHierarchyTriangles(vfs, m.HieName, worldMat, trackContext ?? cleanTrackName);
+                    terrainRaycaster?.AddHierarchyTriangles(vfs, m.HieName, worldMat, trackContext ?? cleanTrackName);
 
                     if (useLocalCoords && globalOrigin.HasValue)
                     {
@@ -463,6 +476,81 @@ namespace TDR.Tools.Export
                         Tag = texName,
                         TypeId = p.SkinIndex
                     });
+                }
+            }
+
+            // 4b. Race Start Official / Flag Waver
+            // TDR2000 dynamically spawns the Flag Waver at the race starting grid (START_POS / START_ANGLE)
+            // using the last texture entry in PedDescriptor (// Flag Waver: Must be Last in List).
+            if (assets.StartPosition.HasValue)
+            {
+                PedDescriptor? activePedDesc = null;
+                foreach (string descName in pedDescs)
+                {
+                    if (!descName.EndsWith("Placement.txt", StringComparison.OrdinalIgnoreCase))
+                    {
+                        byte[]? data = vfs.LoadFileContext(descName, trackContext ?? cleanTrackName) ?? vfs.LoadFile(descName);
+                        if (data != null && data.Length > 0)
+                        {
+                            activePedDesc = PedDescriptor.Load(data);
+                            if (activePedDesc != null && activePedDesc.Textures.Count > 0) break;
+                        }
+                    }
+                }
+
+                if (activePedDesc != null && activePedDesc.Textures.Count > 0)
+                {
+                    var flagWaverTex = activePedDesc.Textures.LastOrDefault();
+                    if (flagWaverTex != null)
+                    {
+                        string flagSkinMesh = "FlagWoman.ski";
+                        if (flagWaverTex.SkinIndex >= 0 && flagWaverTex.SkinIndex < activePedDesc.SkinMeshes.Count)
+                        {
+                            flagSkinMesh = activePedDesc.SkinMeshes[flagWaverTex.SkinIndex];
+                        }
+
+                        string face = !string.IsNullOrEmpty(flagWaverTex.FaceTexture) ? flagWaverTex.FaceTexture : flagWaverTex.BodyTexture;
+                        string body = !string.IsNullOrEmpty(flagWaverTex.BodyTexture) ? flagWaverTex.BodyTexture : flagWaverTex.FaceTexture;
+                        string flagTexName = $"{face}|{body}";
+
+                        Vector3 startPos = assets.StartPosition.Value;
+                        float startAngle = assets.StartAngle ?? 0.0f;
+
+                        // Place Flag Woman on the side of the starting line facing the starting grid
+                        float perpAngle = startAngle + (MathF.PI / 2.0f);
+                        Vector3 flagPos = startPos + new Vector3(MathF.Cos(perpAngle) * 3.5f, 0.0f, MathF.Sin(perpAngle) * 3.5f);
+
+                        // Raycast to accurately snap Flag Woman feet onto the asphalt/terrain mesh
+                        if (terrainRaycaster != null && terrainRaycaster.RaycastGround(flagPos.X, flagPos.Z, startPos.Y + 5.0f, 20.0f, out float groundY))
+                        {
+                            flagPos.Y = groundY;
+                        }
+
+                        // Orient Flag Woman to face directly towards the player's car on the starting line
+                        Vector3 toCar = startPos - flagPos;
+                        float flagHeading = MathF.Atan2(toCar.X, toCar.Z);
+
+                        Matrix4x4 flagMat = Matrix4x4.CreateRotationY(-flagHeading) * Matrix4x4.CreateTranslation(flagPos.X, flagPos.Y, flagPos.Z);
+                        if (useLocalCoords && globalOrigin.HasValue)
+                        {
+                            flagMat.M41 -= globalOrigin.Value.X;
+                            flagMat.M42 -= globalOrigin.Value.Y;
+                            flagMat.M43 -= globalOrigin.Value.Z;
+                        }
+
+                        pedIndex++;
+                        entities.Add(new PlacedEntity
+                        {
+                            Category = EntityCategory.Pedestrian,
+                            InstanceId = $"Pedestrian_{pedIndex:D3}_FlagWoman",
+                            ModelHieName = flagSkinMesh,
+                            WorldTransform = flagMat,
+                            Tag = flagTexName,
+                            TypeId = activePedDesc.Textures.Count - 1
+                        });
+
+                        log?.Invoke($"    [+] Placed Flag Woman race official ({flagSkinMesh}, {flagTexName}) at starting grid ({flagPos.X:F1}, {flagPos.Y:F1}, {flagPos.Z:F1})");
+                    }
                 }
             }
 

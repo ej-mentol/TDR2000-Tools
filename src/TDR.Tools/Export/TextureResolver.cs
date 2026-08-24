@@ -92,7 +92,7 @@ namespace TDR.Tools.Export
             return false;
         }
 
-        private static bool IsOtherTrackFile(string? archivePath, string? filePath, string mainTrack)
+        public static bool IsOtherTrackFile(string? archivePath, string? filePath, string mainTrack)
         {
             if (string.IsNullOrEmpty(mainTrack)) return false;
 
@@ -121,7 +121,7 @@ namespace TDR.Tools.Export
             // 1A. Exact same PAK file as the .hie model
             PakManager.IndexedFile? matchTier1A = (!string.IsNullOrEmpty(archivePath)
                 ? vfsFiles.Where(f => NameMatch(f.Name, materialName, allowStrippedFallback: false) &&
-                      f.ArchivePath.Equals(archivePath, StringComparison.OrdinalIgnoreCase))
+                      f.ArchivePath.Replace('\\', '/').Equals(archivePath.Replace('\\', '/'), StringComparison.OrdinalIgnoreCase))
                       .OrderByDescending(f => GetTextureResolutionArea(f.Name))
                       .ThenByDescending(f => f.Name.Contains("_32"))
                       .ThenByDescending(f => f.Name.Contains("_24"))
@@ -133,7 +133,8 @@ namespace TDR.Tools.Export
             PakManager.IndexedFile? matchTier1B = ctxDir != null
                 ? vfsFiles.Where(f => NameMatch(f.Name, materialName, allowStrippedFallback: false) &&
                       Path.GetDirectoryName(f.ArchivePath)
-                          ?.Equals(ctxDir, StringComparison.OrdinalIgnoreCase) == true)
+                          ?.Replace('\\', '/')
+                          .Equals(ctxDir.Replace('\\', '/'), StringComparison.OrdinalIgnoreCase) == true)
                       .OrderByDescending(f => GetTextureResolutionArea(f.Name))
                       .ThenByDescending(f => f.Name.Contains("_32"))
                       .ThenByDescending(f => f.Name.Contains("_24"))

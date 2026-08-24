@@ -69,7 +69,7 @@ namespace TDR.PakLib.Tests
             try
             {
                 var originalVfs = new PakManager();
-                originalVfs.Initialize(Path.GetDirectoryName(pakPath) ?? "");
+                originalVfs.IndexDirectory(Path.GetDirectoryName(pakPath) ?? "");
 
                 var originalFiles = originalVfs.GetFiles()
                     .Where(f => !string.IsNullOrEmpty(f.ArchivePath) &&

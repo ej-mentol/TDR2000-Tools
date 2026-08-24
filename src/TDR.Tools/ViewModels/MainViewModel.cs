@@ -2190,10 +2190,17 @@ namespace TDR.Tools.ViewModels
 
         private string? GetVariantSuffix(string rawVariant, string trackName)
         {
-            if (string.IsNullOrEmpty(rawVariant)) return null;
+            if (string.IsNullOrWhiteSpace(rawVariant)) return null;
             string tName = trackName.ToLowerInvariant();
-            string selLower = rawVariant.ToLowerInvariant();
-            if (selLower == tName) return null;
+            string selLower = rawVariant.ToLowerInvariant().Trim();
+            if (selLower == tName ||
+                selLower.Equals(ConvertTrackModalViewModel.PresetAllSupported, StringComparison.OrdinalIgnoreCase) ||
+                selLower.Equals(ConvertTrackModalViewModel.PresetCustom, StringComparison.OrdinalIgnoreCase) ||
+                selLower.StartsWith("all ", StringComparison.OrdinalIgnoreCase) ||
+                selLower.StartsWith("base track", StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
             if (selLower.StartsWith(tName + "_", StringComparison.Ordinal))
                 return rawVariant.Substring(tName.Length + 1);
             if (selLower.StartsWith(tName, StringComparison.Ordinal))
@@ -2211,13 +2218,10 @@ namespace TDR.Tools.ViewModels
                     return;
                 }
 
-                string allVariantsSentinel = ConvertTrackModalViewModel.PresetAllSupported;
-                bool isAllVariants = string.IsNullOrEmpty(vm.SelectedVariant) ||
-                                     vm.SelectedVariant.Equals(allVariantsSentinel, StringComparison.OrdinalIgnoreCase);
-
-                var options = new TrackExportOptions(
+                var baseOptions = new TrackExportOptions(
                     ExportObj: vm.ExportObj,
                     ExportGltf: vm.ExportGltf,
+                    ExportArmatures: vm.ExportArmatures,
                     ExportPngTextures: vm.ExportPngTextures,
                     IncludeMovableProps: vm.IncludeMovableProps,
                     ExportSceneJson: vm.ExportSceneJson,
@@ -2227,9 +2231,7 @@ namespace TDR.Tools.ViewModels
                     UseGrouping: vm.UseGrouping,
                     DumpAll: false,
                     Verbose: vm.VerboseLog,
-                    SelectedHieFiles: (vm.SelectedVariant != null && vm.SelectedVariant.Equals(ConvertTrackModalViewModel.PresetCustom, StringComparison.OrdinalIgnoreCase))
-                        ? vm.GetSelectedHiePaths()
-                        : null
+                    SelectedHieFiles: null
                 );
 
                 SetBusy(true, $"Exporting track '{vm.TrackName}'...");
@@ -2240,70 +2242,81 @@ namespace TDR.Tools.ViewModels
                 {
                     await Task.Run(() =>
                     {
-                        List<string> targetVariants;
-                        string sel = vm.SelectedVariant ?? allVariantsSentinel;
+                        DateTime batchStartTime = DateTime.Now;
+                        var activeLayers = vm.HieTreeNodes
+                            .Where(n => n.IsSelected != false)
+                            .ToList();
 
-                        if (sel.Equals(allVariantsSentinel, StringComparison.OrdinalIgnoreCase) || sel.StartsWith("All Variants", StringComparison.OrdinalIgnoreCase))
-                        {
-                            targetVariants = vm.AvailableVariants
-                                .Where(v => !v.StartsWith("All ", StringComparison.OrdinalIgnoreCase) && !v.StartsWith("Base Track", StringComparison.OrdinalIgnoreCase) && !v.Equals(ConvertTrackModalViewModel.PresetCustom, StringComparison.OrdinalIgnoreCase))
-                                .ToList();
-                            if (targetVariants.Count == 0) targetVariants.Add(vm.TrackName);
-                        }
-                        else if (sel.StartsWith("Base Track Only", StringComparison.OrdinalIgnoreCase))
-                        {
-                            targetVariants = new List<string> { vm.TrackName };
-                        }
-                        else if (sel.StartsWith("All Races", StringComparison.OrdinalIgnoreCase))
-                        {
-                            targetVariants = vm.AvailableVariants
-                                .Where(v => v.Contains("race", StringComparison.OrdinalIgnoreCase) || v.Equals(vm.TrackName, StringComparison.OrdinalIgnoreCase))
-                                .ToList();
-                        }
-                        else if (sel.StartsWith("All Missions", StringComparison.OrdinalIgnoreCase))
-                        {
-                            targetVariants = vm.AvailableVariants
-                                .Where(v => v.Contains("mission", StringComparison.OrdinalIgnoreCase) || v.Equals(vm.TrackName, StringComparison.OrdinalIgnoreCase))
-                                .ToList();
-                        }
-                        else if (sel.Equals(ConvertTrackModalViewModel.PresetCustom, StringComparison.OrdinalIgnoreCase))
-                        {
-                            // Custom Selection: only export layer variants whose root node has at least
-                            // one selected HIE file. VirtualPath of layer root nodes matches the format
-                            // expected by GetVariantSuffix (e.g. "Hollowood", "Hollowood_Race1").
-                            targetVariants = vm.HieTreeNodes
-                                .Where(n => n.IsDirectory && n.IsSelected != false)
-                                .Select(n => n.VirtualPath)
-                                .ToList();
-                            if (targetVariants.Count == 0) targetVariants.Add(vm.TrackName);
+                        int successCount = 0;
+                        int total = activeLayers.Count > 0 ? activeLayers.Count : 1;
+                        var sceneResults = new List<(string Name, bool Ok, int Errors, int Warnings)>();
 
-                            // Soft warning: no HIE files checked in the tree. IsHieSelected will allow
-                            // everything (empty list = no filter), so keyword-referenced external assets
-                            // like SKY_SPHERE may still export via descriptor parsing.
-                            if (options.SelectedHieFiles != null && options.SelectedHieFiles.Count == 0)
+                        if (activeLayers.Count > 0)
+                        {
+                            for (int i = 0; i < total; i++)
                             {
-                                LogSession("[!] Custom Selection: no HIE resources selected in tree — " +
-                                           "only keyword-referenced assets (e.g. SKY_SPHERE) from the descriptor will be exported.");
+                                var layerNode = activeLayers[i];
+                                string? suffix = GetVariantSuffix(layerNode.VirtualPath, vm.TrackName);
+                                string displayLayer = !string.IsNullOrEmpty(suffix) ? $"{vm.TrackName} ({suffix})" : vm.TrackName;
+
+                                int layerBaseProgress = (int)((i * 100f) / total);
+                                ReportProgress(layerBaseProgress, $"Exporting scene '{displayLayer}' ({i + 1}/{total})...");
+
+                                var layerOptions = baseOptions with { SelectedHieFiles = null };
+                                DateTime sceneStartTime = DateTime.Now;
+
+                                bool ok = TrackExportPipeline.ExportTrack(_vfs, vm.TrackName, suffix, vm.OutputDirectory, layerOptions, LogSession, (subPct, subMsg) =>
+                                {
+                                    int scaledProgress = (int)(((i * 100f) + subPct) / total);
+                                    ReportSubProgress(subPct, subMsg);
+                                    ReportProgress(scaledProgress, $"[{i + 1}/{total}] {subMsg}");
+                                });
+
+                                int sErr = Services.LogService.Instance.GetErrorCount(sceneStartTime);
+                                int sWarn = Services.LogService.Instance.GetWarningCount(sceneStartTime);
+                                sceneResults.Add((displayLayer, ok, sErr, sWarn));
+
+                                if (ok) successCount++;
                             }
                         }
                         else
                         {
-                            targetVariants = new List<string> { sel };
-                        }
+                            var customHies = vm.GetSelectedHiePaths();
+                            var customOptions = baseOptions with { SelectedHieFiles = customHies.Count > 0 ? customHies : null };
 
-                        for (int i = 0; i < targetVariants.Count; i++)
-                        {
-                            var variant = targetVariants[i];
-                            double macroP = 10.0 + ((double)i / targetVariants.Count) * 80.0;
-                            ReportProgress(macroP, $"Exporting variant layer ({i + 1}/{targetVariants.Count}): {variant}");
-
-                            string? suffix = GetVariantSuffix(variant, vm.TrackName);
-                            TrackExportPipeline.ExportTrack(_vfs, vm.TrackName, suffix, vm.OutputDirectory, options, LogSession, (subPct, subMsg) =>
+                            ReportProgress(15, $"Exporting custom selection for '{vm.TrackName}'...");
+                            DateTime sceneStartTime = DateTime.Now;
+                            bool ok = TrackExportPipeline.ExportTrack(_vfs, vm.TrackName, null, vm.OutputDirectory, customOptions, LogSession, (subPct, subMsg) =>
                             {
                                 ReportSubProgress(subPct, subMsg);
                             });
+
+                            int sErr = Services.LogService.Instance.GetErrorCount(sceneStartTime);
+                            int sWarn = Services.LogService.Instance.GetWarningCount(sceneStartTime);
+                            sceneResults.Add(($"{vm.TrackName} (Custom)", ok, sErr, sWarn));
+
+                            if (ok) successCount++;
                         }
-                        ReportProgress(100, $"Completed export for '{vm.TrackName}'");
+
+                        int batchErrors = Services.LogService.Instance.GetErrorCount(batchStartTime);
+                        int batchWarnings = Services.LogService.Instance.GetWarningCount(batchStartTime);
+                        double elapsedSeconds = (DateTime.Now - batchStartTime).TotalSeconds;
+
+                        LogSession("════════════════════════════════════════════════════════════════════════════════");
+                        string summaryHeader = batchErrors > 0 || successCount < total
+                            ? $"[!] EXPORT SUMMARY: {successCount}/{total} Succeeded ({batchErrors} errors, {batchWarnings} warnings) [{elapsedSeconds:F1}s]"
+                            : $"[+] EXPORT SUMMARY: {total}/{total} Succeeded ({batchErrors} errors, {batchWarnings} warnings) [{elapsedSeconds:F1}s]";
+                        LogSession(summaryHeader);
+
+                        foreach (var (name, sOk, sErr, sWarn) in sceneResults)
+                        {
+                            string statusText = sOk ? "OK" : "FAILED";
+                            string detail = (sErr > 0 || sWarn > 0) ? $"({sErr} errors, {sWarn} warnings)" : "(Clean)";
+                            LogSession($"    • {name,-30} → {statusText,-6} {detail}");
+                        }
+                        LogSession("════════════════════════════════════════════════════════════════════════════════");
+
+                        ReportProgress(100, $"Completed export for '{vm.TrackName}': {successCount}/{total} scenes, {batchErrors} error(s), {batchWarnings} warning(s)");
                     });
                 }
                 catch (Exception ex)

@@ -49,9 +49,10 @@ namespace TDR.PakLib.Formats
                     result.Add(new SkeBone
                     {
                         ID = k,
-                        ParentID = -1,
+                        ParentID = rec.ParentID,
                         Flag = rec.Flag,
                         WorldMatrix = rec.WorldMatrix,
+                        LocalMatrix = rec.LocalMatrix,
                         Position = rec.Position,
                         Rotation = rec.Rotation
                     });
@@ -61,9 +62,10 @@ namespace TDR.PakLib.Formats
                     result.Add(new SkeBone
                     {
                         ID = k,
-                        ParentID = -1,
+                        ParentID = RawBones[k].ParentID,
                         Flag = RawBones[k].Flag,
                         WorldMatrix = RawBones[k].WorldMatrix,
+                        LocalMatrix = RawBones[k].LocalMatrix,
                         Position = RawBones[k].Position,
                         Rotation = RawBones[k].Rotation
                     });

@@ -1,8 +1,11 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using TDR.PakLib;
+using TDR.Tools.Services;
 
 namespace TDR.Tools.Export
 {
@@ -17,6 +20,7 @@ namespace TDR.Tools.Export
         private readonly string _exportDir;
         private readonly string? _trackContext;
         private readonly bool _convertTexturesToPng;
+        private readonly Action<string, LogLevel>? _logAction;
 
         public static readonly string[] CandidateSuffixes = new[]
         {
@@ -26,12 +30,48 @@ namespace TDR.Tools.Export
             "_64x64_8.tga", "_32x32_8.tga", "_16x16_8.tga", "_8x8_8.tga", "_4x4_8.tga", "_2x2_8.tga", "_1x1_8.tga"
         };
 
-        public TextureResolutionService(PakManager vfs, string exportDir, string? trackContext = null, bool convertTexturesToPng = true)
+        public TextureResolutionService(PakManager vfs, string exportDir, string? trackContext = null, bool convertTexturesToPng = true, Action<string, LogLevel>? logAction = null)
         {
             _vfs = vfs;
             _exportDir = exportDir;
             _trackContext = trackContext;
             _convertTexturesToPng = convertTexturesToPng;
+            _logAction = logAction;
+        }
+
+        private void Log(string message, LogLevel level = LogLevel.Info) => _logAction?.Invoke(message, level);
+
+        private byte[]? SafeLoadCandidate(string candidateName, string? archivePath)
+        {
+            // 1. Exact archive / context folder
+            if (!string.IsNullOrEmpty(archivePath))
+            {
+                byte[]? data = _vfs.LoadFileContext(candidateName, archivePath);
+                if (data != null && data.Length > 0) return data;
+            }
+
+            // 2. Current track context
+            if (!string.IsNullOrEmpty(_trackContext))
+            {
+                byte[]? data = _vfs.LoadFileContext(candidateName, _trackContext);
+                if (data != null && data.Length > 0) return data;
+            }
+
+            // 3. Shared powerups / global non-track contexts
+            byte[]? sharedData = _vfs.LoadFileContext(candidateName, "POWERUPS") ??
+                                 _vfs.LoadFileContext(candidateName, "MovableObjects") ??
+                                 _vfs.LoadFileContext(candidateName, "shared");
+            if (sharedData != null && sharedData.Length > 0) return sharedData;
+
+            // 4. Global match ONLY IF it does not belong to another foreign track (O(1) dictionary lookup)
+            var candidates = _vfs.GetCandidatesByFileName(candidateName);
+            var indexed = candidates.FirstOrDefault(f => !TextureResolver.IsOtherTrackFile(f.ArchivePath, f.Name, _trackContext ?? ""));
+            if (indexed != null)
+            {
+                return _vfs.LoadFile(indexed);
+            }
+
+            return null;
         }
 
         public string? ResolveAndSave(string textureName, string? archivePath, string? targetFolder = null)
@@ -45,21 +85,24 @@ namespace TDR.Tools.Export
             var matchResult = TextureResolver.ResolveBestMatch(_vfs, t, archivePath, _trackContext);
             if (matchResult?.File != null)
             {
-                byte[]? matchData = (!string.IsNullOrEmpty(archivePath) ? _vfs.LoadFileContext(matchResult.File.Name, archivePath) : null)
-                                    ?? _vfs.LoadFile(matchResult.File);
+                byte[]? matchData = _vfs.LoadFile(matchResult.File);
                 if (matchData != null && matchData.Length > 0)
                 {
                     return SaveTextureWithFormat(matchData, Path.GetFileName(matchResult.File.Name), outFolder);
                 }
+                else
+                {
+                    Log($"    [ERROR] Failed to read raw bytes for matched texture file '{matchResult.File.Name}' from '{matchResult.File.ArchivePath}'", LogLevel.Error);
+                }
             }
 
-            // Tier 1: Canonical OBJ fallback candidate search
+            // Tier 1: Canonical OBJ fallback candidate search with strict track isolation
             string cleanT = t.TrimEnd('!');
             string bangT = cleanT + "!";
 
             // Direct .tga check
             string directTga = $"{t}.tga";
-            byte[]? directData = _vfs.LoadFileContext(directTga, "POWERUPS") ?? _vfs.LoadFile(directTga);
+            byte[]? directData = SafeLoadCandidate(directTga, archivePath);
             if (directData != null && directData.Length > 0)
             {
                 return SaveTextureWithFormat(directData, directTga, outFolder);
@@ -69,25 +112,32 @@ namespace TDR.Tools.Export
             foreach (string suffix in CandidateSuffixes)
             {
                 string candBang = bangT + suffix;
-                byte[]? data = _vfs.LoadFileContext(candBang, "POWERUPS") ?? _vfs.LoadFile(candBang);
+                byte[]? data = SafeLoadCandidate(candBang, archivePath);
                 if (data != null && data.Length > 0)
                 {
                     return SaveTextureWithFormat(data, Path.GetFileName(candBang), outFolder);
                 }
 
                 string candClean = cleanT + suffix;
-                data = _vfs.LoadFileContext(candClean, "POWERUPS") ?? _vfs.LoadFile(candClean);
+                data = SafeLoadCandidate(candClean, archivePath);
                 if (data != null && data.Length > 0)
                 {
                     return SaveTextureWithFormat(data, Path.GetFileName(candClean), outFolder);
                 }
             }
 
+            Log($"    [WARNING] Texture '{t}' could not be resolved in VFS for track context '{_trackContext ?? "global"}'.", LogLevel.Warning);
             return null;
         }
 
         public string SaveTextureWithFormat(byte[] rawData, string originalFileName, string targetDir)
         {
+            if (rawData == null || rawData.Length == 0)
+            {
+                Log($"    [ERROR] Texture '{originalFileName}' has 0 bytes of data.", LogLevel.Error);
+                return originalFileName;
+            }
+
             string baseStem = Path.GetFileNameWithoutExtension(originalFileName);
             string ext = Path.GetExtension(originalFileName);
             string targetBaseName = baseStem;
@@ -100,21 +150,44 @@ namespace TDR.Tools.Export
                 {
                     string hash = GetMd5(rawData).Substring(0, 6).ToLowerInvariant();
                     targetBaseName = $"{baseStem}_{hash}";
+                    Log($"    [WARNING] Texture collision for '{originalFileName}': existing file differs from incoming asset. Appended hash suffix -> '{targetBaseName}'", LogLevel.Warning);
                 }
             }
 
             if (_convertTexturesToPng && ext.EndsWith(".tga", StringComparison.OrdinalIgnoreCase))
             {
-                string pngName = $"{targetBaseName}.png";
-                string pngPath = Path.Combine(targetDir, pngName);
-                if (TgaDecoder.SaveTgaAsPng(rawData, pngPath))
+                if (rawData.Length < 18)
                 {
-                    string staleTga = Path.Combine(targetDir, $"{targetBaseName}.tga");
-                    if (File.Exists(staleTga))
+                    Log($"    [ERROR] Corrupted TGA header for '{originalFileName}': size {rawData.Length} bytes is below 18-byte minimum.", LogLevel.Error);
+                }
+                else
+                {
+                    ushort w = BitConverter.ToUInt16(rawData, 12);
+                    ushort h = BitConverter.ToUInt16(rawData, 14);
+                    byte bpp = rawData[16];
+
+                    if (w == 0 || h == 0 || w > 8192 || h > 8192)
                     {
-                        try { File.Delete(staleTga); } catch { }
+                        Log($"    [ERROR] Invalid TGA dimensions for '{originalFileName}': {w}x{h}, {bpp}bpp. Cannot convert to PNG.", LogLevel.Error);
                     }
-                    return pngName;
+                    else
+                    {
+                        string pngName = $"{targetBaseName}.png";
+                        string pngPath = Path.Combine(targetDir, pngName);
+                        if (TgaDecoder.SaveTgaAsPng(rawData, pngPath))
+                        {
+                            string staleTga = Path.Combine(targetDir, $"{targetBaseName}.tga");
+                            if (File.Exists(staleTga))
+                            {
+                                try { File.Delete(staleTga); } catch { }
+                            }
+                            return pngName;
+                        }
+                        else
+                        {
+                            Log($"    [ERROR] TgaDecoder failed to encode PNG for '{originalFileName}' ({w}x{h}, {bpp}bpp). Saving raw TGA.", LogLevel.Error);
+                        }
+                    }
                 }
             }
 

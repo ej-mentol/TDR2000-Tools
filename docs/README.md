@@ -106,11 +106,10 @@ float32 u, v                   // Texture coordinates (0,0 = top-left)
 1. **1-Based Bone Indexing:** Indices in `.ski` are 1-based (`1..N`). In 0-based engines, subtract 1: `joint_idx = bone_idx - 1`.
 2. **Weight Normalization:** Always normalize weights to $1.0$:
    $$w_i = \frac{w_i}{\sum_{k=0}^3 w_k}$$
-3. **LOD 0 Body Parts:** LOD 0 contains all contiguous parts up to the first LOD boundary (all head, torso, arm, thigh, shin, and foot parts down to $Y \approx 0.002$ m). Part counts vary by model:
-   * `Man.ski`: 19 parts in LOD 0 (Parts 00..18)
-   * `Woman.ski`: 20 parts in LOD 0 (Parts 00..19)
-   * `Horse.ski`, `Bull.ski`, `Sheep.ski`: 11 parts in LOD 0 (all 4 legs included)
-   * `FlagWoman.ski`: 11 parts in LOD 0
+3. **Universal Data-Driven LOD 0 Boundary Extraction:**
+   * Character models stream body parts sequentially following the kinematic hierarchy (Head $\to$ Torso $\to$ Arms $\to$ Pelvis $\to$ Thighs $\to$ Shins $\to$ Feet down to $Y \approx 0.002$ m).
+   * Once lower limbs/feet are reached, the re-appearance of the initial root/head bone set signals the start of LOD 1.
+   * Isolating LOD 0 dynamically eliminates overlapping low-poly shells and Z-fighting while guaranteeing 100% of all limbs, legs, and feet are preserved across all humanoids, animals, and aliens.
 
 ---
 
@@ -190,10 +189,9 @@ Text and bytecode files defining level parameters, spawners, weather, and missio
 // Type | Skin Type | Standard Ani | Pos(x, y, z)          | Dir(deg)
 1        6           -1             -218.96 2.21 33.90       72.76
 ```
-* **`Type`:** Slot status / behavior type.
-  * `0`: Inactive / disabled placeholder slot (filtered out in export pipelines).
-  * `1`: Standard active ambient pedestrian.
-  * `2`, `4`: Group, stationary, or mission-specific pedestrian variants.
+* **`Type`:** Behavior archetype / group ID.
+  * `0`: Standard ambient pedestrian (active default wanderer).
+  * `1`, `2`, `4`, `5`: Group member, stationary spectator, flee behavior, or mission-specific variants.
 * **`Skin Type`:** 0-based index into `PedDescriptor.Textures[]`. The texture entry maps to `PedDescriptor.SkinMeshes[]` (`.ski`) via `PedSkinTexture.SkinIndex` and resolves body/face bitmaps.
 * **`Standard Ani`:** Default keyframe animation index (`-1` = default idle/walk).
 * **`Pos(x, y, z)`:** World coordinate spawn position.
@@ -225,10 +223,22 @@ Text and bytecode files defining level parameters, spawners, weather, and missio
 
 ---
 
-## 10. Textures & Materials (`.tga` / `.png`)
+## 10. Textures & Materials (`.tx` / `.tga` / `.png`)
+
+### Native Texture Descriptors (`.tx` / `TTEX`):
+TDR2000 uses binary `.tx` descriptors (`TTEX` signature) to define texture LODs, mipmaps, and native DirectX blend states. The 3rd 32-bit integer in the header (`Flags`) serves as the official engine authority for transparency:
+* **`Flags = 0` (`OPAQUE`):** Solid terrain, tarmac, rock, buildings, concrete walls. Prevents perforated ground rendering.
+* **`Flags & 1` (`BLEND`):** True alpha blending with smooth transparency (e.g. `Water256 copy.tx`, `WaterSplash.tx`, `CarShadow.tx`, light beams, glass).
+* **`Flags & 2` (`MASK`):** 1-bit alpha cutout with $0.5$ cutoff threshold (e.g. `FenceWire.tx`, iron bars `Bars.tx`, ladders `Ladder.tx`, railings `Rail.tx`, foliage).
+
+### Material Resolution Hierarchy:
+1. **Primary Authority (`TTEX`):** Official `.tx` descriptor loaded directly from the PAK archive or global VFS.
+2. **Secondary Fallback (Semantic Heuristic):** Applied only when a `.tx` descriptor is missing from the archives (e.g. custom/modded textures).
+3. **Additive PBR Modifiers:** Unlit/emissive boosts applied for coronas, glows, flares, and sky domes.
 
 * **TGA Support:** 32-bit RGBA (alpha transparency), 24-bit RGB, 16-bit ($1555$, $565$, $4444$), 8-bit paletted, and RLE-compressed (Types 9 and 10).
 * **UV Coordinate Origin:** $(0, 0)$ is Top-Left in DirectX / TDR2000 and glTF 2.0. No vertical inversion ($1.0 - V$) is required for glTF exports.
+* **Physical Double-Sided Geometry (`doubleSided`):** Planar water sheets, fences, and thin panels physically emit duplicated reverse-wound triangles $(v_0, v_2, v_1)$ with inverted normals $-N$, ensuring 100% visibility in all 3D viewers (Blender, Maya, 3ds Max, Three.js) regardless of backface culling settings or OBJ format limitations.
 * **Texture Fallback Hierarchy:** High-res variants (`_512x512_32.tga`, `_256_256_32.tga`) down to base names.
 
 ---

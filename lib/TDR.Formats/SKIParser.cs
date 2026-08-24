@@ -44,6 +44,9 @@ namespace TDR.PakLib.Formats
 
     public sealed class SkiModel
     {
+        private const int MaxNameLength = 256;
+        private const int MaxParts = 60;
+
         public string Name { get; set; } = string.Empty;
         public int LODCount { get; set; }
         public List<SkiPart> Parts { get; } = new();
@@ -58,26 +61,23 @@ namespace TDR.PakLib.Formats
             using var br = new BinaryReader(ms);
 
             int nameLen = br.ReadInt32();
-            if (nameLen > 0 && nameLen < 256 && br.BaseStream.Position + nameLen <= br.BaseStream.Length)
+            if (nameLen > 0 && nameLen < MaxNameLength && br.BaseStream.Position + nameLen <= br.BaseStream.Length)
             {
                 byte[] nameBytes = br.ReadBytes(nameLen);
                 model.Name = Encoding.Latin1.GetString(nameBytes).TrimEnd('\0');
             }
 
             model.LODCount = br.ReadInt32();
-            // LOD 0 high-poly mesh consists of the first 10 body parts. 
-            // When multiple LODs exist (LODCount > 1), capping to 10 parts isolates LOD 0 and prevents LOD1/LOD2 overlapping Z-fighting shells.
-            int maxParts = (targetLod == 0 && model.LODCount > 1) ? 10 : 60;
             long scanPos = br.BaseStream.Position;
 
-            while (scanPos + 8 <= br.BaseStream.Length && model.Parts.Count < maxParts)
+            while (scanPos + 8 <= br.BaseStream.Length && model.Parts.Count < MaxParts)
             {
                 br.BaseStream.Position = scanPos;
                 int val = br.ReadInt32();
                 if (val >= 1 && val <= 500)
                 {
                     int nextT = br.ReadInt32();
-                    if (nextT == 3 || nextT == 4)
+                    if (nextT >= 3 && nextT <= 10)
                     {
                         int polyCount = val;
                         br.BaseStream.Position = scanPos + 4;
@@ -94,7 +94,7 @@ namespace TDR.PakLib.Formats
                         {
                             if (br.BaseStream.Position + 4 > br.BaseStream.Length) { partValid = false; break; }
                             int pType = br.ReadInt32();
-                            if (pType != 3 && pType != 4) { partValid = false; break; }
+                            if (pType < 3 || pType > 10) { partValid = false; break; }
 
                             var polygon = new SkiPolygon { Type = pType };
                             var polyIdx = new List<ushort>();
@@ -219,6 +219,15 @@ namespace TDR.PakLib.Formats
                                 part.Indices.Add(polyIdx[0]);
                                 part.Indices.Add(polyIdx[2]);
                                 part.Indices.Add(polyIdx[3]);
+                            }
+                            else if (pType >= 5 && polyIdx.Count == pType)
+                            {
+                                for (int i = 1; i < pType - 1; i++)
+                                {
+                                    part.Indices.Add(polyIdx[0]);
+                                    part.Indices.Add(polyIdx[i]);
+                                    part.Indices.Add(polyIdx[i + 1]);
+                                }
                             }
 
                             part.Polygons.Add(polygon);

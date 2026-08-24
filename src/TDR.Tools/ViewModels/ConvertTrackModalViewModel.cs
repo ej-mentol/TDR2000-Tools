@@ -107,6 +107,7 @@ namespace TDR.Tools.ViewModels
 
         private bool _exportObj = true;
         private bool _exportGltf = true;
+        private bool _exportArmatures = false;
         private bool _exportPngTextures = true;
         private bool _includeMovableProps = true;
         private bool _exportSceneJson = true;
@@ -160,6 +161,12 @@ namespace TDR.Tools.ViewModels
         {
             get => _exportGltf;
             set { _exportGltf = value; OnPropertyChanged(); }
+        }
+
+        public bool ExportArmatures
+        {
+            get => _exportArmatures;
+            set { _exportArmatures = value; OnPropertyChanged(); }
         }
 
         public bool ExportPngTextures
@@ -237,6 +244,7 @@ namespace TDR.Tools.ViewModels
         {
             ExportObj = settings.ExportObj;
             ExportGltf = settings.ExportGltf;
+            ExportArmatures = settings.ExportArmatures;
             ExportPngTextures = settings.ExportPngTextures;
             IncludeMovableProps = settings.IncludeMovableProps;
             ExportSceneJson = settings.ExportSceneJson;
@@ -363,7 +371,7 @@ namespace TDR.Tools.ViewModels
             return result;
         }
 
-        private void CollectSelectedHiePaths(IEnumerable<HieNodeViewModel> nodes, List<string> result)
+        public static void CollectSelectedHiePaths(IEnumerable<HieNodeViewModel> nodes, List<string> result)
         {
             foreach (var node in nodes)
             {
@@ -419,6 +427,7 @@ namespace TDR.Tools.ViewModels
             var settings = Services.AppSettings.Load();
             settings.ExportObj = ExportObj;
             settings.ExportGltf = ExportGltf;
+            settings.ExportArmatures = ExportArmatures;
             settings.ExportPngTextures = ExportPngTextures;
             settings.IncludeMovableProps = IncludeMovableProps;
             settings.ExportSceneJson = ExportSceneJson;
