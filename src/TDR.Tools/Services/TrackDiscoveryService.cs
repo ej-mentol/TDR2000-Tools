@@ -34,15 +34,21 @@ namespace TDR.Tools.Services
             ["policestate"] = new[] { "police" }
         };
 
-        public static bool IsTrackOrAliasMatch(string pathOrName, string mainTrack)
+        public static bool IsTrackOrAliasMatch(string? pathOrName, string? mainTrack)
         {
             if (string.IsNullOrEmpty(pathOrName) || string.IsNullOrEmpty(mainTrack)) return false;
+
+            string baseTrack = TrackDiscovery.GetBaseTrackName(mainTrack);
             string norm = pathOrName.Replace('\\', '/').ToLowerInvariant().Replace("_", "");
             string cleanMain = mainTrack.ToLowerInvariant().Replace("_", "");
+            string cleanBase = baseTrack.ToLowerInvariant().Replace("_", "");
 
-            if (norm.Contains(cleanMain)) return true;
+            if (norm.Contains(cleanMain) || norm.Contains(cleanBase)) return true;
 
-            if (TrackAliases.TryGetValue(mainTrack.ToLowerInvariant(), out var aliases))
+            if (TrackAliases.TryGetValue(cleanBase, out var aliases) ||
+                TrackAliases.TryGetValue(cleanMain, out aliases) ||
+                TrackAliases.TryGetValue(baseTrack, out aliases) ||
+                TrackAliases.TryGetValue(mainTrack, out aliases))
             {
                 foreach (var alias in aliases)
                 {

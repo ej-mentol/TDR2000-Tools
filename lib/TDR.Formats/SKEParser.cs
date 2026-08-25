@@ -52,7 +52,6 @@ namespace TDR.PakLib.Formats
                         ParentID = rec.ParentID,
                         Flag = rec.Flag,
                         WorldMatrix = rec.WorldMatrix,
-                        LocalMatrix = rec.LocalMatrix,
                         Position = rec.Position,
                         Rotation = rec.Rotation
                     });
@@ -65,10 +64,30 @@ namespace TDR.PakLib.Formats
                         ParentID = RawBones[k].ParentID,
                         Flag = RawBones[k].Flag,
                         WorldMatrix = RawBones[k].WorldMatrix,
-                        LocalMatrix = RawBones[k].LocalMatrix,
                         Position = RawBones[k].Position,
                         Rotation = RawBones[k].Rotation
                     });
+                }
+            }
+
+            // Compute parent-relative local matrices for active bones
+            for (int i = 0; i < result.Count; i++)
+            {
+                int p = result[i].ParentID;
+                if (p >= 0 && p < result.Count && p != i)
+                {
+                    if (Matrix4x4.Invert(result[p].WorldMatrix, out var invP))
+                    {
+                        result[i].LocalMatrix = Matrix4x4.Multiply(result[i].WorldMatrix, invP);
+                    }
+                    else
+                    {
+                        result[i].LocalMatrix = result[i].WorldMatrix;
+                    }
+                }
+                else
+                {
+                    result[i].LocalMatrix = result[i].WorldMatrix;
                 }
             }
 
@@ -144,24 +163,6 @@ namespace TDR.PakLib.Formats
                     {
                         parentStack.Pop();
                     }
-                }
-            }
-
-            // Compute parent-relative local matrices for active bones
-            var active = skeleton.GetActiveBones();
-            for (int i = 0; i < active.Count; i++)
-            {
-                int p = active[i].ParentID;
-                if (p >= 0 && p < active.Count && p != i)
-                {
-                    if (Matrix4x4.Invert(active[p].WorldMatrix, out var invP))
-                    {
-                        active[i].LocalMatrix = Matrix4x4.Multiply(active[i].WorldMatrix, invP);
-                    }
-                }
-                else
-                {
-                    active[i].LocalMatrix = active[i].WorldMatrix;
                 }
             }
 

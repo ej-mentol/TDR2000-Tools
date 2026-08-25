@@ -161,6 +161,7 @@ namespace TDR.Tools.ViewModels
                 {
                     "Mission" => "BadgeMissionBrush",
                     "Race" => "BadgeRaceBrush",
+                    "MP" => "BadgeMpBrush",
                     _ => "BadgeTrackBrush"
                 };
                 if (Application.Current != null && Application.Current.TryGetResource(key, null, out object? res) && res is IBrush brush)
@@ -179,6 +180,7 @@ namespace TDR.Tools.ViewModels
                 {
                     "Mission" => "BadgeMissionSubtleBrush",
                     "Race" => "BadgeRaceSubtleBrush",
+                    "MP" => "BadgeMpSubtleBrush",
                     _ => "BadgeTrackSubtleBrush"
                 };
                 if (Application.Current != null && Application.Current.TryGetResource(key, null, out object? res) && res is IBrush brush)

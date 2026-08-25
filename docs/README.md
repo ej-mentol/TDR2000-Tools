@@ -89,7 +89,7 @@ Used for pedestrians, zombies, and animals with skeletal vertex blending.
 
 [LOD Parts Stream]
   uint32 polygon_count         // Number of polygons in body part
-  uint32 polygon_type          // 3 = Triangles, 4 = Quads
+  uint32 polygon_type          // Polygon vertex count (3 = Triangles, 4 = Quads, 5..10 = N-gons via Fan)
 ```
 
 ### Vertex Layout:
@@ -232,14 +232,17 @@ TDR2000 uses binary `.tx` descriptors (`TTEX` signature) to define texture LODs,
 * **`Flags & 2` (`MASK`):** 1-bit alpha cutout with $0.5$ cutoff threshold (e.g. `FenceWire.tx`, iron bars `Bars.tx`, ladders `Ladder.tx`, railings `Rail.tx`, foliage).
 
 ### Material Resolution Hierarchy:
-1. **Primary Authority (`TTEX`):** Official `.tx` descriptor loaded directly from the PAK archive or global VFS.
-2. **Secondary Fallback (Semantic Heuristic):** Applied only when a `.tx` descriptor is missing from the archives (e.g. custom/modded textures).
+1. **Primary Authority (`TTEX`):** Official `.tx` descriptor loaded directly from the PAK archive or track context.
+2. **Secondary Authority (TGA Alpha Byte Inspection):** When `.tx` is not present, `TgaDecoder.DetectTgaTransparency` inspects the raw TGA pixel bytes directly:
+   * Intermediate alpha values ($0 < \alpha < 255$) $\to$ `BLEND`.
+   * Binary alpha values ($\alpha = 0$ cutout and $\alpha = 255$) $\to$ `MASK` (0.5 cutoff).
+   * 24/16-bit or solid $\alpha = 255$ $\to$ `OPAQUE`.
 3. **Additive PBR Modifiers:** Unlit/emissive boosts applied for coronas, glows, flares, and sky domes.
 
 * **TGA Support:** 32-bit RGBA (alpha transparency), 24-bit RGB, 16-bit ($1555$, $565$, $4444$), 8-bit paletted, and RLE-compressed (Types 9 and 10).
 * **UV Coordinate Origin:** $(0, 0)$ is Top-Left in DirectX / TDR2000 and glTF 2.0. No vertical inversion ($1.0 - V$) is required for glTF exports.
-* **Physical Double-Sided Geometry (`doubleSided`):** Planar water sheets, fences, and thin panels physically emit duplicated reverse-wound triangles $(v_0, v_2, v_1)$ with inverted normals $-N$, ensuring 100% visibility in all 3D viewers (Blender, Maya, 3ds Max, Three.js) regardless of backface culling settings or OBJ format limitations.
-* **Texture Fallback Hierarchy:** High-res variants (`_512x512_32.tga`, `_256_256_32.tga`) down to base names.
+* **Double-Sided Geometry (`doubleSided`):** Set to `true` across materials in glTF exports to ensure planar fences, signs, and thin panels remain 100% visible regardless of backface culling settings.
+* **Texture Fallback Hierarchy:** Tiered resolution (Tier 1A exact PAK $\to$ Tier 1B same directory $\to$ Tier 2 same track/variant $\to$ Tier 3 shared non-track assets $\to$ Tier 4/5 global VFS) with cross-variant isolation.
 
 ---
 

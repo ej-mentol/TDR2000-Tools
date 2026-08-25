@@ -238,19 +238,47 @@ namespace TDR.Tools.Export
                     w.WriteLine($"# TDR2000 Combined Scene Export - {levelName}");
                     w.WriteLine($"mtllib {Path.GetFileName(mtlPath)}");
 
-                    // 1. Export ALL HIE Mesh Hierarchies & Sub-descriptor Instances into the combined stream
+                    // 1a. Bake Static Top-Level Level HIE Hierarchies (terrain, sky, water, etc.) first as scene foundation
                     var processedHies = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    int totalHies = assets.HieFiles.Count;
+                    for (int i = 0; i < totalHies; i++)
+                    {
+                        string hieName = assets.HieFiles[i];
+                        if (processedHies.Contains(hieName) || !IsHieSelected(hieName)) continue;
 
+                        int pct = (int)((float)(i + 1) / (totalHies + assets.HieInstances.Count + 1) * 45.0f);
+                        progressCallback?.Invoke(pct, $"Baking OBJ mesh layer ({i + 1}/{totalHies}): {hieName}");
+
+                        string? sourceArchivePath = _vfs.GetArchivePath(hieName, _trackContext);
+                        byte[]? hieBytes = (!string.IsNullOrEmpty(sourceArchivePath) ? _vfs.LoadFileContext(hieName, sourceArchivePath) : null) ??
+                                           LevelDescriptorParser.LoadDescriptorBytes(_vfs, _trackContext ?? levelName, hieName);
+                        if (hieBytes != null && hieBytes.Length > 0)
+                        {
+                            if (_verbose) Log($"  [+] Baking HIE layer '{hieName}' into combined scene...");
+
+                            Matrix4x4? initMat = assets.HieInitialTransforms.TryGetValue(hieName, out var im) ? im : null;
+                            AppendHieToWriter(hieBytes, hieName, w, textures, ref v, ref vt, ref vn, sourceArchivePath, initMat);
+                            processedHies.Add(hieName);
+                            bakedLayers.Add(hieName);
+                            result.ResolvedHieFiles.Add(hieName);
+                        }
+                        else if (_verbose)
+                        {
+                            Log($"    [!] Warning: HIE hierarchy '{hieName}' not found in VFS for level '{levelName}'.");
+                        }
+                    }
+
+                    // 1b. Bake Placed Specific Instances (Props, Gates, Walls, Trains, Bridges)
                     if (assets.HieInstances.Count > 0)
                     {
                         int totalInst = assets.HieInstances.Count;
                         for (int i = 0; i < totalInst; i++)
                         {
                             var inst = assets.HieInstances[i];
-                            if (!IsHieSelected(inst.HieName)) continue;
+                            if (processedHies.Contains(inst.HieName) || !IsHieSelected(inst.HieName)) continue;
 
-                            int pct = (int)((float)(i + 1) / (totalInst + assets.HieFiles.Count + 1) * 70.0f);
-                            progressCallback?.Invoke(pct, $"Baking OBJ mesh ({i + 1}/{totalInst}): {inst.HieName}");
+                            int pct = (int)(45.0f + (float)(i + 1) / (totalInst + 1) * 35.0f);
+                            progressCallback?.Invoke(pct, $"Baking OBJ mesh instance ({i + 1}/{totalInst}): {inst.HieName}");
 
                             string? sourceArchivePath = _vfs.GetArchivePath(inst.HieName, _trackContext);
                             byte[]? hieBytes = (!string.IsNullOrEmpty(sourceArchivePath) ? _vfs.LoadFileContext(inst.HieName, sourceArchivePath) : null) ??
@@ -265,33 +293,6 @@ namespace TDR.Tools.Export
                                 if (!result.ResolvedHieFiles.Contains(inst.HieName, StringComparer.OrdinalIgnoreCase))
                                     result.ResolvedHieFiles.Add(inst.HieName);
                             }
-                        }
-                    }
-
-                    int totalHies = assets.HieFiles.Count;
-                    for (int i = 0; i < totalHies; i++)
-                    {
-                        string hieName = assets.HieFiles[i];
-                        if (processedHies.Contains(hieName) || !IsHieSelected(hieName)) continue;
-
-                        int pct = (int)(70.0f + (float)(i + 1) / (totalHies + 1) * 20.0f);
-                        progressCallback?.Invoke(pct, $"Baking OBJ mesh layer ({i + 1}/{totalHies}): {hieName}");
-
-                        string? sourceArchivePath = _vfs.GetArchivePath(hieName, _trackContext);
-                        byte[]? hieBytes = (!string.IsNullOrEmpty(sourceArchivePath) ? _vfs.LoadFileContext(hieName, sourceArchivePath) : null) ??
-                                           LevelDescriptorParser.LoadDescriptorBytes(_vfs, _trackContext ?? levelName, hieName);
-                        if (hieBytes != null && hieBytes.Length > 0)
-                        {
-                            if (_verbose) Log($"  [+] Baking HIE layer '{hieName}' into combined scene...");
-
-                            Matrix4x4? initMat = assets.HieInitialTransforms.TryGetValue(hieName, out var im) ? im : null;
-                            AppendHieToWriter(hieBytes, hieName, w, textures, ref v, ref vt, ref vn, sourceArchivePath, initMat);
-                            bakedLayers.Add(hieName);
-                            result.ResolvedHieFiles.Add(hieName);
-                        }
-                        else if (_verbose)
-                        {
-                            Log($"    [!] Warning: HIE hierarchy '{hieName}' not found in VFS for level '{levelName}'.");
                         }
                     }
 

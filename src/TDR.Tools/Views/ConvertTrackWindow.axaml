@@ -35,7 +35,7 @@
                         <StackPanel Spacing="8">
                             <CheckBox IsChecked="{Binding ExportGltf}" FontWeight="SemiBold" FontSize="12" Foreground="{DynamicResource AccentBrush}" Content="glTF 2.0 Modern Scene (.GLTF / .GLB)" ToolTip.Tip="Generates a glTF 2.0 scene with native node hierarchy for Blender, Unity, Unreal Engine &amp; Godot."/>
                             <StackPanel Spacing="6" Margin="22,2,0,0" IsEnabled="{Binding ExportGltf}" Opacity="{Binding ExportGltf, Converter={x:Static ObjectConverters.IsNotNull}}">
-                                <CheckBox IsChecked="{Binding ExportArmatures}" Content="Rigged Pedestrian Skeletons (25 Bones)" FontSize="11" Foreground="{DynamicResource TextPrimaryBrush}" ToolTip.Tip="Exports fully-rigged FK bone hierarchies and Armatures for all pedestrians on the track. When unchecked, exports lightweight static proxy mesh instances for maximum viewport performance."/>
+                                <CheckBox IsChecked="{Binding ExportArmatures}" Content="Rigged Pedestrian Skeletons (FK Armatures)" FontSize="11" Foreground="{DynamicResource TextPrimaryBrush}" ToolTip.Tip="Exports fully-rigged FK bone hierarchies and Armatures for all pedestrians on the track. When unchecked, exports lightweight static proxy mesh instances for maximum viewport performance."/>
                             </StackPanel>
                         </StackPanel>
                     </Border>

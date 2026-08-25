@@ -138,9 +138,54 @@ namespace TDR.Tools.ViewModels
                 }
             }
 
-            // 2. Validate Track Badges on Archive and Folder Nodes
+            // 2. Validate Track Badges on Archive and Folder Nodes via CARMA.pak/races.txt
             var confirmedTrackFolders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var folderBadgeTypes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+            byte[]? racesBytes = vfs.LoadFileContext("races.txt", "CARMA") ?? vfs.LoadFile("races.txt");
+            if (racesBytes != null && racesBytes.Length > 0)
+            {
+                var racesFile = RacesFile.Parse(racesBytes);
+                foreach (var race in racesFile.Races)
+                {
+                    if (string.IsNullOrEmpty(race.Track)) continue;
+
+                    string badge;
+                    if (race.Type == 64 || race.Track.Contains("multiplayer", StringComparison.OrdinalIgnoreCase) || race.Track.Contains("_mp", StringComparison.OrdinalIgnoreCase))
+                    {
+                        badge = "MP";
+                    }
+                    else if (race.IsMission || race.Type == 32 || race.Track.Contains("mission", StringComparison.OrdinalIgnoreCase))
+                    {
+                        badge = "Mission";
+                    }
+                    else if (race.Type == 31 || race.Track.Contains("race", StringComparison.OrdinalIgnoreCase))
+                    {
+                        badge = "Race";
+                    }
+                    else
+                    {
+                        badge = "Track";
+                    }
+
+                    confirmedTrackFolders.Add($"tracks/{race.Track}");
+                    confirmedTrackFolders.Add(race.Track);
+                    folderBadgeTypes[$"tracks/{race.Track}"] = badge;
+                    folderBadgeTypes[race.Track] = badge;
+
+                    string baseTrack = TrackDiscovery.GetBaseTrackName(race.Track);
+                    if (!string.IsNullOrEmpty(baseTrack))
+                    {
+                        confirmedTrackFolders.Add($"tracks/{baseTrack}");
+                        confirmedTrackFolders.Add(baseTrack);
+                        if (!folderBadgeTypes.ContainsKey(baseTrack))
+                        {
+                            folderBadgeTypes[$"tracks/{baseTrack}"] = "Track";
+                            folderBadgeTypes[baseTrack] = "Track";
+                        }
+                    }
+                }
+            }
 
             foreach (var f in vfs.GetFiles())
             {
@@ -149,33 +194,32 @@ namespace TDR.Tools.ViewModels
                 if (isTrackValidator != null && !isTrackValidator(f.Name)) continue;
 
                 string norm = f.Name.Replace('\\', '/');
-                string badge = f.Name.Contains("mission", StringComparison.OrdinalIgnoreCase) ? "Mission" :
-                               f.Name.Contains("race", StringComparison.OrdinalIgnoreCase) ? "Race" : "Track";
 
                 var parts = norm.Split('/', StringSplitOptions.RemoveEmptyEntries);
                 if (parts.Length >= 2 && parts[0].Equals("tracks", StringComparison.OrdinalIgnoreCase))
                 {
-                    confirmedTrackFolders.Add($"tracks/{parts[1]}");
-                    confirmedTrackFolders.Add(parts[1]);
-                    folderBadgeTypes[$"tracks/{parts[1]}"] = badge;
-                    folderBadgeTypes[parts[1]] = badge;
-                }
+                    string trackVariantFolder = parts[1];
+                    if (!folderBadgeTypes.ContainsKey(trackVariantFolder))
+                    {
+                        string trackVariantBadge = trackVariantFolder.Contains("mission", StringComparison.OrdinalIgnoreCase) ? "Mission" :
+                                                   trackVariantFolder.Contains("race", StringComparison.OrdinalIgnoreCase) ? "Race" :
+                                                   (trackVariantFolder.Contains("multiplayer", StringComparison.OrdinalIgnoreCase) || trackVariantFolder.Contains("_mp", StringComparison.OrdinalIgnoreCase)) ? "MP" : "Track";
 
-                int lastSlash = norm.LastIndexOf('/');
-                if (lastSlash > 0)
-                {
-                    string folderPath = norm[..lastSlash];
-                    confirmedTrackFolders.Add(folderPath);
-                    string folderName = Path.GetFileName(folderPath);
-                    confirmedTrackFolders.Add(folderName);
-                    folderBadgeTypes[folderPath] = badge;
-                    folderBadgeTypes[folderName] = badge;
+                        confirmedTrackFolders.Add($"tracks/{trackVariantFolder}");
+                        confirmedTrackFolders.Add(trackVariantFolder);
+                        folderBadgeTypes[$"tracks/{trackVariantFolder}"] = trackVariantBadge;
+                        folderBadgeTypes[trackVariantFolder] = trackVariantBadge;
+                    }
                 }
                 else
                 {
                     string baseTrack = TrackDiscovery.GetBaseTrackName(Path.GetFileNameWithoutExtension(f.Name));
-                    if (!string.IsNullOrEmpty(baseTrack))
+                    if (!string.IsNullOrEmpty(baseTrack) && !folderBadgeTypes.ContainsKey(baseTrack))
                     {
+                        string badge = f.Name.Contains("mission", StringComparison.OrdinalIgnoreCase) ? "Mission" :
+                                       f.Name.Contains("race", StringComparison.OrdinalIgnoreCase) ? "Race" :
+                                       (f.Name.Contains("multiplayer", StringComparison.OrdinalIgnoreCase) || f.Name.Contains("_mp", StringComparison.OrdinalIgnoreCase)) ? "MP" : "Track";
+
                         confirmedTrackFolders.Add(baseTrack);
                         folderBadgeTypes[baseTrack] = badge;
                     }
@@ -190,7 +234,7 @@ namespace TDR.Tools.ViewModels
                     string virtPath = (node.VirtualPath ?? "").Replace('\\', '/').Trim('/');
 
                     string systemReason = "";
-                    if (baseName is "animation" or "powerups" or "cars" or "carma" or "sound" or "sfx" or "fonts" or "pip" or "hud" or "frontend" or "system" or "menu" or "attributes" or "stuff" or "drones" or "pathfollowers" or "strings" or "sky sphere" or "animated props" or "level convsoft" or "level radar" or "level breakable" or "level props" or "level shadows" or "tracks" or "assets" or "root")
+                    if (baseName is "animation" or "powerups" or "cars" or "carma" or "sound" or "sfx" or "fonts" or "pip" or "hud" or "frontend" or "system" or "menu" or "attributes" or "stuff" or "drones" or "pathfollowers" or "strings" or "sky sphere" or "animated props" or "level convsoft" or "level radar" or "level breakable" or "level props" or "level shadows" or "level drones" or "drone paths" or "level sound" or "level lights" or "tracks" or "assets" or "root")
                         systemReason = $"SystemBaseName('{baseName}')";
                     else if (virtPath.StartsWith("cars/", StringComparison.OrdinalIgnoreCase)) systemReason = "Prefix('cars/')";
                     else if (virtPath.StartsWith("powerups/", StringComparison.OrdinalIgnoreCase)) systemReason = "Prefix('powerups/')";
@@ -211,6 +255,8 @@ namespace TDR.Tools.ViewModels
                     else if (virtPath.Contains("/level breakable/", StringComparison.OrdinalIgnoreCase)) systemReason = "Contains('/level breakable/')";
                     else if (virtPath.Contains("/level props/", StringComparison.OrdinalIgnoreCase)) systemReason = "Contains('/level props/')";
                     else if (virtPath.Contains("/level shadows/", StringComparison.OrdinalIgnoreCase)) systemReason = "Contains('/level shadows/')";
+                    else if (virtPath.Contains("/level drones/", StringComparison.OrdinalIgnoreCase)) systemReason = "Contains('/level drones/')";
+                    else if (virtPath.Contains("/drone paths/", StringComparison.OrdinalIgnoreCase)) systemReason = "Contains('/drone paths/')";
 
                     bool isSystemAsset = !string.IsNullOrEmpty(systemReason);
 

@@ -2244,7 +2244,7 @@ namespace TDR.Tools.ViewModels
                     {
                         DateTime batchStartTime = DateTime.Now;
                         var activeLayers = vm.HieTreeNodes
-                            .Where(n => n.IsSelected != false)
+                            .Where(n => n.IsSelected == true)
                             .ToList();
 
                         int successCount = 0;
@@ -2253,6 +2253,28 @@ namespace TDR.Tools.ViewModels
 
                         if (activeLayers.Count > 0)
                         {
+                            var baseNode = vm.HieTreeNodes.FirstOrDefault(n => n.VirtualPath.Equals(vm.TrackName, StringComparison.OrdinalIgnoreCase));
+                            var baseHies = new List<string>();
+                            if (baseNode != null)
+                            {
+                                void CollectAllBaseMeshHies(IEnumerable<HieNodeViewModel> nodes)
+                                {
+                                    foreach (var node in nodes)
+                                    {
+                                        if (!node.IsDirectory && !string.IsNullOrEmpty(node.VirtualPath))
+                                        {
+                                            string fn = Path.GetFileName(node.VirtualPath).ToLowerInvariant();
+                                            if (!fn.Contains("campaths") && !fn.Contains("intpaths") && !fn.Contains("zoomin") && !fn.Contains("look"))
+                                            {
+                                                baseHies.Add(node.VirtualPath);
+                                            }
+                                        }
+                                        if (node.Children.Count > 0) CollectAllBaseMeshHies(node.Children);
+                                    }
+                                }
+                                CollectAllBaseMeshHies(baseNode.Children);
+                            }
+
                             for (int i = 0; i < total; i++)
                             {
                                 var layerNode = activeLayers[i];
@@ -2262,7 +2284,22 @@ namespace TDR.Tools.ViewModels
                                 int layerBaseProgress = (int)((i * 100f) / total);
                                 ReportProgress(layerBaseProgress, $"Exporting scene '{displayLayer}' ({i + 1}/{total})...");
 
-                                var layerOptions = baseOptions with { SelectedHieFiles = null };
+                                var layerHies = new List<string>();
+                                ConvertTrackModalViewModel.CollectSelectedHiePaths(layerNode.Children, layerHies);
+
+                                // If exporting a variant layer (Race, Mission, MP), unconditionally include base track terrain, water, and environment meshes
+                                if (!string.IsNullOrEmpty(suffix) && baseHies.Count > 0)
+                                {
+                                    foreach (var bh in baseHies)
+                                    {
+                                        if (!layerHies.Contains(bh, StringComparer.OrdinalIgnoreCase))
+                                        {
+                                            layerHies.Add(bh);
+                                        }
+                                    }
+                                }
+
+                                var layerOptions = baseOptions with { SelectedHieFiles = layerHies.Count > 0 ? layerHies : null };
                                 DateTime sceneStartTime = DateTime.Now;
 
                                 bool ok = TrackExportPipeline.ExportTrack(_vfs, vm.TrackName, suffix, vm.OutputDirectory, layerOptions, LogSession, (subPct, subMsg) =>
@@ -2439,6 +2476,11 @@ namespace TDR.Tools.ViewModels
 
                 // 2. Determine physical VFS subfolder inside this layer
                 string rawDir = Path.GetDirectoryName(path)?.Replace('\\', '/') ?? "";
+                if (string.IsNullOrEmpty(rawDir) && !string.IsNullOrEmpty(file.ArchivePath))
+                {
+                    rawDir = Path.GetDirectoryName(file.ArchivePath)?.Replace('\\', '/') ?? "";
+                }
+
                 string displaySubfolder = rawDir;
 
                 if (displaySubfolder.StartsWith("tracks/", StringComparison.OrdinalIgnoreCase))
@@ -2446,13 +2488,33 @@ namespace TDR.Tools.ViewModels
                 else if (displaySubfolder.StartsWith("assets/tracks/", StringComparison.OrdinalIgnoreCase))
                     displaySubfolder = displaySubfolder.Substring("assets/tracks/".Length);
 
-                // Strip root layer prefix if subfolder repeats track name (e.g. Hollowood/Level Convsoft -> Level Convsoft)
-                if (displaySubfolder.StartsWith(cleanName + "/", StringComparison.OrdinalIgnoreCase))
-                    displaySubfolder = displaySubfolder.Substring(cleanName.Length + 1);
+                // Strip any track name or variant prefixes so NO subfolder ever repeats the track name
+                string[] trackPrefixes = new[] { layerRootKey, cleanName, TrackDiscovery.GetBaseTrackName(cleanName), cleanName.Replace("_", "") };
+                foreach (string tp in trackPrefixes)
+                {
+                    if (string.IsNullOrEmpty(tp)) continue;
+                    if (displaySubfolder.Equals(tp, StringComparison.OrdinalIgnoreCase))
+                    {
+                        displaySubfolder = string.Empty;
+                        break;
+                    }
+                    if (displaySubfolder.StartsWith(tp + "/", StringComparison.OrdinalIgnoreCase))
+                    {
+                        displaySubfolder = displaySubfolder.Substring(tp.Length + 1);
+                        break;
+                    }
+                    if (displaySubfolder.StartsWith(tp + "_", StringComparison.OrdinalIgnoreCase))
+                    {
+                        string after = displaySubfolder.Substring(tp.Length);
+                        int slashIdx = after.IndexOf('/');
+                        displaySubfolder = slashIdx >= 0 ? after.Substring(slashIdx + 1) : string.Empty;
+                        break;
+                    }
+                }
 
                 HieNodeViewModel parentFolderNode = layerRootNode;
 
-                if (!string.IsNullOrWhiteSpace(displaySubfolder) && !displaySubfolder.Equals(cleanName, StringComparison.OrdinalIgnoreCase))
+                if (!string.IsNullOrWhiteSpace(displaySubfolder))
                 {
                     string folderKey = $"{layerRootKey}/{displaySubfolder}";
                     var existingSub = layerRootNode.Children.FirstOrDefault(c => c.VirtualPath.Equals(folderKey, StringComparison.OrdinalIgnoreCase));

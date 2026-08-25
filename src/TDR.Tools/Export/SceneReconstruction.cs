@@ -57,7 +57,7 @@ namespace TDR.Tools.Export
             string cleanTrackName = TrackDiscovery.GetBaseTrackName(levelName);
 
             TerrainRaycaster? terrainRaycaster = null;
-            if (includeMovables || assets.StartPosition.HasValue)
+            if (includeMovables || assets.StartPosition.HasValue || assets.PedestrianDescriptors.Count > 0)
             {
                 terrainRaycaster = TerrainRaycaster.Build(vfs, assets, trackContext ?? cleanTrackName, log);
             }
@@ -459,7 +459,17 @@ namespace TDR.Tools.Export
                         headingRad = pseudoRandomDeg * (MathF.PI / 180.0f);
                     }
 
-                    Matrix4x4 pedMat = Matrix4x4.CreateRotationY(-headingRad) * Matrix4x4.CreateTranslation(p.Position.X, p.Position.Y, p.Position.Z);
+                    float pedY = p.Position.Y;
+                    if (terrainRaycaster != null)
+                    {
+                        // Cast ray from 3m above authored position down 6m to snap feet to sidewalk / terrain surface
+                        if (terrainRaycaster.RaycastGround(p.Position.X, p.Position.Z, p.Position.Y + 3.0f, 6.0f, out float hitY))
+                        {
+                            pedY = hitY;
+                        }
+                    }
+
+                    Matrix4x4 pedMat = Matrix4x4.CreateRotationY(-headingRad) * Matrix4x4.CreateTranslation(p.Position.X, pedY, p.Position.Z);
                     if (useLocalCoords && globalOrigin.HasValue)
                     {
                         pedMat.M41 -= globalOrigin.Value.X;

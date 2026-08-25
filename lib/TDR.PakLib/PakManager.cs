@@ -115,7 +115,7 @@ namespace TDR.PakLib
         /// Returns the ArchivePath (pak file path, or for loose files — the file's own path)
         /// for the given virtual path, preferring the active track context when ambiguous.
         /// </summary>
-        public string? GetArchivePath(string virtualPath, string? trackContext = null)
+        public string? GetArchivePath(string virtualPath, string? contextHint = null)
         {
             if (string.IsNullOrWhiteSpace(virtualPath)) return null;
             string clean = TDRArchive.SanitizePath(virtualPath);
@@ -123,21 +123,12 @@ namespace TDR.PakLib
 
             if (_fileNameIndex.TryGetValue(fn, out var list) && list.Count > 0)
             {
-                if (!string.IsNullOrWhiteSpace(trackContext))
+                if (!string.IsNullOrWhiteSpace(contextHint))
                 {
-                    string tCtx = trackContext.Replace('\\', '/').ToLowerInvariant().Replace("_", "");
-                    string baseCtx = tCtx;
-                    int rIdx = tCtx.IndexOf("race", StringComparison.OrdinalIgnoreCase);
-                    if (rIdx > 0) baseCtx = tCtx[..rIdx];
-                    int mIdx = tCtx.IndexOf("mission", StringComparison.OrdinalIgnoreCase);
-                    if (mIdx > 0) baseCtx = tCtx[..mIdx];
-
-                    var match = list.FirstOrDefault(f => {
-                        string normPath = f.Name.Replace('\\', '/').ToLowerInvariant().Replace("_", "");
-                        string normArchive = f.ArchivePath.Replace('\\', '/').ToLowerInvariant().Replace("_", "");
-                        return normPath.Contains(tCtx) || normArchive.Contains(tCtx) ||
-                               normPath.Contains(baseCtx) || normArchive.Contains(baseCtx);
-                    });
+                    string normCtx = contextHint.Replace('\\', '/').Trim('/');
+                    var match = list.FirstOrDefault(f =>
+                        f.Name.Contains(normCtx, StringComparison.OrdinalIgnoreCase) ||
+                        f.ArchivePath.Contains(normCtx, StringComparison.OrdinalIgnoreCase));
                     if (match != null) return match.ArchivePath;
                 }
 
@@ -171,7 +162,7 @@ namespace TDR.PakLib
             return ReadIndexedData(indexed);
         }
 
-        public byte[]? LoadFileContext(string virtualPath, string? trackContext)
+        public byte[]? LoadFileContext(string virtualPath, string? contextHint = null)
         {
             if (string.IsNullOrWhiteSpace(virtualPath)) return null;
 
@@ -184,26 +175,17 @@ namespace TDR.PakLib
                 return null;
             }
 
-            // 1. Track context-aware match (prioritize candidate list matching the active track)
-            if (!string.IsNullOrWhiteSpace(trackContext))
+            // 1. Context-aware match (prioritize candidate list matching the caller's context hint)
+            if (!string.IsNullOrWhiteSpace(contextHint))
             {
-                string tCtx = trackContext.Replace('\\', '/').ToLowerInvariant().Replace("_", "");
-                string baseCtx = tCtx;
-                int rIdx = tCtx.IndexOf("race", StringComparison.OrdinalIgnoreCase);
-                if (rIdx > 0) baseCtx = tCtx[..rIdx];
-                int mIdx = tCtx.IndexOf("mission", StringComparison.OrdinalIgnoreCase);
-                if (mIdx > 0) baseCtx = tCtx[..mIdx];
+                string normCtx = contextHint.Replace('\\', '/').Trim('/');
+                var contextMatch = candidates.FirstOrDefault(f =>
+                    f.Name.Contains(normCtx, StringComparison.OrdinalIgnoreCase) ||
+                    f.ArchivePath.Contains(normCtx, StringComparison.OrdinalIgnoreCase));
 
-                var trackMatch = candidates.FirstOrDefault(f => {
-                    string normPath = f.Name.Replace('\\', '/').ToLowerInvariant().Replace("_", "");
-                    string normArchive = f.ArchivePath.Replace('\\', '/').ToLowerInvariant().Replace("_", "");
-                    return normPath.Contains(tCtx) || normArchive.Contains(tCtx) ||
-                           normPath.Contains(baseCtx) || normArchive.Contains(baseCtx);
-                });
-
-                if (trackMatch != null)
+                if (contextMatch != null)
                 {
-                    return ReadIndexedData(trackMatch);
+                    return ReadIndexedData(contextMatch);
                 }
             }
 
@@ -213,19 +195,7 @@ namespace TDR.PakLib
                 return ReadIndexedData(indexed);
             }
 
-            // 3. Shared assets match (prefer loose files or global ASSETS/3D/TEXTURES over unrelated track archives)
-            var sharedMatch = candidates.FirstOrDefault(f => {
-                string normPath = f.Name.Replace('\\', '/').ToLowerInvariant();
-                string normArchive = f.ArchivePath.Replace('\\', '/').ToLowerInvariant();
-                return (!normPath.Contains("tracks/") && !normArchive.Contains("tracks/")) || f.IsLooseFile;
-            });
-
-            if (sharedMatch != null)
-            {
-                return ReadIndexedData(sharedMatch);
-            }
-
-            // 4. Fallback to first available candidate (prefer loose, else first PAK)
+            // 3. Fallback to first available candidate (prefer loose, else first PAK)
             var fallback = candidates.FirstOrDefault(f => f.IsLooseFile) ?? candidates[0];
             return ReadIndexedData(fallback);
         }

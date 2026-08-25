@@ -27,6 +27,8 @@ namespace TDR.Tools.Export
         private readonly Dictionary<string, MSHSContainer> _meshCache = new(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, TDRHierarchy> _hieCache = new(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, List<SkeBone>?> _skeletonCache = new(StringComparer.OrdinalIgnoreCase);
+        // Caches ski-basename → resolved .ske filename so the VFS descriptor scan runs at most once per creature type
+        private readonly Dictionary<string, string> _skeNameCache = new(StringComparer.OrdinalIgnoreCase);
 
         private List<SkeBone>? GetOrLoadActiveBones(string skeName)
         {
@@ -47,10 +49,19 @@ namespace TDR.Tools.Export
         {
             string cacheKey = string.IsNullOrEmpty(archivePath) ? hieName : $"{archivePath}#{hieName}";
             if (_hieCache.TryGetValue(cacheKey, out var cached)) return cached;
-            byte[]? hieData = loader(hieName) ??
-                              (!string.IsNullOrEmpty(archivePath) ? _vfs.LoadFileContext(hieName, archivePath) : null) ??
-                              _vfs.LoadFileContext(hieName, _trackContext) ??
-                              _vfs.LoadFile(hieName);
+            // Cascade: caller-supplied loader → exact archive context → track context → global VFS.
+            // Global fallback (last resort) is logged in verbose because it can silently pull a same-named HIE from a different track.
+            byte[]? hieData = loader(hieName);
+            if (hieData == null && !string.IsNullOrEmpty(archivePath))
+                hieData = _vfs.LoadFileContext(hieName, archivePath);
+            if (hieData == null && !string.IsNullOrEmpty(_trackContext))
+                hieData = _vfs.LoadFileContext(hieName, _trackContext);
+            if (hieData == null)
+            {
+                hieData = _vfs.LoadFile(hieName);
+                if (hieData != null)
+                    Log($"    [HIE] '{hieName}' resolved via global VFS fallback (no context match for '{archivePath ?? _trackContext ?? "none"}')", Services.LogLevel.Debug);
+            }
             if (hieData == null || hieData.Length == 0) return null;
             try
             {
@@ -193,7 +204,7 @@ namespace TDR.Tools.Export
                     var txDesc = TxDescriptor.Load(txBytes, texName);
 
                     string normTex = texName.ToLowerInvariant();
-                    string normFile = (texFileName ?? "").ToLowerInvariant();
+                    string normFile = texFileName.ToLowerInvariant();
 
                     TxTransparencyMode transMode;
                     if (txDesc != null)
@@ -292,11 +303,85 @@ namespace TDR.Tools.Export
 
             var processedHieNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            // 1a. Bake Instanced HIEs (Breakables, Trees, Consoft, Dingables with explicit sub-descriptor placements)
+            // 1a. Bake Static Top-Level Level HIE Hierarchies (terrain, sky, water, etc.) first as scene foundation
+            int totalHies = assets.HieFiles.Count;
+            for (int i = 0; i < totalHies; i++)
+            {
+                string hieName = assets.HieFiles[i].Trim('"');
+                string cleanHieName = Path.GetFileName(hieName);
+                string cleanNoExt = Path.GetFileNameWithoutExtension(hieName);
+                if (!IsHieSelected(hieName)) continue;
+                if (processedHieNames.Contains(hieName) || 
+                    processedHieNames.Contains(cleanHieName) ||
+                    processedHieNames.Contains(cleanNoExt))
+                {
+                    continue;
+                }
+
+                int pct = (int)((float)(i + 1) / (totalHies + 1) * 80.0f);
+                progressCallback?.Invoke(pct, $"Processing glTF mesh ({i + 1}/{totalHies}): {hieName}");
+
+                string? archivePath = _vfs.GetArchivePath(hieName, _trackContext);
+                string meshKey = string.IsNullOrEmpty(archivePath) ? hieName : $"{archivePath}#{hieName}";
+
+                if (!meshMap.TryGetValue(meshKey, out int gltfMeshIdx))
+                {
+                    byte[]? hieBytes = (!string.IsNullOrEmpty(archivePath) ? _vfs.LoadFileContext(hieName, archivePath) : null) ??
+                                       LevelDescriptorParser.LoadDescriptorBytes(_vfs, _trackContext ?? levelName, hieName);
+                    if (hieBytes != null && hieBytes.Length > 0)
+                    {
+                        var hie = GetOrLoadHierarchy(hieName, archivePath, _ => hieBytes);
+                        if (hie != null)
+                        {
+                            gltfMeshIdx = BuildGltfMeshFromHie(hie, gltf, archivePath, bw, GetOrAddMaterial);
+                            if (gltfMeshIdx >= 0) meshMap[meshKey] = gltfMeshIdx;
+                        }
+                    }
+                }
+
+                if (gltfMeshIdx >= 0)
+                {
+                    Matrix4x4 startMatrix = Matrix4x4.Identity;
+                    if (assets.HieInitialTransforms.TryGetValue(hieName, out var initMat) ||
+                        assets.HieInitialTransforms.TryGetValue(cleanHieName, out initMat) ||
+                        assets.HieInitialTransforms.TryGetValue(cleanNoExt, out initMat))
+                    {
+                        startMatrix = initMat;
+                    }
+
+                    if (_useLocalCoords && globalOrigin.HasValue)
+                    {
+                        startMatrix.M41 -= globalOrigin.Value.X;
+                        startMatrix.M42 -= globalOrigin.Value.Y;
+                        startMatrix.M43 -= globalOrigin.Value.Z;
+                    }
+
+                    string layerName = cleanNoExt;
+                    if (cleanNoExt.Contains("water", StringComparison.OrdinalIgnoreCase))
+                        layerName = $"Environment_Water_{cleanNoExt}";
+                    else if (cleanNoExt.Contains("sky", StringComparison.OrdinalIgnoreCase))
+                        layerName = $"Environment_Sky_{cleanNoExt}";
+
+                    var layerNode = new GltfNode
+                    {
+                        Name = layerName,
+                        Mesh = gltfMeshIdx,
+                        Matrix = ToGltfMatrix(startMatrix)
+                    };
+                    int nodeIdx = gltf.Nodes.Count;
+                    gltf.Nodes.Add(layerNode);
+                    rootNode.AddChild(nodeIdx);
+
+                    processedHieNames.Add(hieName);
+                    processedHieNames.Add(cleanHieName);
+                }
+            }
+
+            // 1b. Bake Placed Specific Instances (Props, Gates, Walls, Trains, Bridges)
             if (assets.HieInstances.Count > 0)
             {
-                var instCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
                 var spawnedHieLocations = new List<(string Model, Vector3 Pos)>();
+                var instCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
                 foreach (var inst in assets.HieInstances)
                 {
@@ -374,79 +459,6 @@ namespace TDR.Tools.Export
                 }
             }
 
-            // 1b. Bake Static Top-Level Level HIE Hierarchies (terrain, sky, water, etc.)
-            int totalHies = assets.HieFiles.Count;
-            for (int i = 0; i < totalHies; i++)
-            {
-                string hieName = assets.HieFiles[i].Trim('"');
-                string cleanHieName = Path.GetFileName(hieName);
-                string cleanNoExt = Path.GetFileNameWithoutExtension(hieName);
-                if (!IsHieSelected(hieName)) continue;
-                if (processedHieNames.Contains(hieName) || 
-                    processedHieNames.Contains(cleanHieName) ||
-                    processedHieNames.Contains(cleanNoExt))
-                {
-                    continue;
-                }
-
-                int pct = (int)((float)(i + 1) / (totalHies + 1) * 80.0f);
-                progressCallback?.Invoke(pct, $"Processing glTF mesh ({i + 1}/{totalHies}): {hieName}");
-
-                string? archivePath = _vfs.GetArchivePath(hieName, _trackContext);
-                string meshKey = string.IsNullOrEmpty(archivePath) ? hieName : $"{archivePath}#{hieName}";
-
-                if (!meshMap.TryGetValue(meshKey, out int gltfMeshIdx))
-                {
-                    byte[]? hieBytes = (!string.IsNullOrEmpty(archivePath) ? _vfs.LoadFileContext(hieName, archivePath) : null) ??
-                                       LevelDescriptorParser.LoadDescriptorBytes(_vfs, _trackContext ?? levelName, hieName);
-                    if (hieBytes != null && hieBytes.Length > 0)
-                    {
-                        var hie = GetOrLoadHierarchy(hieName, archivePath, _ => hieBytes);
-                        if (hie != null)
-                        {
-                            gltfMeshIdx = BuildGltfMeshFromHie(hie, gltf, archivePath, bw, GetOrAddMaterial);
-                            if (gltfMeshIdx >= 0) meshMap[meshKey] = gltfMeshIdx;
-                        }
-                    }
-                }
-
-                if (gltfMeshIdx >= 0)
-                {
-                    Matrix4x4 startMatrix = Matrix4x4.Identity;
-                    if (assets.HieInitialTransforms.TryGetValue(hieName, out var initMat) ||
-                        assets.HieInitialTransforms.TryGetValue(cleanHieName, out initMat) ||
-                        assets.HieInitialTransforms.TryGetValue(cleanNoExt, out initMat))
-                    {
-                        startMatrix = initMat;
-                    }
-
-                    if (_useLocalCoords && globalOrigin.HasValue)
-                    {
-                        startMatrix.M41 -= globalOrigin.Value.X;
-                        startMatrix.M42 -= globalOrigin.Value.Y;
-                        startMatrix.M43 -= globalOrigin.Value.Z;
-                    }
-
-                    string layerName = cleanNoExt;
-                    if (cleanNoExt.Contains("water", StringComparison.OrdinalIgnoreCase))
-                        layerName = $"Environment_Water_{cleanNoExt}";
-                    else if (cleanNoExt.Contains("sky", StringComparison.OrdinalIgnoreCase))
-                        layerName = $"Environment_Sky_{cleanNoExt}";
-
-                    var layerNode = new GltfNode
-                    {
-                        Name = layerName,
-                        Mesh = gltfMeshIdx,
-                        Matrix = ToGltfMatrix(startMatrix)
-                    };
-                    int nodeIdx = gltf.Nodes.Count;
-                    gltf.Nodes.Add(layerNode);
-                    rootNode.AddChild(nodeIdx);
-
-                    processedHieNames.Add(hieName);
-                    processedHieNames.Add(cleanHieName);
-                }
-            }
             // 2. Reconstruct Dynamic Scene Entities (Movables, Powerups, Drones, Pedestrians)
             string cleanBaseTrack = TrackDiscovery.GetBaseTrackName(levelName);
             var dynamicEntities = SceneReconstruction.ReconstructDynamicEntities(
@@ -583,9 +595,9 @@ namespace TDR.Tools.Export
             return true;
         }
 
-        private int GetOrBuildSkiMesh(string skiName, string texName, GltfManifest gltf, Dictionary<string, int> meshMap, BinaryWriter bw, Func<string, string?, int> getMaterial)
+        private int GetOrBuildSkiMesh(string skiName, string texName, int numBones, GltfManifest gltf, Dictionary<string, int> meshMap, BinaryWriter bw, Func<string, string?, int> getMaterial)
         {
-            string cacheKey = $"SKI#{skiName}#{texName}";
+            string cacheKey = $"SKI#{skiName}#{texName}#{numBones}";
             if (meshMap.TryGetValue(cacheKey, out int cachedIdx)) return cachedIdx;
 
             byte[]? skiBytes =
@@ -608,7 +620,7 @@ namespace TDR.Tools.Export
                 return -1;
             }
 
-            var ski = SkiModel.Load(skiBytes, targetLod: 0);
+            var ski = SkiModel.Load(skiBytes, targetLod: 0, numBones: numBones);
             if (ski == null || ski.Parts.Count == 0)
             {
                 Log($"    [!] Warning: SkiModel.Load failed for '{skiName}'.");
@@ -846,10 +858,15 @@ namespace TDR.Tools.Export
             Func<string, string?, int> getMaterial,
             GltfNode rootNode)
         {
+            string baseSki = Path.GetFileName(entity.ModelHieName).ToLowerInvariant();
+            string skeName = ResolveSkeletonName(baseSki);
+            var activeBones = GetOrLoadActiveBones(skeName);
+            int numBones = activeBones?.Count ?? 25;
+
             int pedMeshIdx = -1;
             if (entity.ModelHieName.EndsWith(".ski", StringComparison.OrdinalIgnoreCase))
             {
-                pedMeshIdx = GetOrBuildSkiMesh(entity.ModelHieName, entity.Tag ?? "Default", gltf, meshMap, bw, getMaterial);
+                pedMeshIdx = GetOrBuildSkiMesh(entity.ModelHieName, entity.Tag ?? "Default", numBones, gltf, meshMap, bw, getMaterial);
             }
             if (pedMeshIdx < 0)
             {
@@ -871,10 +888,6 @@ namespace TDR.Tools.Export
                 rootNode.AddChild(nodeIdx);
                 return;
             }
-
-            string baseSki = Path.GetFileName(entity.ModelHieName).ToLowerInvariant();
-            string skeName = ResolveSkeletonName(baseSki);
-            var activeBones = GetOrLoadActiveBones(skeName);
 
             if (activeBones != null && activeBones.Count > 0)
             {
@@ -1002,24 +1015,45 @@ namespace TDR.Tools.Export
             return accIbm;
         }
 
-        private static string ResolveSkeletonName(string baseSki)
+        private string ResolveSkeletonName(string baseSki)
         {
-            return baseSki switch
+            string stem = Path.GetFileNameWithoutExtension(baseSki);
+            if (_skeNameCache.TryGetValue(stem, out var cached)) return cached;
+
+            // 1. Direct same-name SKE check in VFS (e.g. GiantRat.ski -> GiantRat.ske, dog.ski -> dog.ske, etc.)
+            string directSke = $"{stem}.ske";
+            if (_vfs.FileExists(directSke))
             {
-                var s when s.Contains("woman") && s.Contains("flag") => "Flag_woman.ske",
-                var s when s.Contains("woman") => "woman.ske",
-                var s when s.Contains("horse") => "horse.ske",
-                var s when s.Contains("bull") => "bull.ske",
-                var s when s.Contains("sheep") => "sheep.ske",
-                var s when s.Contains("dog") => "dog.ske",
-                var s when s.Contains("cat") => "cat.ske",
-                var s when s.Contains("kanga") => "kanga.ske",
-                var s when s.Contains("rat") => "GiantRat.ske",
-                var s when s.Contains("alien1") => "alien1.ske",
-                var s when s.Contains("alien2") => "alien2.ske",
-                var s when s.Contains("alien3") => "alien3.ske",
-                _ => "man.ske"
-            };
+                _skeNameCache[stem] = directSke;
+                return directSke;
+            }
+
+            // 2. Normalized without underscores (e.g. flag_woman -> FlagWoman.ske)
+            string cleanStem = stem.Replace("_", "");
+            string cleanSke = $"{cleanStem}.ske";
+            if (_vfs.FileExists(cleanSke))
+            {
+                _skeNameCache[stem] = cleanSke;
+                return cleanSke;
+            }
+
+            // 3. Archetype hierarchy: women variants -> woman.ske / flag_woman.ske, otherwise man.ske
+            string resolved;
+            if (stem.Contains("flag", StringComparison.OrdinalIgnoreCase) && stem.Contains("woman", StringComparison.OrdinalIgnoreCase))
+            {
+                resolved = _vfs.FileExists("flag_woman.ske") ? "flag_woman.ske" : (_vfs.FileExists("FlagWoman.ske") ? "FlagWoman.ske" : "woman.ske");
+            }
+            else if (stem.Contains("woman", StringComparison.OrdinalIgnoreCase))
+            {
+                resolved = "woman.ske";
+            }
+            else
+            {
+                resolved = "man.ske";
+            }
+
+            _skeNameCache[stem] = resolved;
+            return resolved;
         }
 
         private int GetOrBuildPedestrianProxyMesh(GltfManifest gltf, Dictionary<string, int> meshMap, BinaryWriter bw, Func<string, string?, int> getMaterial)

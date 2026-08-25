@@ -92,6 +92,29 @@ namespace TDR.Tools.Export
             return false;
         }
 
+        public static bool IsVariantCompatible(string mainTrack, string candidatePath)
+        {
+            if (string.IsNullOrEmpty(mainTrack) || string.IsNullOrEmpty(candidatePath)) return true;
+
+            string cleanMain = mainTrack.ToLowerInvariant().Replace("_", "");
+            string cleanCand = candidatePath.ToLowerInvariant().Replace("_", "");
+
+            string? mainVar = ExtractVariant(cleanMain);
+            string? candVar = ExtractVariant(cleanCand);
+
+            if (mainVar != null && candVar != null && !mainVar.Equals(candVar, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+            return true;
+        }
+
+        private static string? ExtractVariant(string clean)
+        {
+            var match = Regex.Match(clean, @"(race\d+|mission\d+)", RegexOptions.IgnoreCase);
+            return match.Success ? match.Groups[1].Value : null;
+        }
+
         public static bool IsOtherTrackFile(string? archivePath, string? filePath, string mainTrack)
         {
             if (string.IsNullOrEmpty(mainTrack)) return false;
@@ -107,7 +130,15 @@ namespace TDR.Tools.Export
             bool isCurrentTrack = TrackDiscoveryService.IsTrackOrAliasMatch(normArchive, mainTrack) ||
                                   TrackDiscoveryService.IsTrackOrAliasMatch(normFile, mainTrack);
 
-            return !isCurrentTrack;
+            if (!isCurrentTrack) return true;
+
+            // Cross-variant isolation: ensure candidate from same base track does not belong to a different variant
+            if (!IsVariantCompatible(mainTrack, normArchive) || !IsVariantCompatible(mainTrack, normFile))
+            {
+                return true;
+            }
+
+            return false;
         }
 
         public record MatchResult(PakManager.IndexedFile File, string TierName);
@@ -146,9 +177,11 @@ namespace TDR.Tools.Export
             string baseTrack = TrackDiscovery.GetBaseTrackName(mainTrack).ToLowerInvariant();
             PakManager.IndexedFile? matchTier2 = !string.IsNullOrEmpty(mainTrack)
                 ? vfsFiles.Where(f => NameMatch(f.Name, materialName, allowStrippedFallback: false) &&
-                      (TrackDiscoveryService.IsTrackOrAliasMatch(f.ArchivePath, mainTrack) ||
+                      IsVariantCompatible(mainTrack, f.ArchivePath ?? "") &&
+                      IsVariantCompatible(mainTrack, f.Name) &&
+                      (TrackDiscoveryService.IsTrackOrAliasMatch(f.ArchivePath ?? "", mainTrack) ||
                        TrackDiscoveryService.IsTrackOrAliasMatch(f.Name, mainTrack) ||
-                       (!string.IsNullOrEmpty(baseTrack) && (TrackDiscoveryService.IsTrackOrAliasMatch(f.ArchivePath, baseTrack) ||
+                       (!string.IsNullOrEmpty(baseTrack) && (TrackDiscoveryService.IsTrackOrAliasMatch(f.ArchivePath ?? "", baseTrack) ||
                                                              TrackDiscoveryService.IsTrackOrAliasMatch(f.Name, baseTrack)))))
                       .OrderByDescending(f => GetTextureResolutionArea(f.Name))
                       .ThenByDescending(f => f.Name.Contains("_32"))
@@ -158,7 +191,9 @@ namespace TDR.Tools.Export
             if (matchTier2 != null) return new MatchResult(matchTier2, "Tier 2 (Same Track Level)");
 
             // 3. Shared Assets (Non-track assets, e.g. MovableObjects.pak, Powerups.pak)
-            PakManager.IndexedFile? matchTier3 = vfsFiles.Where(f => NameMatch(f.Name, materialName, allowStrippedFallback: false) && !(f.ArchivePath ?? "").Replace('\\', '/').ToLowerInvariant().Contains("tracks/"))
+            PakManager.IndexedFile? matchTier3 = vfsFiles.Where(f => NameMatch(f.Name, materialName, allowStrippedFallback: false) &&
+                !(f.ArchivePath ?? "").Replace('\\', '/').ToLowerInvariant().Contains("tracks/") &&
+                !IsOtherTrackFile(f.ArchivePath, f.Name, mainTrack))
                   .OrderByDescending(f => GetTextureResolutionArea(f.Name))
                   .ThenByDescending(f => f.Name.Contains("_32"))
                   .ThenByDescending(f => f.Name.Contains("_24"))

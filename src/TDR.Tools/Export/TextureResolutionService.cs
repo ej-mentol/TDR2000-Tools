@@ -81,10 +81,12 @@ namespace TDR.Tools.Export
             string t = textureName.Trim('"');
             string outFolder = targetFolder ?? _exportDir;
 
-            // Tier 0: Best match via unified TextureResolver
+            // Tier 0: Best match via unified TextureResolver (1A=exact pak, 1B=same pak dir, 2=same track, 3=shared, 4=global safe, 5=stripped)
+            // Tier name is logged in verbose so cross-track leaks (e.g. Tier 4 pulling Checkpoint.tga from wrong track) become visible.
             var matchResult = TextureResolver.ResolveBestMatch(_vfs, t, archivePath, _trackContext);
             if (matchResult?.File != null)
             {
+                Log($"    [TEX] '{t}' \u2192 {matchResult.TierName}: {matchResult.File.Name} (pak: {matchResult.File.ArchivePath ?? "global"})", LogLevel.Debug);
                 byte[]? matchData = _vfs.LoadFile(matchResult.File);
                 if (matchData != null && matchData.Length > 0)
                 {

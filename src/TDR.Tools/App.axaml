@@ -21,9 +21,11 @@
             <SolidColorBrush x:Key="BadgeTrackBrush">#9EB6C8</SolidColorBrush>
             <SolidColorBrush x:Key="BadgeMissionBrush">#D4A373</SolidColorBrush>
             <SolidColorBrush x:Key="BadgeRaceBrush">#A8C3A8</SolidColorBrush>
+            <SolidColorBrush x:Key="BadgeMpBrush">#B8A2CE</SolidColorBrush>
             <SolidColorBrush x:Key="BadgeTrackSubtleBrush">#209EB6C8</SolidColorBrush>
             <SolidColorBrush x:Key="BadgeMissionSubtleBrush">#20D4A373</SolidColorBrush>
             <SolidColorBrush x:Key="BadgeRaceSubtleBrush">#20A8C3A8</SolidColorBrush>
+            <SolidColorBrush x:Key="BadgeMpSubtleBrush">#20B8A2CE</SolidColorBrush>
 
             <!-- Vector StreamGeometries (Tabler-style Icons) -->
             <StreamGeometry x:Key="IconFolder">M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-6l-2-2H5a2 2 0 0 0-2 2z</StreamGeometry>
