@@ -49,6 +49,24 @@ namespace TDR.Tools.Export
             "SPECIAL_VOLUMES", "SPECIAL_VOLUMES_0", "LIGHTS_DESCRIPTOR", "PATH_FOLLOWERS"
         };
 
+        public static void AddHieInstance(DescriptorAssets assets, string hieName, Matrix4x4 transform)
+        {
+            string modelBase = Path.GetFileNameWithoutExtension(hieName);
+            var pos = new Vector3(transform.M41, transform.M42, transform.M43);
+            if (assets.HieInstances.Any(inst =>
+                Path.GetFileNameWithoutExtension(inst.HieName).Equals(modelBase, StringComparison.OrdinalIgnoreCase) &&
+                Vector3.DistanceSquared(new Vector3(inst.Transform.M41, inst.Transform.M42, inst.Transform.M43), pos) < 0.01f))
+            {
+                return;
+            }
+
+            assets.HieInstances.Add(new HieInstanceInfo
+            {
+                HieName = hieName,
+                Transform = transform
+            });
+        }
+
         public static List<string> ExtractLineNamesFromHie(byte[] hieBytes)
         {
             var list = new List<string>();
@@ -192,11 +210,7 @@ namespace TDR.Tools.Export
                             Matrix4x4 localSplineMat = SplineResolver.SampleSplineAtDistance(followerSpline, targetDist, 0.0f);
                             Matrix4x4 spawnMat = splineNodeTransform * localSplineMat * parentMatrix;
 
-                            assets.HieInstances.Add(new HieInstanceInfo
-                            {
-                                HieName = follower.ModelHie,
-                                Transform = spawnMat
-                            });
+                            AddHieInstance(assets, follower.ModelHie, spawnMat);
                             assets.HieInitialTransforms[follower.ModelHie] = spawnMat;
                         }
                     }
@@ -291,11 +305,7 @@ namespace TDR.Tools.Export
                         }
 
                         Matrix4x4 spawnMat = splineNodeTransform * localSplineMat * parentMatrix;
-                        assets.HieInstances.Add(new HieInstanceInfo
-                        {
-                            HieName = modelHie,
-                            Transform = spawnMat
-                        });
+                        AddHieInstance(assets, modelHie, spawnMat);
                         assets.HieInitialTransforms[modelHie] = spawnMat;
                     }
                     return;
@@ -330,11 +340,7 @@ namespace TDR.Tools.Export
                     Matrix4x4 localTransform = rotMat * Matrix4x4.CreateTranslation(px, py, pz);
                     Matrix4x4 worldTransform = localTransform * parentMatrix;
 
-                    assets.HieInstances.Add(new HieInstanceInfo
-                    {
-                        HieName = hieCandidate,
-                        Transform = worldTransform
-                    });
+                    AddHieInstance(assets, hieCandidate, worldTransform);
                     continue;
                 }
 

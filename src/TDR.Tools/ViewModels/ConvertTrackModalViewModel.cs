@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using TDR.PakLib;
 using TDR.PakLib.Formats;
 using TDR.Tools.Export;
 using TDR.Tools.Services;
@@ -298,6 +299,13 @@ namespace TDR.Tools.ViewModels
             UseGrouping = settings.UseGrouping;
             UseLocalCoords = settings.UseLocalCoords;
             VerboseLog = settings.VerboseLog;
+        }
+
+        public void InitializeTree(PakManager vfs, string? sourceRootPath, string initialPreset)
+        {
+            Services.TrackTreeBuilder.PopulateModalTree(vfs, this, sourceRootPath);
+            SelectedVariant = initialPreset;
+            ApplyPresetToTree(initialPreset);
         }
 
         public void NotifyUserTreeToggled()

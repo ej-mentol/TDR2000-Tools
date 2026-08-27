@@ -25,6 +25,7 @@ namespace TDR.Tools.Export
             {
                 bool hasZero = false;
                 bool hasTranslucent = false;
+                bool hasOpaque = false;
 
                 for (int i = pixelOffset + 3; i < tgaBytes.Length; i += 4)
                 {
@@ -38,7 +39,14 @@ namespace TDR.Tools.Export
                         hasTranslucent = true;
                         break;
                     }
+                    else
+                    {
+                        hasOpaque = true;
+                    }
                 }
+
+                // If ALL alpha bytes are 0 (uninitialized dummy alpha channel in legacy 32-bit TGA), treat as OPAQUE!
+                if (hasZero && !hasOpaque && !hasTranslucent) return TDR.PakLib.Formats.TxTransparencyMode.Opaque;
 
                 if (hasTranslucent) return TDR.PakLib.Formats.TxTransparencyMode.Blend;
                 if (hasZero) return TDR.PakLib.Formats.TxTransparencyMode.Mask;

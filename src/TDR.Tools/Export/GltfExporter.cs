@@ -165,19 +165,34 @@ namespace TDR.Tools.Export
                     return matIdx;
 
                 string? texFileName = ResolveTextureFile(texName, archivePath);
+                var matDef = MaterialResolver.Resolve(texName, texFileName, archivePath, _vfs, _trackContext);
 
                 matIdx = gltf.Materials.Count;
                 var mat = new GltfMaterial
                 {
                     Name = texName,
-                    DoubleSided = true,
+                    DoubleSided = matDef.IsDoubleSided,
                     PbrMetallicRoughness = new GltfPbr
                     {
-                        BaseColorFactor = new[] { 1.0f, 1.0f, 1.0f, 1.0f },
-                        MetallicFactor = 0.0f,
-                        RoughnessFactor = 1.0f
+                        BaseColorFactor = new[] { matDef.IsShadow ? 0.0f : 1.0f, matDef.IsShadow ? 0.0f : 1.0f, matDef.IsShadow ? 0.0f : 1.0f, matDef.Opacity },
+                        MetallicFactor = matDef.Metallic,
+                        RoughnessFactor = matDef.Roughness
                     }
                 };
+
+                if (matDef.AlphaMode == MaterialAlphaMode.Blend)
+                {
+                    mat.AlphaMode = "BLEND";
+                }
+                else if (matDef.AlphaMode == MaterialAlphaMode.Mask)
+                {
+                    mat.AlphaMode = "MASK";
+                    mat.AlphaCutoff = matDef.AlphaCutoff;
+                }
+                else
+                {
+                    mat.AlphaMode = "OPAQUE";
+                }
 
                 if (texFileName != null)
                 {
@@ -197,77 +212,10 @@ namespace TDR.Tools.Export
 
                     mat.PbrMetallicRoughness.BaseColorTexture = new GltfTextureInfo { Index = texIdx };
 
-                    // 1. Primary Authority: Read official native TDR2000 TTEX (.tx) descriptor
-                    byte[]? txBytes = (!string.IsNullOrEmpty(archivePath) ? _vfs.LoadFileContext($"{texName}.tx", archivePath) : null) ??
-                                      (!string.IsNullOrEmpty(_trackContext) ? _vfs.LoadFileContext($"{texName}.tx", _trackContext) : null) ??
-                                      _vfs.LoadFile($"{texName}.tx");
-                    var txDesc = TxDescriptor.Load(txBytes, texName);
-
-                    string normTex = texName.ToLowerInvariant();
-                    string normFile = texFileName.ToLowerInvariant();
-
-                    TxTransparencyMode transMode;
-                    if (txDesc != null)
+                    if (matDef.IsEmissive)
                     {
-                        transMode = txDesc.TransparencyMode;
-                    }
-                    else
-                    {
-                        // 2. Secondary Authority: Inspect actual TGA image bytes directly
-                        byte[]? tgaBytes = (!string.IsNullOrEmpty(archivePath) ? _vfs.LoadFileContext(texFileName, archivePath) : null) ??
-                                           (!string.IsNullOrEmpty(_trackContext) ? _vfs.LoadFileContext(texFileName, _trackContext) : null) ??
-                                           _vfs.LoadFile(texFileName);
-                        transMode = TgaDecoder.DetectTgaTransparency(tgaBytes);
-                    }
-
-                    if (transMode == TxTransparencyMode.Blend)
-                    {
-                        mat.AlphaMode = "BLEND";
-                        mat.DoubleSided = true;
-                        mat.PbrMetallicRoughness.MetallicFactor = 0.0f;
-                        mat.PbrMetallicRoughness.RoughnessFactor = 0.5f;
-                    }
-                    else if (transMode == TxTransparencyMode.Mask)
-                    {
-                        mat.AlphaMode = "MASK";
-                        mat.AlphaCutoff = 0.5f;
-                        mat.DoubleSided = true;
-                    }
-                    else
-                    {
-                        mat.AlphaMode = "OPAQUE";
-                    }
-
-                    if (_verbose && txDesc != null)
-                    {
-                        Log($"      [TX MAT] '{texName}' resolved via TTEX -> Mode: {txDesc.TransparencyMode} (Flags: 0x{txDesc.Flags:X})", Services.LogLevel.Debug);
-                    }
-
-                    // 3. Emissive overlays (Halos, Coronas, Glows, Flares) applied additively
-                    if (normTex.Contains("corona") || normFile.Contains("corona") ||
-                        normTex.Contains("halo") || normFile.Contains("halo") ||
-                        normTex.Contains("glow") || normFile.Contains("glow") ||
-                        normTex.Contains("flare") || normFile.Contains("flare") ||
-                        normTex.Contains("beam") || normFile.Contains("beam"))
-                    {
-                        mat.AlphaMode = "BLEND";
-                        mat.DoubleSided = true;
-                        mat.EmissiveFactor = new[] { 1.0f, 1.0f, 1.0f };
+                        mat.EmissiveFactor = matDef.EmissiveColor;
                         mat.EmissiveTexture = new GltfTextureInfo { Index = texIdx };
-                        mat.PbrMetallicRoughness.BaseColorFactor = new[] { 1.0f, 1.0f, 1.0f, 0.8f };
-                        mat.PbrMetallicRoughness.RoughnessFactor = 1.0f;
-                        mat.PbrMetallicRoughness.MetallicFactor = 0.0f;
-                    }
-
-                    // 6. Sky Sphere / Sky Dome: make unlit with emissive texture
-                    if (normTex.Contains("sky") || normFile.Contains("sky") ||
-                        normTex.Contains("cloud") || normTex.Contains("horizon"))
-                    {
-                        mat.EmissiveFactor = new[] { 1.0f, 1.0f, 1.0f };
-                        mat.EmissiveTexture = new GltfTextureInfo { Index = texIdx };
-                        mat.DoubleSided = true;
-                        mat.PbrMetallicRoughness.RoughnessFactor = 1.0f;
-                        mat.PbrMetallicRoughness.MetallicFactor = 0.0f;
                     }
                 }
 
@@ -380,7 +328,6 @@ namespace TDR.Tools.Export
             // 1b. Bake Placed Specific Instances (Props, Gates, Walls, Trains, Bridges)
             if (assets.HieInstances.Count > 0)
             {
-                var spawnedHieLocations = new List<(string Model, Vector3 Pos)>();
                 var instCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
                 foreach (var inst in assets.HieInstances)
@@ -389,17 +336,6 @@ namespace TDR.Tools.Export
                     if (!IsHieSelected(hieName)) continue;
 
                     string modelBaseName = Path.GetFileNameWithoutExtension(hieName);
-                    var instPos = new Vector3(inst.Transform.M41, inst.Transform.M42, inst.Transform.M43);
-
-                    // Same-thing spatial deduplication: avoid spawning exact same model at exact same location
-                    if (spawnedHieLocations.Any(loc => loc.Model.Equals(modelBaseName, StringComparison.OrdinalIgnoreCase) &&
-                                                       Vector3.DistanceSquared(loc.Pos, instPos) < 0.01f))
-                    {
-                        if (_verbose) Log($"    [Dedup] Skipped duplicate instance of '{hieName}' at {instPos}");
-                        continue;
-                    }
-                    spawnedHieLocations.Add((modelBaseName, instPos));
-
                     string? archivePath = _vfs.GetArchivePath(hieName, _trackContext);
                     string meshKey = string.IsNullOrEmpty(archivePath) ? hieName : $"{archivePath}#{hieName}";
 
@@ -1273,11 +1209,7 @@ namespace TDR.Tools.Export
             var uvs = new List<Vector2>();
             var indices = new List<int>();
 
-            string nTex = texName.ToLowerInvariant();
-            bool isDoubleSided = nTex.Contains("water") || nTex.Contains("tank") || nTex.Contains("river") ||
-                                 nTex.Contains("sea") || nTex.Contains("ocean") || nTex.Contains("glass") ||
-                                 nTex.Contains("fence") || nTex.Contains("sign") || nTex.Contains("foliage") ||
-                                 nTex.Contains("tree") || nTex.Contains("corona") || nTex.Contains("grate");
+            bool isDoubleSided = MaterialResolver.IsDoubleSidedTexture(texName);
 
             var stream = new TriangleStream();
             MeshGeometryReader.AppendTriangles(subMesh, transform, stream, doubleSided: isDoubleSided);

@@ -183,7 +183,7 @@ namespace TDR.Tools.Services
             foreach (var file in vfs.GetFiles())
             {
                 string norm = file.Name.Replace('\\', '/').ToLower();
-                if (norm.StartsWith("tracks/") && norm.EndsWith(".txt"))
+                if (norm.StartsWith("tracks/", StringComparison.OrdinalIgnoreCase) && norm.EndsWith(".txt", StringComparison.OrdinalIgnoreCase))
                 {
                     string[] parts = norm.Split('/');
                     if (parts.Length == 3)

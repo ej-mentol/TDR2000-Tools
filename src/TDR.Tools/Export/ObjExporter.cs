@@ -275,7 +275,7 @@ namespace TDR.Tools.Export
                         for (int i = 0; i < totalInst; i++)
                         {
                             var inst = assets.HieInstances[i];
-                            if (processedHies.Contains(inst.HieName) || !IsHieSelected(inst.HieName)) continue;
+                            if (!IsHieSelected(inst.HieName)) continue;
 
                             int pct = (int)(45.0f + (float)(i + 1) / (totalInst + 1) * 35.0f);
                             progressCallback?.Invoke(pct, $"Baking OBJ mesh instance ({i + 1}/{totalInst}): {inst.HieName}");
@@ -1098,11 +1098,7 @@ namespace TDR.Tools.Export
                         string canonicalMat = RegisterAndGetCanonicalTexture(currentTexture, archivePath, textureSet);
                         w.WriteLine($"usemtl {canonicalMat}");
 
-                        string nTex = currentTexture.ToLowerInvariant();
-                        bool isDoubleSided = nTex.Contains("water") || nTex.Contains("tank") || nTex.Contains("river") ||
-                                             nTex.Contains("sea") || nTex.Contains("ocean") || nTex.Contains("glass") ||
-                                             nTex.Contains("fence") || nTex.Contains("sign") || nTex.Contains("foliage") ||
-                                             nTex.Contains("tree") || nTex.Contains("corona") || nTex.Contains("grate");
+                        bool isDoubleSided = MaterialResolver.IsDoubleSidedTexture(currentTexture);
 
                         int subIndex = hie.Meshes.Count == 1 ? node.Index : -1;
                         if (subIndex >= 0 && subIndex < container.Meshes.Count)
@@ -1178,39 +1174,7 @@ namespace TDR.Tools.Export
                 string bestArchivePath = (bestMatch?.ArchivePath ?? "").ToLowerInvariant();
                 string normArchive = (archivePath ?? "").ToLowerInvariant();
 
-                bool hasAlpha = false;
-
-                // 1. Primary Authority: Read official native TDR2000 TTEX (.tx) descriptor
-                byte[]? txBytes = (!string.IsNullOrEmpty(archivePath) ? _vfs.LoadFileContext($"{t}.tx", archivePath) : null) ??
-                                  (!string.IsNullOrEmpty(_trackContext) ? _vfs.LoadFileContext($"{t}.tx", _trackContext) : null) ??
-                                  _vfs.LoadFile($"{t}.tx");
-                var txDesc = TxDescriptor.Load(txBytes, t);
-
-                TxTransparencyMode transMode;
-                if (txDesc != null)
-                {
-                    transMode = txDesc.TransparencyMode;
-                }
-                else
-                {
-                    // 2. Secondary Authority: Inspect actual TGA image bytes directly
-                    byte[]? tgaBytes = bestMatch != null
-                        ? _vfs.LoadFile(bestMatch.Name)
-                        : (!string.IsNullOrEmpty(archivePath) ? _vfs.LoadFileContext(t, archivePath) : null) ?? _vfs.LoadFile(t);
-                    transMode = TgaDecoder.DetectTgaTransparency(tgaBytes);
-                }
-
-                if (transMode == TxTransparencyMode.Blend)
-                {
-                    mtl.WriteLine("d 0.6\nTr 0.4");
-                    mtl.WriteLine("Ns 150");
-                    hasAlpha = true;
-                }
-                else if (transMode == TxTransparencyMode.Mask)
-                {
-                    mtl.WriteLine("d 1.0");
-                    hasAlpha = true;
-                }
+                var matDef = MaterialResolver.Resolve(t, bestMatch?.Name, archivePath, _vfs, _trackContext);
 
                 if (_verbose)
                 {
@@ -1225,25 +1189,19 @@ namespace TDR.Tools.Export
                 var texService = new TextureResolutionService(_vfs, _exportDir, _trackContext, _convertTexturesToPng, Log);
                 string? savedTexName = texService.ResolveAndSave(t, archivePath, exportFolder);
 
-                if (!string.IsNullOrEmpty(savedTexName))
+                string? savedBumpName = null;
+                if (matDef.HasBumpMap)
                 {
-                    mtl.WriteLine($"map_Kd {savedTexName}");
-                    if (hasAlpha)
+                    byte[]? bumpBytes = _vfs.LoadFileContext("bumpfx_0000_128_128_8.tga", "WATER") ?? _vfs.LoadFile("bumpfx_0000_128_128_8.tga");
+                    if (bumpBytes != null)
                     {
-                        mtl.WriteLine($"map_d {savedTexName}");
-                    }
-
-                    if (t.Contains("water", StringComparison.OrdinalIgnoreCase) || t.Contains("bump", StringComparison.OrdinalIgnoreCase))
-                    {
-                        byte[]? bumpBytes = _vfs.LoadFileContext("bumpfx_0000_128_128_8.tga", "WATER") ?? _vfs.LoadFile("bumpfx_0000_128_128_8.tga");
-                        if (bumpBytes != null)
-                        {
-                            string bumpName = texService.SaveTextureWithFormat(bumpBytes, "water_bump_0000.tga", exportFolder);
-                            mtl.WriteLine($"map_Bump -bm 1.0 {bumpName}");
-                        }
+                        savedBumpName = texService.SaveTextureWithFormat(bumpBytes, "water_bump_0000.tga", exportFolder);
                     }
                 }
-                else
+
+                matDef.WriteToMtl(mtl, savedTexName, savedBumpName);
+
+                if (string.IsNullOrEmpty(savedTexName))
                 {
                     Log($"[MTL WARNING] Texture for material '{t}' not found in VFS context.");
                 }
