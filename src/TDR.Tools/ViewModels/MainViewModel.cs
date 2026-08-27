@@ -728,9 +728,12 @@ namespace TDR.Tools.ViewModels
                 {
                     if (_suppressWatcherEvents) return;
                     RefreshDestinationTree();
-                    LogSession("[Watchdog Guard] External disk change detected in Destination -> Tree auto-refreshed.");
+                    if (Services.AppSettings.Load().DebugMode)
+                    {
+                        LogSession("[Watchdog Guard] External disk change detected in Destination -> Tree auto-refreshed.");
+                    }
                 });
-            }, null, 300, System.Threading.Timeout.Infinite);
+            }, null, 600, System.Threading.Timeout.Infinite);
         }
 
         // --- SOURCE NAVIGATION ---
@@ -2153,11 +2156,19 @@ namespace TDR.Tools.ViewModels
 
             var variants = TrackDiscoveryService.DiscoverVariants(trackName, _vfs, _sourceRootPath);
 
-            string initialVariant = ConvertTrackModalViewModel.PresetAllSupported;
-            if (selectedNodeNoExt.Contains("Race", StringComparison.OrdinalIgnoreCase) ||
-                selectedNodeNoExt.Contains("Mission", StringComparison.OrdinalIgnoreCase))
+            var settings = Services.AppSettings.Load();
+            string initialVariant = settings.TrackDropDefaultPreset.Equals("BaseOnly", StringComparison.OrdinalIgnoreCase)
+                ? "Base Track Only"
+                : ConvertTrackModalViewModel.PresetAllSupported;
+
+            if (settings.AutoSelectDroppedVariant &&
+                (selectedNodeNoExt.Contains("Race", StringComparison.OrdinalIgnoreCase) ||
+                 selectedNodeNoExt.Contains("Mission", StringComparison.OrdinalIgnoreCase) ||
+                 selectedNodeNoExt.Contains("Multi", StringComparison.OrdinalIgnoreCase)))
             {
-                var matched = variants.FirstOrDefault(v => v.Equals(selectedNodeNoExt, StringComparison.OrdinalIgnoreCase));
+                var matched = variants.FirstOrDefault(v => v.Equals(selectedNodeNoExt, StringComparison.OrdinalIgnoreCase) ||
+                                                           v.EndsWith(selectedNodeNoExt, StringComparison.OrdinalIgnoreCase) ||
+                                                           selectedNodeNoExt.EndsWith(v, StringComparison.OrdinalIgnoreCase));
                 if (matched != null) initialVariant = matched;
             }
 
@@ -2170,11 +2181,12 @@ namespace TDR.Tools.ViewModels
                 TrackTxtPath = trackTxtPath,
                 ResolvedDescriptorPath = resolvedNow ?? string.Empty,
                 OutputDirectory = Path.Combine(_destinationRootPath, trackName),
-                AvailableVariants = variants,
-                SelectedVariant = initialVariant
+                AvailableVariants = variants
             };
 
             PopulateHieTreeForModal(modalVm, trackName);
+            modalVm.SelectedVariant = initialVariant;
+            modalVm.ApplyPresetToTree(initialVariant);
 
             modalVm.RequestStartExport = (vm) => ExecuteTrackExport(vm);
 
@@ -2244,7 +2256,7 @@ namespace TDR.Tools.ViewModels
                     {
                         DateTime batchStartTime = DateTime.Now;
                         var activeLayers = vm.HieTreeNodes
-                            .Where(n => n.IsSelected == true)
+                            .Where(n => n.IsSelected != false && (n.IsSelected == true || n.Children.Any(c => c.IsSelected != false)))
                             .ToList();
 
                         int successCount = 0;
@@ -2261,7 +2273,7 @@ namespace TDR.Tools.ViewModels
                                 {
                                     foreach (var node in nodes)
                                     {
-                                        if (!node.IsDirectory && !string.IsNullOrEmpty(node.VirtualPath))
+                                        if (!node.IsDirectory && !string.IsNullOrEmpty(node.VirtualPath) && node.IsSelected == true)
                                         {
                                             string fn = Path.GetFileName(node.VirtualPath).ToLowerInvariant();
                                             if (!fn.Contains("campaths") && !fn.Contains("intpaths") && !fn.Contains("zoomin") && !fn.Contains("look"))
@@ -2379,9 +2391,10 @@ namespace TDR.Tools.ViewModels
             string tPrefix = cleanName.ToLowerInvariant();
             string trackFolderPrefix = $"tracks/{tPrefix}";
 
-            // Gather all HIE files referenced by level descriptors for this track family
+            // Gather all HIE files referenced by level descriptors for this track family (base and all variants)
             var descriptorHies = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var baseDescriptorHies = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var variantDescriptorMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
             string? baseTxt = TrackExportPipeline.ResolveTrackDescriptor(_vfs, cleanName, null);
             if (baseTxt != null)
@@ -2394,11 +2407,43 @@ namespace TDR.Tools.ViewModels
                     {
                         descriptorHies.Add(h);
                         baseDescriptorHies.Add(h);
+                        variantDescriptorMap[h] = cleanName;
                     }
                     foreach (var inst in baseAssets.HieInstances)
                     {
                         descriptorHies.Add(inst.HieName);
                         baseDescriptorHies.Add(inst.HieName);
+                        variantDescriptorMap[inst.HieName] = cleanName;
+                    }
+                }
+            }
+
+            var discoveredVariants = TrackDiscoveryService.DiscoverRawVariants(cleanName, _vfs, _sourceRootPath);
+            foreach (var variant in discoveredVariants)
+            {
+                if (variant.Equals(cleanName, StringComparison.OrdinalIgnoreCase)) continue;
+                string? vTxt = TrackExportPipeline.ResolveTrackDescriptor(_vfs, cleanName, variant);
+                if (vTxt != null)
+                {
+                    string vLayerKey = variant.StartsWith(cleanName + "_", StringComparison.OrdinalIgnoreCase) || variant.StartsWith(cleanName, StringComparison.OrdinalIgnoreCase)
+                        ? variant
+                        : $"{cleanName}_{variant}";
+                    byte[]? vBytes = _vfs.LoadFileContext(vTxt, vLayerKey) ?? _vfs.LoadFile(vTxt);
+                    if (vBytes != null && vBytes.Length > 0)
+                    {
+                        var vAssets = LevelDescriptorParser.ParseLevelDescriptorAssets(_vfs, vLayerKey, vBytes);
+                        foreach (var h in vAssets.HieFiles)
+                        {
+                            descriptorHies.Add(h);
+                            if (!variantDescriptorMap.ContainsKey(h) && !baseDescriptorHies.Contains(h))
+                                variantDescriptorMap[h] = vLayerKey;
+                        }
+                        foreach (var inst in vAssets.HieInstances)
+                        {
+                            descriptorHies.Add(inst.HieName);
+                            if (!variantDescriptorMap.ContainsKey(inst.HieName) && !baseDescriptorHies.Contains(inst.HieName))
+                                variantDescriptorMap[inst.HieName] = vLayerKey;
+                        }
                     }
                 }
             }
@@ -2446,7 +2491,11 @@ namespace TDR.Tools.ViewModels
 
                 // 1. Determine physical layer root (Hollowood, Hollowood_Race1, Hollowood_Mission1, Hollowood_Mission3, etc.)
                 string layerRootKey = cleanName;
-                if (!isBaseReferenced)
+                if (variantDescriptorMap.TryGetValue(fileName, out var mappedLayer) || variantDescriptorMap.TryGetValue(path, out mappedLayer))
+                {
+                    layerRootKey = mappedLayer;
+                }
+                else if (!isBaseReferenced)
                 {
                     var layerMatch = System.Text.RegularExpressions.Regex.Match($"{fLower} {pathLower} {archiveLower}", @"(race\d+|mission\d+|multiplayer)");
                     if (layerMatch.Success)
@@ -2454,6 +2503,33 @@ namespace TDR.Tools.ViewModels
                         string matchedVariant = System.Globalization.CultureInfo.InvariantCulture.TextInfo.ToTitleCase(layerMatch.Value);
                         layerRootKey = $"{cleanName}_{matchedVariant}";
                     }
+                }
+
+                string cleanTrackNorm = cleanName.ToLowerInvariant();
+                string layerRootNorm = layerRootKey.ToLowerInvariant();
+
+                bool isInternalToTrack = pathLower.Contains($"tracks/{cleanTrackNorm}/") ||
+                                         pathLower.Contains($"tracks/{cleanTrackNorm}_") ||
+                                         archiveLower.Contains($"tracks/{cleanTrackNorm}") ||
+                                         archiveLower.Contains($"{cleanTrackNorm}.pak");
+
+                bool isInternalToVariant = pathLower.Contains($"tracks/{layerRootNorm}/") ||
+                                           pathLower.Contains($"tracks/{layerRootNorm}_") ||
+                                           archiveLower.Contains($"tracks/{layerRootNorm}") ||
+                                           archiveLower.Contains($"{layerRootNorm}.pak");
+
+                AssetOrigin fileOrigin;
+                if (!isInternalToTrack && !isInternalToVariant)
+                {
+                    fileOrigin = AssetOrigin.ExternalShared;
+                }
+                else if (isBaseReferenced || layerRootKey.Equals(cleanName, StringComparison.OrdinalIgnoreCase))
+                {
+                    fileOrigin = AssetOrigin.LocalToTrack;
+                }
+                else
+                {
+                    fileOrigin = AssetOrigin.LocalToVariant;
                 }
 
                 if (!layerRootNodes.TryGetValue(layerRootKey, out var layerRootNode))
@@ -2467,6 +2543,7 @@ namespace TDR.Tools.ViewModels
                         IsDirectory = true,
                         IsSelected = true,
                         IsBaseTrackAsset = isBaseReferenced || layerRootKey.Equals(cleanName, StringComparison.OrdinalIgnoreCase),
+                        Origin = layerRootKey.Equals(cleanName, StringComparison.OrdinalIgnoreCase) ? AssetOrigin.LocalToTrack : AssetOrigin.LocalToVariant,
                         ShowTopSeparator = false,
                         NodeType = "TrackLayerRoot",
                         OnSelectionChangedCallback = () => modalVm.NotifyUserTreeToggled()
@@ -2474,42 +2551,11 @@ namespace TDR.Tools.ViewModels
                     layerRootNodes[layerRootKey] = layerRootNode;
                 }
 
-                // 2. Determine physical VFS subfolder inside this layer
-                string rawDir = Path.GetDirectoryName(path)?.Replace('\\', '/') ?? "";
-                if (string.IsNullOrEmpty(rawDir) && !string.IsNullOrEmpty(file.ArchivePath))
+                // 2. Determine semantic subfolder inside this layer
+                string displaySubfolder = DetermineSemanticSubfolder(fileName, path, cleanName, isBaseReferenced);
+                if (fileOrigin == AssetOrigin.ExternalShared && (displaySubfolder == "Base Terrain & Buildings" || displaySubfolder == "Track Geometry"))
                 {
-                    rawDir = Path.GetDirectoryName(file.ArchivePath)?.Replace('\\', '/') ?? "";
-                }
-
-                string displaySubfolder = rawDir;
-
-                if (displaySubfolder.StartsWith("tracks/", StringComparison.OrdinalIgnoreCase))
-                    displaySubfolder = displaySubfolder.Substring("tracks/".Length);
-                else if (displaySubfolder.StartsWith("assets/tracks/", StringComparison.OrdinalIgnoreCase))
-                    displaySubfolder = displaySubfolder.Substring("assets/tracks/".Length);
-
-                // Strip any track name or variant prefixes so NO subfolder ever repeats the track name
-                string[] trackPrefixes = new[] { layerRootKey, cleanName, TrackDiscovery.GetBaseTrackName(cleanName), cleanName.Replace("_", "") };
-                foreach (string tp in trackPrefixes)
-                {
-                    if (string.IsNullOrEmpty(tp)) continue;
-                    if (displaySubfolder.Equals(tp, StringComparison.OrdinalIgnoreCase))
-                    {
-                        displaySubfolder = string.Empty;
-                        break;
-                    }
-                    if (displaySubfolder.StartsWith(tp + "/", StringComparison.OrdinalIgnoreCase))
-                    {
-                        displaySubfolder = displaySubfolder.Substring(tp.Length + 1);
-                        break;
-                    }
-                    if (displaySubfolder.StartsWith(tp + "_", StringComparison.OrdinalIgnoreCase))
-                    {
-                        string after = displaySubfolder.Substring(tp.Length);
-                        int slashIdx = after.IndexOf('/');
-                        displaySubfolder = slashIdx >= 0 ? after.Substring(slashIdx + 1) : string.Empty;
-                        break;
-                    }
+                    displaySubfolder = "External Shared Links";
                 }
 
                 HieNodeViewModel parentFolderNode = layerRootNode;
@@ -2527,6 +2573,7 @@ namespace TDR.Tools.ViewModels
                             IsDirectory = true,
                             IsSelected = true,
                             IsBaseTrackAsset = isBaseReferenced || layerRootKey.Equals(cleanName, StringComparison.OrdinalIgnoreCase),
+                            Origin = fileOrigin,
                             NodeType = "VfsSubfolder",
                             Parent = layerRootNode,
                             OnSelectionChangedCallback = () => modalVm.NotifyUserTreeToggled()
@@ -2536,25 +2583,62 @@ namespace TDR.Tools.ViewModels
                     parentFolderNode = existingSub;
                 }
 
-                bool isBlacklistedDefault = fileName.Contains("skybox", StringComparison.OrdinalIgnoreCase) ||
-                                            fileName.Contains("billboard", StringComparison.OrdinalIgnoreCase) ||
-                                            fileName.Contains("campaths", StringComparison.OrdinalIgnoreCase) ||
-                                            fileName.Contains("intpaths", StringComparison.OrdinalIgnoreCase) ||
-                                            fileName.Contains("zoomin", StringComparison.OrdinalIgnoreCase) ||
-                                            fileName.Contains("look", StringComparison.OrdinalIgnoreCase);
-
                 var fileNode = new HieNodeViewModel
                 {
                     Name = fileName,
                     VirtualPath = file.Name,
                     IsDirectory = false,
-                    IsSelected = !isBlacklistedDefault,
+                    IsSelected = true,
                     IsBaseTrackAsset = isBaseReferenced || layerRootKey.Equals(cleanName, StringComparison.OrdinalIgnoreCase),
+                    Origin = fileOrigin,
                     NodeType = "MeshFile",
                     Parent = parentFolderNode,
                     OnSelectionChangedCallback = () => modalVm.NotifyUserTreeToggled()
                 };
                 parentFolderNode.Children.Add(fileNode);
+            }
+
+            // Embed Base Geometry into every variant layer so each variant is a complete, self-contained scene
+            if (layerRootNodes.TryGetValue(cleanName, out var baseLayerNode))
+            {
+                foreach (var (layerKey, vNode) in layerRootNodes)
+                {
+                    if (vNode == baseLayerNode) continue;
+
+                    int insertIdx = 0;
+                    foreach (var baseSub in baseLayerNode.Children)
+                    {
+                        var clonedSub = new HieNodeViewModel
+                        {
+                            Name = baseSub.Name,
+                            VirtualPath = $"{vNode.VirtualPath}/{baseSub.Name}",
+                            IsDirectory = true,
+                            IsSelected = true,
+                            IsBaseTrackAsset = true,
+                            Origin = AssetOrigin.InheritedFromBase,
+                            NodeType = baseSub.NodeType,
+                            Parent = vNode,
+                            OnSelectionChangedCallback = () => modalVm.NotifyUserTreeToggled()
+                        };
+                        foreach (var baseFile in baseSub.Children)
+                        {
+                            var clonedFile = new HieNodeViewModel
+                            {
+                                Name = baseFile.Name,
+                                VirtualPath = baseFile.VirtualPath,
+                                IsDirectory = false,
+                                IsSelected = true,
+                                IsBaseTrackAsset = true,
+                                Origin = AssetOrigin.InheritedFromBase,
+                                NodeType = "MeshFile",
+                                Parent = clonedSub,
+                                OnSelectionChangedCallback = () => modalVm.NotifyUserTreeToggled()
+                            };
+                            clonedSub.Children.Add(clonedFile);
+                        }
+                        vNode.Children.Insert(insertIdx++, clonedSub);
+                    }
+                }
             }
 
             // Natural hierarchical sorting: Base Track first, then Races (1..N), Missions (1..N), Multiplayer, Others
@@ -2597,6 +2681,50 @@ namespace TDR.Tools.ViewModels
             }
 
             return layerKey.Replace('_', ' ');
+        }
+
+        private static string DetermineSemanticSubfolder(string fileName, string fullPath, string cleanName, bool isBase)
+        {
+            string fLower = fileName.ToLowerInvariant();
+
+            if (fLower.Contains("sky") || fLower.Contains("cloud") || fLower.Contains("sun") || fLower.Contains("weather"))
+                return "Skybox & Atmosphere";
+
+            if (fLower.Contains("water") || fLower.Contains("sea") || fLower.Contains("ocean") || fLower.Contains("river"))
+                return "Water & Liquids";
+
+            if (fLower.Contains("checkpoint") || fLower.Contains("start") || fLower.Contains("grid") ||
+                fLower.Contains("gate") || fLower.Contains("arrow") || fLower.Contains("sign") || fLower.Contains("beacon"))
+                return "Race Layout & Checkpoints";
+
+            if (fLower.Contains("ped") || fLower.Contains("drone") || fLower.Contains("traffic") || fLower.Contains("follower"))
+                return "Characters & Drones";
+
+            if (fLower.Contains("lift") || fLower.Contains("bridge") || fLower.Contains("door") ||
+                fLower.Contains("ding") || fLower.Contains("break") || fLower.Contains("prop") || fLower.Contains("steam"))
+                return "Dynamic Props & Objects";
+
+            // Check if there is a known game folder name like "Level Convsoft" or "Level Props"
+            string normPath = fullPath.Replace('\\', '/');
+            int tIdx = normPath.IndexOf("tracks/", StringComparison.OrdinalIgnoreCase);
+            if (tIdx >= 0)
+            {
+                string sub = normPath.Substring(tIdx + "tracks/".Length);
+                string[] parts = sub.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                for (int p = 0; p < parts.Length - 1; p++)
+                {
+                    string part = parts[p].Replace(".pak", "", StringComparison.OrdinalIgnoreCase).Replace(".dir", "", StringComparison.OrdinalIgnoreCase).Trim();
+                    if (!part.Equals(cleanName, StringComparison.OrdinalIgnoreCase) &&
+                        !part.StartsWith(cleanName + "_", StringComparison.OrdinalIgnoreCase) &&
+                        !part.Contains(':') &&
+                        part.Length > 2)
+                    {
+                        return part;
+                    }
+                }
+            }
+
+            return isBase ? "Base Terrain & Buildings" : "Track Geometry";
         }
     }
 }

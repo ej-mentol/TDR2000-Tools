@@ -15,6 +15,9 @@ namespace TDR.Tools.Services
         public string PakDragAction { get; set; } = "Ask"; // "Ask", "Extract", "Convert"
         public bool RememberPakDragAction { get; set; } = false;
 
+        public string TrackDropDefaultPreset { get; set; } = "All"; // "All" | "BaseOnly"
+        public bool AutoSelectDroppedVariant { get; set; } = true;
+
         // Track discovery strategy:
         //   Auto       — try CARMA.pak/races.txt first, fall back to heuristic scan if not found
         //   RacesOnly  — only use races.txt; if missing, stop and report — no heuristic fallback

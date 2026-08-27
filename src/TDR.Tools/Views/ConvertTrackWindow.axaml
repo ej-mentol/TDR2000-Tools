@@ -35,7 +35,7 @@
                         <StackPanel Spacing="8">
                             <CheckBox IsChecked="{Binding ExportGltf}" FontWeight="SemiBold" FontSize="12" Foreground="{DynamicResource AccentBrush}" Content="glTF 2.0 Modern Scene (.GLTF / .GLB)" ToolTip.Tip="Generates a glTF 2.0 scene with native node hierarchy for Blender, Unity, Unreal Engine &amp; Godot."/>
                             <StackPanel Spacing="6" Margin="22,2,0,0" IsEnabled="{Binding ExportGltf}" Opacity="{Binding ExportGltf, Converter={x:Static ObjectConverters.IsNotNull}}">
-                                <CheckBox IsChecked="{Binding ExportArmatures}" Content="Rigged Pedestrian Skeletons (FK Armatures)" FontSize="11" Foreground="{DynamicResource TextPrimaryBrush}" ToolTip.Tip="Exports fully-rigged FK bone hierarchies and Armatures for all pedestrians on the track. When unchecked, exports lightweight static proxy mesh instances for maximum viewport performance."/>
+                                <CheckBox IsChecked="False" IsEnabled="False" Content="Rigged Pedestrian Skeletons (FK Armatures)" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" ToolTip.Tip="[Temporarily Disabled] Exporting fully-rigged FK bone hierarchies for track pedestrians is temporarily disabled. Pedestrians will export as lightweight static meshes."/>
                             </StackPanel>
                         </StackPanel>
                     </Border>
@@ -116,7 +116,34 @@
                                             Margin="-32,0,0,3"
                                             IsVisible="{Binding ShowTopSeparator}"
                                             Opacity="0.5"/>
-                                    <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay}" IsThreeState="False" IsVisible="{Binding IsVisible}" Content="{Binding Name}" Padding="8,0,12,0" Margin="0,0,8,0" FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}"/>
+                                    <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,0,8,0">
+                                        <CheckBox Grid.Column="0"
+                                                  IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                                  IsThreeState="{Binding IsThreeState}"
+                                                  IsVisible="{Binding IsVisible}"
+                                                  ToolTip.Tip="{Binding VirtualPath}"
+                                                  Padding="6,0,8,0"
+                                                  FontSize="12"/>
+                                        <TextBlock Grid.Column="1"
+                                                   Text="{Binding Name}"
+                                                   Foreground="{Binding NodeForeground}"
+                                                   FontWeight="{Binding NodeFontWeight}"
+                                                   FontSize="12"
+                                                   VerticalAlignment="Center"
+                                                   ToolTip.Tip="{Binding VirtualPath}"/>
+                                        <Border Grid.Column="2"
+                                                IsVisible="{Binding HasBadge}"
+                                                Background="{Binding BadgeBackground}"
+                                                CornerRadius="3"
+                                                Padding="5,1"
+                                                Margin="6,0,0,0"
+                                                VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding BadgeText}"
+                                                       FontSize="9"
+                                                       FontWeight="Bold"
+                                                       Foreground="{Binding BadgeForeground}"/>
+                                        </Border>
+                                    </Grid>
                                 </StackPanel>
                             </TreeDataTemplate>
                         </TreeView.DataTemplates>

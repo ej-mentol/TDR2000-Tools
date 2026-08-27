@@ -28,6 +28,9 @@ namespace TDR.Tools.Views
             else
                 PakDragActionComboBox.SelectedIndex = 0;
 
+            TrackDropPresetComboBox.SelectedIndex = _settings.TrackDropDefaultPreset.Equals("BaseOnly", System.StringComparison.OrdinalIgnoreCase) ? 1 : 0;
+            AutoSelectDroppedVariantCheckBox.IsChecked = _settings.AutoSelectDroppedVariant;
+
             TrackDiscoveryModeComboBox.SelectedIndex = _settings.TrackDiscoveryMode switch
             {
                 "RacesOnly"  => 1,
@@ -38,7 +41,7 @@ namespace TDR.Tools.Views
 
             ExportObjCheckBox.IsChecked = _settings.ExportObj;
             ExportGltfCheckBox.IsChecked = _settings.ExportGltf;
-            ExportArmaturesCheckBox.IsChecked = _settings.ExportArmatures;
+            ExportArmaturesCheckBox.IsChecked = false;
             ExportPngTexturesCheckBox.IsChecked = _settings.ExportPngTextures;
             IncludeMovablePropsCheckBox.IsChecked = _settings.IncludeMovableProps;
             ExportSceneJsonCheckBox.IsChecked = _settings.ExportSceneJson;
@@ -83,6 +86,9 @@ namespace TDR.Tools.Views
                 _settings.PakDragAction = "Ask";
                 _settings.RememberPakDragAction = false;
             }
+
+            _settings.TrackDropDefaultPreset = TrackDropPresetComboBox.SelectedIndex == 1 ? "BaseOnly" : "All";
+            _settings.AutoSelectDroppedVariant = AutoSelectDroppedVariantCheckBox.IsChecked == true;
 
             _settings.ExportObj = ExportObjCheckBox.IsChecked == true;
             _settings.ExportGltf = ExportGltfCheckBox.IsChecked == true;

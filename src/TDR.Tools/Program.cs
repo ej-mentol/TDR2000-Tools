@@ -91,7 +91,14 @@ namespace TDR.Tools
                 UseGrouping         = !args.Contains("--no-group",   StringComparer.OrdinalIgnoreCase);
                 ExportJson          = args.Contains("--json",        StringComparer.OrdinalIgnoreCase);
                 ExportGltf          = args.Contains("--gltf",        StringComparer.OrdinalIgnoreCase);
-                ExportArmatures     = args.Contains("--rigged-peds", StringComparer.OrdinalIgnoreCase) || args.Contains("--export-armatures", StringComparer.OrdinalIgnoreCase);
+                
+                // Track pedestrian armatures disabled pending full kinematic integration
+                if (args.Contains("--rigged-peds", StringComparer.OrdinalIgnoreCase) || args.Contains("--export-armatures", StringComparer.OrdinalIgnoreCase))
+                {
+                    Console.WriteLine("[!] Notice: --rigged-peds / --export-armatures is temporarily disabled for map conversion. Pedestrians will export as lightweight static instances.");
+                }
+                ExportArmatures     = false;
+                
                 DumpAll             = args.Contains("--dump-all",    StringComparer.OrdinalIgnoreCase);
                 IncludeMovableProps = !args.Contains("--no-props",   StringComparer.OrdinalIgnoreCase);
 

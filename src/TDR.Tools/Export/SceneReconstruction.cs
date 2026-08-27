@@ -152,6 +152,15 @@ namespace TDR.Tools.Export
                                                !m.ModelBaseName.Contains("pole", StringComparison.OrdinalIgnoreCase) &&
                                                !m.ModelBaseName.Contains("post", StringComparison.OrdinalIgnoreCase);
 
+                    // [Ground Snapping & Stack Analysis]
+                    // Single-point vertical raycasts through (Px, Pz) accurately ground standalone street props (poles, trees, lamps).
+                    // However, for indoor micro-assemblies and tabletop items (e.g. computer monitor on a desk edge in HiRise):
+                    // 1) If the pivot (Px, Pz) is near the edge of supporting geometry, a mathematical point ray can miss the tabletop
+                    //    and hit the room floor 70 cm below.
+                    // 2) If (m.Py - floorY > 0.35m), the item is falsely snapped down to the floor (sinking into the desk),
+                    //    while the desk itself (gap < 0.35m to floor) remains at its authored height.
+                    // Recommended future solution: Use a multi-sample footprint raycast (e.g. RaycastFootprint with radius ~0.15-0.20m)
+                    // or respect authored 3ds Max coordinates for indoor/stacked props when fine adjustments are needed.
                     float finalPy = m.Py;
                     if (terrainRaycaster != null && terrainRaycaster.TriangleCount > 0 && !isTiltedOrFallen && !isWallOrHingedMount)
                     {

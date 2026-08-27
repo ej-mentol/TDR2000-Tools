@@ -557,7 +557,7 @@
                     <!-- Primary Macro Task Status -->
                     <Grid ColumnDefinitions="Auto,*">
                         <PathIcon Grid.Column="0" Data="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z" Width="20" Height="20" Foreground="{DynamicResource AccentBrush}" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                        <TextBlock Grid.Column="1" Text="{Binding BusyMessage}" FontSize="13" FontWeight="Bold" Foreground="{DynamicResource TextPrimaryBrush}" VerticalAlignment="Center" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" MaxHeight="50"/>
+                        <TextBlock Grid.Column="1" Text="{Binding BusyMessage}" FontSize="13" FontWeight="Bold" Foreground="{DynamicResource TextPrimaryBrush}" VerticalAlignment="Center" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
                     </Grid>
 
                     <!-- Primary Overall Progress Bar -->
@@ -570,7 +570,7 @@
 
                     <!-- Secondary Micro Sub-Progress Bar (Visible during glTF / OBJ streaming export) -->
                     <StackPanel Spacing="6" IsVisible="{Binding IsBusySubProgressVisible}" Margin="0,8,0,0">
-                        <TextBlock Text="{Binding BusySubMessage}" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" MaxHeight="36"/>
+                        <TextBlock Text="{Binding BusySubMessage}" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
                         <ProgressBar Height="5" Minimum="0" Maximum="100" Value="{Binding BusySubProgressValue}" Foreground="{DynamicResource AccentBrush}" Background="{DynamicResource BgInputBrush}" CornerRadius="2.5"/>
                         <Grid ColumnDefinitions="*,Auto">
                             <TextBlock Grid.Column="0" Text="Current Asset" FontSize="10" Foreground="{DynamicResource TextSecondaryBrush}"/>

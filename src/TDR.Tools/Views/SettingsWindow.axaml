@@ -35,6 +35,16 @@
                                 <ComboBoxItem Content="Always open Convert Track dialog"/>
                             </ComboBox>
                         </StackPanel>
+
+                        <StackPanel Spacing="4" Margin="0,4,0,0">
+                            <TextBlock Text="Track Drag &amp; Drop Default Selection:" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                            <ComboBox x:Name="TrackDropPresetComboBox" HorizontalAlignment="Stretch" Height="32" Padding="10,0" VerticalContentAlignment="Center" FontSize="12" Background="{DynamicResource BgInputBrush}">
+                                <ComboBoxItem Content="All Supported Resources (Base + all races &amp; missions)"/>
+                                <ComboBoxItem Content="Base Track Only (Clean environment without race props)"/>
+                            </ComboBox>
+                        </StackPanel>
+
+                        <CheckBox x:Name="AutoSelectDroppedVariantCheckBox" Content="Auto-select dropped variant folder (e.g. Hollowood_Race1)" Foreground="{DynamicResource TextPrimaryBrush}" ToolTip.Tip="When dropping a specific variant folder (like Hollowood_Race1 or Slums_Mission2), automatically selects that specific variant layer in the export modal."/>
                     </StackPanel>
                 </Border>
 
@@ -63,7 +73,7 @@
 
                         <CheckBox x:Name="ExportObjCheckBox" Content="Wavefront 3D Scene (.OBJ / .MTL)" Foreground="{DynamicResource TextPrimaryBrush}"/>
                         <CheckBox x:Name="ExportGltfCheckBox" Content="Export glTF 2.0 Scene (.GLTF / .GLB)" Foreground="{DynamicResource TextPrimaryBrush}"/>
-                        <CheckBox x:Name="ExportArmaturesCheckBox" Content="Rigged Pedestrian Skeletons (FK Armatures)" Foreground="{DynamicResource TextPrimaryBrush}" Margin="20,0,0,0" ToolTip.Tip="Exports fully-rigged FK bone hierarchies and Armatures for all pedestrians on the track."/>
+                        <CheckBox x:Name="ExportArmaturesCheckBox" IsChecked="False" IsEnabled="False" Content="Rigged Pedestrian Skeletons (FK Armatures)" Foreground="{DynamicResource TextSecondaryBrush}" Margin="20,0,0,0" ToolTip.Tip="[Temporarily Disabled] Exporting fully-rigged FK bone hierarchies for track pedestrians is temporarily disabled. Pedestrians will export as lightweight static meshes."/>
                         <CheckBox x:Name="ExportPngTexturesCheckBox" Content="Convert Textures to PNG (.png)" Foreground="{DynamicResource TextPrimaryBrush}"/>
                         <CheckBox x:Name="IncludeMovablePropsCheckBox" Content="Bake Props, Signs &amp; Checkpoints into .OBJ / glTF" Foreground="{DynamicResource TextPrimaryBrush}" Margin="20,0,0,0"/>
                         <CheckBox x:Name="ExportSceneJsonCheckBox" Content="Export Engine Scene Manifesto (.JSON)" Foreground="{DynamicResource TextPrimaryBrush}"/>

@@ -767,18 +767,13 @@ namespace TDR.Tools
             }
             else if (e.Key == Key.F5)
             {
-                // Safe Copy / Extract from active panel to destination
-                var nodesToCopy = _lastFocusedPanel == "Destination"
-                    ? _vm.SelectedDestinationNodes.ToList()
-                    : (_vm.SelectedSourceNodes.Count > 0 ? _vm.SelectedSourceNodes.ToList() : (_vm.SelectedSourceNode != null ? new List<FileNodeViewModel> { _vm.SelectedSourceNode } : new List<FileNodeViewModel>()));
-
-                if (nodesToCopy.Count > 0)
+                if (_lastFocusedPanel == "Destination")
                 {
-                    foreach (var n in nodesToCopy)
-                    {
-                        _vm.ExtractNodeToDestination(n, createSubfolderForPak: true, flatFiles: false);
-                    }
-                    _vm.LogSession($"[F5 Copy] Safe-extracted {nodesToCopy.Count} items to Destination.");
+                    OnRefreshDestinationClick(sender, e);
+                }
+                else
+                {
+                    OnRefreshSourceClick(sender, e);
                 }
                 e.Handled = true;
             }
@@ -998,13 +993,15 @@ namespace TDR.Tools
             string displayName = targets.Count == 1 ? targets[0].Name : $"{targets.Count} selected items";
 
             var settings = Services.AppSettings.Load();
-            if (permanent || settings.ConfirmOnDelete)
+            bool isSourcePanel = panel == "Source";
+            if (permanent || isSourcePanel || settings.ConfirmOnDelete)
             {
-                var dialog = new Views.ConfirmDeleteWindow(displayName, isPermanent: permanent);
+                string promptTitle = isSourcePanel ? $"[Source Game File] {displayName}" : displayName;
+                var dialog = new Views.ConfirmDeleteWindow(promptTitle, isPermanent: permanent || isSourcePanel);
                 bool? confirmed = await dialog.ShowDialog<bool?>(this);
                 if (confirmed != true) return;
 
-                if (!permanent && dialog.DontAskAgain)
+                if (!permanent && !isSourcePanel && dialog.DontAskAgain)
                 {
                     settings.ConfirmOnDelete = false;
                     settings.Save();
@@ -1158,7 +1155,7 @@ namespace TDR.Tools
             }
 
             var topLevel = TopLevel.GetTopLevel(this);
-            if (topLevel?.Clipboard != null)
+            if (topLevel?.Clipboard != null && !string.IsNullOrEmpty(targetPath))
             {
                 await topLevel.Clipboard.SetTextAsync(targetPath);
                 _vm.LogSession($"Copied file path to OS clipboard: {targetPath}");
@@ -1293,7 +1290,9 @@ namespace TDR.Tools
 
         private void OnClearLogClick(object? sender, RoutedEventArgs e)
         {
+            Services.LogService.Instance.Clear();
             _vm.LogLines.Clear();
+            _vm.LogSession("Session log cleared.");
         }
 
         private void OnLogFilterAllClick(object? sender, RoutedEventArgs e) => _vm.SetLogFilter("All");

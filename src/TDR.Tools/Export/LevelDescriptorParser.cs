@@ -38,7 +38,7 @@ namespace TDR.Tools.Export
         {
             "STATIC_MESH", "ROAD_SPLINES", "DYNAMIC_TRACK_OBJECT", "ENVIRONMENT",
             "NON_CAR_OBJECT", "WATER_MESH", "SKY_MESH", "SKY_SPHERE", "CAMERA", "LIGHT_SOURCES",
-            "BASE_CONSOFT", "CONSOFT", "LEVEL_MESH", "HARDSHADOW_HIE"
+            "BASE_CONSOFT", "CONSOFT", "LEVEL_MESH", "HARDSHADOW_HIE", "STEAM_NODES"
         };
 
         public static readonly string[] SubDescriptorKeywords = new[]
