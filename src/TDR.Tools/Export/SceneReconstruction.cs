@@ -471,10 +471,15 @@ namespace TDR.Tools.Export
                     float pedY = p.Position.Y;
                     if (terrainRaycaster != null)
                     {
-                        // Cast ray from 5m above authored position down up to 50m to snap feet to sidewalk, pier, deck or terrain surface
-                        if (terrainRaycaster.RaycastGround(p.Position.X, p.Position.Z, p.Position.Y + 5.0f, 50.0f, out float hitY))
+                        // Start raycast 10 cm above authored position to stay strictly below indoor ceilings/roofs/bridges,
+                        // and search downward up to 50 meters to snap elevated pedestrians to the ground, pier, deck, or terrain below.
+                        if (terrainRaycaster.RaycastGround(p.Position.X, p.Position.Z, p.Position.Y + 0.1f, 50.0f, out float hitY))
                         {
-                            pedY = hitY;
+                            // Only snap downward onto supporting surface — never pull upwards through ceilings or bridge decks
+                            if (p.Position.Y >= hitY)
+                            {
+                                pedY = hitY;
+                            }
                         }
                     }
 
@@ -540,7 +545,7 @@ namespace TDR.Tools.Export
                         Vector3 flagPos = startPos + new Vector3(MathF.Cos(perpAngle) * 3.5f, 0.0f, MathF.Sin(perpAngle) * 3.5f);
 
                         // Raycast to accurately snap Flag Woman feet onto the asphalt/terrain mesh
-                        if (terrainRaycaster != null && terrainRaycaster.RaycastGround(flagPos.X, flagPos.Z, startPos.Y + 5.0f, 20.0f, out float groundY))
+                        if (terrainRaycaster != null && terrainRaycaster.RaycastGround(flagPos.X, flagPos.Z, startPos.Y + 0.5f, 20.0f, out float groundY))
                         {
                             flagPos.Y = groundY;
                         }

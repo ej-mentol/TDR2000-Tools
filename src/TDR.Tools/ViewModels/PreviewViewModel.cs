@@ -8,6 +8,7 @@ using System.Runtime.CompilerServices;
 using Avalonia.Media.Imaging;
 using TDR.PakLib.Formats;
 using TDR.Tools.Export;
+using TDR.Tools.Services;
 
 namespace TDR.Tools.ViewModels
 {
@@ -313,9 +314,9 @@ namespace TDR.Tools.ViewModels
                                     }
                                 }
                             }
-                            catch
+                            catch (Exception ex)
                             {
-                                // Fail gracefully if index is unreadable
+                                LogService.Instance.LogDebug($"[PreviewViewModel] Fragmentation check error: {ex.Message}");
                             }
                         }
                     }

@@ -525,7 +525,7 @@ namespace TDR.Tools.ViewModels
                 {
                     // Purge stale/invalid project source paths from settings.json
                     settings.LastSourceDirectory = string.Empty;
-                    try { settings.Save(); } catch { }
+                    try { settings.Save(); } catch (Exception ex) { LogSession($"[Settings Save Error] {ex.Message}"); }
                 }
             }
 
@@ -621,7 +621,7 @@ namespace TDR.Tools.ViewModels
                     s.Save();
                 }
             }
-            catch { }
+            catch (Exception ex) { LogSession($"[Settings Save Error] {ex.Message}"); }
 
             var indexSw = System.Diagnostics.Stopwatch.StartNew();
             await RunWithWatchdogAsync("VFS Directory Indexing", () => Task.Run(() =>
@@ -671,7 +671,7 @@ namespace TDR.Tools.ViewModels
                     s.LastDestinationDirectory = fullPath;
                     s.Save();
                 }
-                catch { }
+                catch (Exception ex) { LogSession($"[Settings Save Error] {ex.Message}"); }
 
                 if (wasMissing)
                 {
@@ -884,10 +884,16 @@ namespace TDR.Tools.ViewModels
                     {
                         try
                         {
-                            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("nautilus", $"--select \"{targetPath}\"") { UseShellExecute = true });
+                            var psi = new System.Diagnostics.ProcessStartInfo("nautilus") { UseShellExecute = false };
+                            psi.ArgumentList.Add("--select");
+                            psi.ArgumentList.Add(targetPath);
+                            System.Diagnostics.Process.Start(psi);
                             return;
                         }
-                        catch { }
+                        catch (Exception ex)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"[Nautilus Select Error] {ex.Message}");
+                        }
                     }
 
                     string? parent = File.Exists(targetPath) ? Path.GetDirectoryName(targetPath) : targetPath;
@@ -895,7 +901,10 @@ namespace TDR.Tools.ViewModels
                 }
                 else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
                 {
-                    System.Diagnostics.Process.Start("open", $"-R \"{targetPath}\"");
+                    var psi = new System.Diagnostics.ProcessStartInfo("open") { UseShellExecute = false };
+                    psi.ArgumentList.Add("-R");
+                    psi.ArgumentList.Add(targetPath);
+                    System.Diagnostics.Process.Start(psi);
                 }
                 else
                 {

@@ -73,9 +73,9 @@ namespace TDR.Tools.Services
                     }
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                // Fallback on invalid header
+                LogService.Instance.LogDebug($"[Audio] Header parsing error: {ex.Message}");
             }
 
             return info;
@@ -140,7 +140,10 @@ namespace TDR.Tools.Services
                                 {
                                     ProgressUpdated?.Invoke(elapsed, duration, percent);
                                 }
-                                catch { }
+                                catch (Exception ex)
+                                {
+                                    LogService.Instance.LogDebug($"[Audio] Progress update error: {ex.Message}");
+                                }
 
                                 if (elapsed >= duration)
                                 {
@@ -162,24 +165,20 @@ namespace TDR.Tools.Services
                                     }
                                 }
 
-                                try
-                                {
-                                    await Task.Delay(40, token);
-                                }
-                                catch
-                                {
-                                    break;
-                                }
+                                await Task.Delay(50, token);
                             }
                         }
-                        catch
+                        catch (OperationCanceledException) { }
+                        catch (Exception ex)
                         {
+                            LogService.Instance.LogDebug($"[Audio] Playback loop error: {ex.Message}");
                             Stop();
                         }
                     }, token);
                 }
-                catch
+                catch (Exception ex)
                 {
+                    LogService.Instance.Warn($"[Audio] Playback initialization error: {ex.Message}");
                     Stop();
                 }
             }
@@ -204,15 +203,15 @@ namespace TDR.Tools.Services
                         _pinnedHandle.Free();
                     }
                 }
-                catch
+                catch (Exception ex)
                 {
-                    // Ignore cleanup errors
+                    LogService.Instance.LogDebug($"[Audio] Stop cleanup error: {ex.Message}");
                 }
                 finally
                 {
                     _isPlaying = false;
-                    try { ProgressUpdated?.Invoke(0.0, 0.0, 0.0); } catch { }
-                    try { PlaybackStateChanged?.Invoke(false); } catch { }
+                    try { ProgressUpdated?.Invoke(0.0, 0.0, 0.0); } catch (Exception ex) { LogService.Instance.LogDebug($"[Audio] Progress reset error: {ex.Message}"); }
+                    try { PlaybackStateChanged?.Invoke(false); } catch (Exception ex) { LogService.Instance.LogDebug($"[Audio] State reset error: {ex.Message}"); }
                 }
             }
         }

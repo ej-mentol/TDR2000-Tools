@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using TDR.PakLib;
 using TDR.PakLib.Formats;
+using TDR.Tools.Services;
 
 namespace TDR.Tools.ViewModels
 {
@@ -344,7 +345,7 @@ namespace TDR.Tools.ViewModels
                             var fileInfo = new FileInfo(file);
                             bool isPak = fileName.EndsWith(".pak", StringComparison.OrdinalIgnoreCase) || fileName.EndsWith(".dir", StringComparison.OrdinalIgnoreCase);
                             long fileLen = 0;
-                            try { fileLen = fileInfo.Length; } catch { }
+                            try { fileLen = fileInfo.Length; } catch (Exception ex) { LogService.Instance.LogDebug($"Could not get file length: {ex.Message}"); }
 
                             var fileNode = new FileNodeViewModel
                             {
@@ -362,13 +363,13 @@ namespace TDR.Tools.ViewModels
                         }
                     }
                 }
-                catch (UnauthorizedAccessException)
+                catch (UnauthorizedAccessException ex)
                 {
-                    // Access restricted to protected folder — normal OS behavior
+                    LogService.Instance.LogDebug($"[VfsTreeBuilder] Access restricted to protected folder: {ex.Message}");
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
-                    // Ignore non-critical disk scan exception
+                    LogService.Instance.LogDebug($"[VfsTreeBuilder] Non-critical disk scan exception: {ex.Message}");
                 }
             }
 
@@ -433,9 +434,9 @@ namespace TDR.Tools.ViewModels
                 {
                     dirs = Directory.GetDirectories(rootPath).OrderBy(d => Path.GetFileName(d), StringComparer.OrdinalIgnoreCase);
                 }
-                catch (UnauthorizedAccessException)
+                catch (UnauthorizedAccessException ex)
                 {
-                    // Access restricted to protected folder — normal system behavior
+                    LogService.Instance.LogDebug($"[VfsTreeBuilder] Access restricted to protected folder: {ex.Message}");
                 }
                 catch (Exception ex)
                 {
@@ -467,9 +468,9 @@ namespace TDR.Tools.ViewModels
                 {
                     files = Directory.GetFiles(rootPath).OrderBy(f => Path.GetFileName(f), StringComparer.OrdinalIgnoreCase);
                 }
-                catch (UnauthorizedAccessException)
+                catch (UnauthorizedAccessException ex)
                 {
-                    // Access restricted to protected folder — normal system behavior
+                    LogService.Instance.LogDebug($"[VfsTreeBuilder] Access restricted to protected folder: {ex.Message}");
                 }
                 catch (Exception ex)
                 {
@@ -486,7 +487,7 @@ namespace TDR.Tools.ViewModels
                         if (!queryActive || fileInfo.Name.Contains(searchQuery, StringComparison.OrdinalIgnoreCase))
                         {
                             long len = 0;
-                            try { len = fileInfo.Length; } catch { }
+                            try { len = fileInfo.Length; } catch (Exception ex) { LogService.Instance.LogDebug($"Could not get file length: {ex.Message}"); }
 
                             var fileNode = new FileNodeViewModel
                             {
@@ -498,9 +499,9 @@ namespace TDR.Tools.ViewModels
                             targetNodes.Add(fileNode);
                         }
                     }
-                    catch
+                    catch (Exception ex)
                     {
-                        // Skip individual inaccessible or transient files
+                        LogService.Instance.LogDebug($"[VfsTreeBuilder] Skip inaccessible file '{file}': {ex.Message}");
                     }
                 }
             }
@@ -526,9 +527,9 @@ namespace TDR.Tools.ViewModels
                     };
                 }
             }
-            catch (UnauthorizedAccessException)
+            catch (UnauthorizedAccessException ex)
             {
-                // Protected system directory (AppData / .cache) — no expand arrow
+                LogService.Instance.LogDebug($"[VfsTreeBuilder] Lazy check access denied: {ex.Message}");
             }
             catch (Exception ex)
             {
@@ -565,9 +566,9 @@ namespace TDR.Tools.ViewModels
                     }
                 }
             }
-            catch (UnauthorizedAccessException)
+            catch (UnauthorizedAccessException ex)
             {
-                // Protected folder — silent
+                LogService.Instance.LogDebug($"[VfsTreeBuilder] Protected folder access denied: {ex.Message}");
             }
             catch (Exception ex)
             {
@@ -586,7 +587,7 @@ namespace TDR.Tools.ViewModels
                         if (!queryActive || fileInfo.Name.Contains(searchQuery, StringComparison.OrdinalIgnoreCase))
                         {
                             long len = 0;
-                            try { len = fileInfo.Length; } catch { }
+                            try { len = fileInfo.Length; } catch (Exception ex) { LogService.Instance.LogDebug($"Could not get file length: {ex.Message}"); }
 
                             var fileNode = new FileNodeViewModel
                             {
@@ -599,15 +600,15 @@ namespace TDR.Tools.ViewModels
                             parentNode.Children.Add(fileNode);
                         }
                     }
-                    catch
+                    catch (Exception ex)
                     {
-                        // Skip individual inaccessible or transient files
+                        LogService.Instance.LogDebug($"[VfsTreeBuilder] Skip inaccessible file '{file}': {ex.Message}");
                     }
                 }
             }
-            catch (UnauthorizedAccessException)
+            catch (UnauthorizedAccessException ex)
             {
-                // Protected folder — silent
+                LogService.Instance.LogDebug($"[VfsTreeBuilder] Protected folder access denied: {ex.Message}");
             }
             catch (Exception ex)
             {
@@ -634,7 +635,10 @@ namespace TDR.Tools.ViewModels
                                      dirName.Contains("race", StringComparison.OrdinalIgnoreCase) ? "Race" : "Track";
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                LogService.Instance.LogDebug($"[VfsTreeBuilder] Badge check error: {ex.Message}");
+            }
         }
 
         private static bool MatchesSearchQuery(FileNodeViewModel node, string query)
@@ -676,7 +680,7 @@ namespace TDR.Tools.ViewModels
             long resolvedSize = size;
             if (resolvedSize <= 0 && isLoose && !string.IsNullOrEmpty(archivePath) && File.Exists(archivePath))
             {
-                try { resolvedSize = new FileInfo(archivePath).Length; } catch { }
+                try { resolvedSize = new FileInfo(archivePath).Length; } catch (Exception ex) { LogService.Instance.LogDebug($"Could not get file length: {ex.Message}"); }
             }
 
             var node = new FileNodeViewModel

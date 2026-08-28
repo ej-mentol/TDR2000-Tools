@@ -297,7 +297,7 @@ namespace TDR.Tools.Export
                    nTex.Contains("river") || nTex.Contains("lake") || nTex.Contains("bay") ||
                    nTex.Contains("pool") || nTex.Contains("pond") || nTex.Contains("harbour") ||
                    nTex.Contains("swamp") || nTex.Contains("liquid") || nTex.Contains("tank") ||
-                   nTex.Contains("bumpfx") || nTex.Contains("glass") || nTex.Contains("clearglass") ||
+                   nTex.Contains("bumpfx") || nTex.Contains("glass") ||
                    nTex.Contains("windshield") || nTex.Contains("windscreen") || nTex.Contains("fence") ||
                    nTex.Contains("sign") || nTex.Contains("foliage") || nTex.Contains("tree") ||
                    nTex.Contains("corona") || nTex.Contains("grate") || nTex.Contains("shadow") ||

@@ -161,13 +161,20 @@ namespace TDR.Tools.Services
 
             try
             {
-                Directory.CreateDirectory(outputDirectory);
+                string fullTargetDir = Path.GetFullPath(outputDirectory);
+                Directory.CreateDirectory(fullTargetDir);
                 int extracted = 0;
 
                 foreach (var entry in _entries.Values)
                 {
-                    string outPath = Path.Combine(outputDirectory, entry.VirtualPath);
-                    Directory.CreateDirectory(Path.GetDirectoryName(outPath)!);
+                    string outPath = Path.GetFullPath(Path.Combine(fullTargetDir, entry.VirtualPath));
+                    if (!outPath.StartsWith(fullTargetDir, StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue; // Guard against path traversal
+                    }
+
+                    string? parentDir = Path.GetDirectoryName(outPath);
+                    if (!string.IsNullOrEmpty(parentDir)) Directory.CreateDirectory(parentDir);
                     File.WriteAllBytes(outPath, entry.Content);
                     extracted++;
                 }
@@ -188,8 +195,10 @@ namespace TDR.Tools.Services
 
             try
             {
-                Directory.CreateDirectory(Path.GetDirectoryName(destinationFilePath)!);
-                File.WriteAllBytes(destinationFilePath, data);
+                string fullDest = Path.GetFullPath(destinationFilePath);
+                string? parentDir = Path.GetDirectoryName(fullDest);
+                if (!string.IsNullOrEmpty(parentDir)) Directory.CreateDirectory(parentDir);
+                File.WriteAllBytes(fullDest, data);
                 return ArchiveResult.Ok($"Extracted '{virtualPath}' ({data.Length} bytes) to {destinationFilePath}", 1);
             }
             catch (Exception ex)
@@ -205,13 +214,22 @@ namespace TDR.Tools.Services
 
             try
             {
+                string fullDestDir = Path.GetFullPath(destinationDirectory);
+                Directory.CreateDirectory(fullDestDir);
+
                 foreach (var entry in _entries.Values)
                 {
                     if (entry.VirtualPath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
                     {
                         string subRel = entry.VirtualPath.Substring(prefix.Length);
-                        string outPath = Path.Combine(destinationDirectory, subRel);
-                        Directory.CreateDirectory(Path.GetDirectoryName(outPath)!);
+                        string outPath = Path.GetFullPath(Path.Combine(fullDestDir, subRel));
+                        if (!outPath.StartsWith(fullDestDir, StringComparison.OrdinalIgnoreCase))
+                        {
+                            continue; // Guard against path traversal
+                        }
+
+                        string? parentDir = Path.GetDirectoryName(outPath);
+                        if (!string.IsNullOrEmpty(parentDir)) Directory.CreateDirectory(parentDir);
                         File.WriteAllBytes(outPath, entry.Content);
                         count++;
                     }
@@ -370,8 +388,8 @@ namespace TDR.Tools.Services
             }
             catch (Exception ex)
             {
-                if (File.Exists(tmpPak)) try { File.Delete(tmpPak); } catch { }
-                if (File.Exists(tmpDir)) try { File.Delete(tmpDir); } catch { }
+                if (File.Exists(tmpPak)) try { File.Delete(tmpPak); } catch (Exception delEx) { LogService.Instance.LogDebug($"Could not delete tmpPak: {delEx.Message}"); }
+                if (File.Exists(tmpDir)) try { File.Delete(tmpDir); } catch (Exception delEx) { LogService.Instance.LogDebug($"Could not delete tmpDir: {delEx.Message}"); }
                 string errMsg = $"[ERROR] Failed to pack '{Path.GetFileName(pakFile)}': {ex.Message}";
                 log?.Invoke(errMsg);
                 return ArchiveResult.Fail(errMsg);
@@ -446,8 +464,8 @@ namespace TDR.Tools.Services
                 }
                 catch (Exception ex)
                 {
-                    if (File.Exists(tmpPak)) try { File.Delete(tmpPak); } catch { }
-                    if (File.Exists(tmpDir)) try { File.Delete(tmpDir); } catch { }
+                    if (File.Exists(tmpPak)) try { File.Delete(tmpPak); } catch (Exception delEx) { LogService.Instance.LogDebug($"Could not delete tmpPak: {delEx.Message}"); }
+                    if (File.Exists(tmpDir)) try { File.Delete(tmpDir); } catch (Exception delEx) { LogService.Instance.LogDebug($"Could not delete tmpDir: {delEx.Message}"); }
                     string failMsg = $"[ERROR] Failed to rebuild archive '{archiveName}': {ex.Message}";
                     log?.Invoke(failMsg);
                     return ArchiveResult.Fail(failMsg);

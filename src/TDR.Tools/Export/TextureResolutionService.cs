@@ -181,7 +181,7 @@ namespace TDR.Tools.Export
                             string staleTga = Path.Combine(targetDir, $"{targetBaseName}.tga");
                             if (File.Exists(staleTga))
                             {
-                                try { File.Delete(staleTga); } catch { }
+                                try { File.Delete(staleTga); } catch (Exception ex) { LogService.Instance.LogDebug($"Could not delete stale TGA '{staleTga}': {ex.Message}"); }
                             }
                             return pngName;
                         }

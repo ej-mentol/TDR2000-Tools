@@ -93,9 +93,9 @@ namespace TDR.PakLib.Formats
                     }
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                // Fallback
+                System.Diagnostics.Debug.WriteLine($"[TrackDiscovery] Parse failed: {ex.Message}");
             }
 
             return false;

@@ -9,6 +9,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using TDR.PakLib;
 using TDR.PakLib.Formats;
+using TDR.Tools.Services;
 using TDR.Tools.Utilities;
 
 namespace TDR.Tools.Export
@@ -408,7 +409,7 @@ namespace TDR.Tools.Export
             {
                 if (File.Exists(tempObj))
                 {
-                    try { File.Delete(tempObj); } catch { }
+                    try { File.Delete(tempObj); } catch (Exception ex) { LogService.Instance.LogDebug($"Could not delete tempObj '{tempObj}': {ex.Message}"); }
                 }
             }
 
@@ -545,7 +546,7 @@ namespace TDR.Tools.Export
             {
                 if (File.Exists(tempObj))
                 {
-                    try { File.Delete(tempObj); } catch { }
+                    try { File.Delete(tempObj); } catch (Exception ex) { LogService.Instance.LogDebug($"Could not delete tempObj '{tempObj}': {ex.Message}"); }
                 }
             }
         }
@@ -688,7 +689,7 @@ namespace TDR.Tools.Export
             {
                 if (File.Exists(tempObj))
                 {
-                    try { File.Delete(tempObj); } catch { }
+                    try { File.Delete(tempObj); } catch (Exception ex) { LogService.Instance.LogDebug($"Could not delete tempObj '{tempObj}': {ex.Message}"); }
                 }
             }
         }
@@ -793,7 +794,7 @@ namespace TDR.Tools.Export
             {
                 if (File.Exists(tempObj))
                 {
-                    try { File.Delete(tempObj); } catch { }
+                    try { File.Delete(tempObj); } catch (Exception ex) { LogService.Instance.LogDebug($"Could not delete tempObj '{tempObj}': {ex.Message}"); }
                 }
             }
         }

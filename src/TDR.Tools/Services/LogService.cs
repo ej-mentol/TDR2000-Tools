@@ -139,9 +139,9 @@ namespace TDR.Tools.Services
                     }
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                // Never allow disk I/O logging errors to crash application workflows
+                System.Diagnostics.Debug.WriteLine($"[LogService] Disk write error: {ex.Message}");
             }
 
             // 2. Queue for UI micro-batching
@@ -160,6 +160,7 @@ namespace TDR.Tools.Services
         public void Error(string message) => Log(LogLevel.Error, message);
         public void Summary(string message) => Log(LogLevel.Summary, message);
         public void Debug(string message) => Log(LogLevel.Debug, message);
+        public void LogDebug(string message) => Log(LogLevel.Debug, message);
 
         private void OnBatchTimerTick(object? state)
         {
@@ -191,7 +192,10 @@ namespace TDR.Tools.Services
                     _diskLogWriter?.Flush();
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[LogService] Flush error: {ex.Message}");
+            }
 
             var batch = new List<LogEntry>();
             while (_pendingUiQueue.TryDequeue(out var entry))
@@ -208,45 +212,44 @@ namespace TDR.Tools.Services
         public void FatalCrash(object? exceptionObj)
         {
             DateTime now = DateTime.Now;
+            string crashDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "TDR2000-Tools", "logs", "crashes");
             string crashFileName = $"crash-{now:yyyy-MM-dd_HH-mm-ss}.log";
-            string crashDir = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "TDR2000-Tools",
-                "logs"
-            );
 
             var sb = new StringBuilder();
             sb.AppendLine("================================================================================");
-            sb.AppendLine($" TDR2000 Tools — FATAL CRASH REPORT [{now:yyyy-MM-dd HH:mm:ss}]");
+            sb.AppendLine($"TDR2000 Tools — FATAL UNHANDLED CRASH REPORT");
+            sb.AppendLine($"Timestamp: {now:yyyy-MM-dd HH:mm:ss.fff}");
+            sb.AppendLine($"OS: {Environment.OSVersion} ({(Environment.Is64BitOperatingSystem ? "64-bit" : "32-bit")})");
+            sb.AppendLine($"Runtime: .NET {Environment.Version}");
             sb.AppendLine("================================================================================");
-            sb.AppendLine($"OS Version       : {Environment.OSVersion}");
-            sb.AppendLine($".NET Runtime     : {Environment.Version}");
-            sb.AppendLine($"64-bit Process   : {Environment.Is64BitProcess}");
-            sb.AppendLine($"Process ID       : {Environment.ProcessId}");
-            sb.AppendLine($"Working Directory: {Environment.CurrentDirectory}");
-            sb.AppendLine($"Track Context    : {CurrentTrackContext ?? "None"}");
-            sb.AppendLine($"Variant Context  : {CurrentVariantContext ?? "None"}");
-            sb.AppendLine("--------------------------------------------------------------------------------");
             sb.AppendLine("EXCEPTION DETAILS:");
-            if (exceptionObj is Exception ex)
+            if (exceptionObj is Exception exObj)
             {
-                sb.AppendLine($"Type   : {ex.GetType().FullName}");
-                sb.AppendLine($"Message: {ex.Message}");
-                sb.AppendLine($"Trace  :\n{ex.StackTrace}");
-                if (ex.InnerException != null)
+                sb.AppendLine($"Type: {exObj.GetType().FullName}");
+                sb.AppendLine($"Message: {exObj.Message}");
+                sb.AppendLine($"Source: {exObj.Source}");
+                sb.AppendLine("Stack Trace:");
+                sb.AppendLine(exObj.StackTrace ?? "(No stack trace available)");
+
+                Exception? inner = exObj.InnerException;
+                int innerIdx = 1;
+                while (inner != null)
                 {
-                    sb.AppendLine($"\nInner Exception: {ex.InnerException.GetType().FullName}");
-                    sb.AppendLine($"Inner Message  : {ex.InnerException.Message}");
-                    sb.AppendLine($"Inner Trace    :\n{ex.InnerException.StackTrace}");
+                    sb.AppendLine($"--- Inner Exception #{innerIdx} ---");
+                    sb.AppendLine($"Type: {inner.GetType().FullName}");
+                    sb.AppendLine($"Message: {inner.Message}");
+                    sb.AppendLine($"Stack Trace:\n{inner.StackTrace}");
+                    inner = inner.InnerException;
+                    innerIdx++;
                 }
             }
             else
             {
-                sb.AppendLine(exceptionObj?.ToString() ?? "(null exception object)");
+                sb.AppendLine(exceptionObj?.ToString() ?? "Unknown null exception object");
             }
 
-            sb.AppendLine("--------------------------------------------------------------------------------");
-            sb.AppendLine("RECENT LOG CONTEXT (Preceding Crash):");
+            sb.AppendLine("================================================================================");
+            sb.AppendLine("RECENT LOG HISTORY (Last 150 lines):");
             lock (_lock)
             {
                 var recent = _entries.TakeLast(150);
@@ -270,7 +273,10 @@ namespace TDR.Tools.Services
                 string dailyCrashPath = Path.Combine(crashDir, $"crash-{now:yyyy-MM-dd}.log");
                 File.AppendAllText(dailyCrashPath, "\n\n" + report, Encoding.UTF8);
             }
-            catch { }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[LogService] Crash report file write error: {ex.Message}");
+            }
 
             // 2. Append to main session.log
             try
@@ -281,7 +287,10 @@ namespace TDR.Tools.Services
                     _diskLogWriter?.Flush();
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[LogService] Session append error: {ex.Message}");
+            }
 
             Log(LogLevel.Error, $"[CRITICAL FATAL CRASH] Saved crash report: '{crashFileName}'");
             FlushImmediate();

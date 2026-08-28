@@ -337,7 +337,10 @@ namespace TDR.Tools.Services
                         }
                     }
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    LogService.Instance.LogDebug($"[TrackDiscoveryService] Disk variant scan error: {ex.Message}");
+                }
             }
 
             return rawVariants;
