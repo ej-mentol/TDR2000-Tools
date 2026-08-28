@@ -471,8 +471,8 @@ namespace TDR.Tools.Export
                     float pedY = p.Position.Y;
                     if (terrainRaycaster != null)
                     {
-                        // Cast ray from 3m above authored position down 6m to snap feet to sidewalk / terrain surface
-                        if (terrainRaycaster.RaycastGround(p.Position.X, p.Position.Z, p.Position.Y + 3.0f, 6.0f, out float hitY))
+                        // Cast ray from 5m above authored position down up to 50m to snap feet to sidewalk, pier, deck or terrain surface
+                        if (terrainRaycaster.RaycastGround(p.Position.X, p.Position.Z, p.Position.Y + 5.0f, 50.0f, out float hitY))
                         {
                             pedY = hitY;
                         }
