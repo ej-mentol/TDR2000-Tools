@@ -130,7 +130,7 @@ namespace TDR.Tools
                     {
                         foreach (var variantFolder in matchedTrack.VariantFolders)
                         {
-                            string? suffix = GetVariantSuffix(variantFolder, baseTrackName);
+                            string? suffix = TrackExportCoordinator.GetVariantSuffix(variantFolder, baseTrackName);
                             if (!string.IsNullOrEmpty(suffix))
                                 ExportTrackCli(baseTrackName, suffix);
                         }
@@ -171,21 +171,6 @@ namespace TDR.Tools
             );
 
             TrackExportPipeline.ExportTrack(VFS, trackName, variantSuffix, outDir, options, Console.WriteLine);
-        }
-
-        /// <summary>
-        /// Extracts the suffix portion from a variant folder name relative to the base track name.
-        /// e.g. GetVariantSuffix("hollowood_race1", "hollowood") → "race1"
-        /// Mirrors GetVariantSuffix in MainViewModel for CLI/GUI parity.
-        /// </summary>
-        private static string? GetVariantSuffix(string variantFolder, string baseTrackName)
-        {
-            string tLow = baseTrackName.ToLowerInvariant();
-            string vLow = variantFolder.ToLowerInvariant();
-            if (vLow == tLow) return null;
-            if (vLow.StartsWith(tLow + "_")) return variantFolder.Substring(tLow.Length + 1);
-            if (vLow.StartsWith(tLow))      return variantFolder.Substring(tLow.Length).TrimStart('_');
-            return variantFolder;
         }
 
         private static string? GetArgumentValue(string[] args, string shortFlag, string longFlag)

@@ -43,10 +43,12 @@ namespace TDR.Tools.Services
             LogLevel.Warning => "#E5C07B",  // Soft amber
             LogLevel.Summary => "#98C379",  // Subtle mint/green
             LogLevel.Debug => "#5C6370",    // Muted grey
-            _ => Message.Contains("[GLTF]", StringComparison.OrdinalIgnoreCase) ? "#61AFEF" : // Calm cyan/blue
+            _ => Message.Contains("═") || Message.Contains("──") || Message.StartsWith("---") ? "#5C6370" : // Muted separator grey (calm divider)
+                 Message.Contains("[GLTF]", StringComparison.OrdinalIgnoreCase) ? "#61AFEF" : // Calm cyan/blue
                  Message.Contains("[OBJ]", StringComparison.OrdinalIgnoreCase) ? "#C678DD" :  // Soft purple
-                 Message.Contains("[MTL", StringComparison.OrdinalIgnoreCase) ? "#D19A66" :
-                 Message.Contains("[+]") ? "#98C379" : "#ABB2BF"                              // Default calm light grey
+                 Message.Contains("[MTL", StringComparison.OrdinalIgnoreCase) ? "#D19A66" :   // Soft copper/orange
+                 Message.Contains("[+]") ? "#98C379" :                                        // Subtle mint/green
+                 Message.Contains("[!]") ? "#E5C07B" : "#ABB2BF"                              // Soft amber or default calm light grey
         };
 
         public override string ToString() => FormattedText;

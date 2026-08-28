@@ -148,6 +148,6 @@ On Windows, `rebuild_release.bat` publishes a self-contained executable to `.\pu
 ## Scope & Technical Notes
 
 - **Target Scope:** Specifically designed for Carmageddon: TDR 2000 formats and conventions.
-- **Skeletal Character Animation:** Character meshes (`.ski`), skeletal armatures (`.ske`), and animation tracks (`.ani`) are parsed with 25-bone forward kinematics, weight normalization, and DirectX $\to$ glTF coordinate conversion.
+- **Skeletal Character Animation:** Character meshes (`.ski`), skeletal armatures (`.ske`), and animation tracks (`.ani`) are parsed with dynamic $N$-bone DFS kinematic reconstruction, two-pass header resolution with exact bone clamping, Least-Squares multi-joint scale calibration, orthonormal unit-basis normalization (1.000000 scale, 0 spikes), glTF UV coordinate conversion ($V_{\text{glTF}} = 1.0 - |V_{\text{ski}}|$), and direct 4x4 matrix joint node representation ($0.00000000$ rest-pose error).
 - **Spline Coordinates:** Road splines referenced in `*Drone_Paths.hie` are transformed by their parent scene graph matrices to achieve world-space placement.
 - **Material Roughness:** Default export parameters set `RoughnessFactor = 1.0` and `MetallicFactor = 0.0` to preserve the original non-specular appearance in modern PBR renderers.

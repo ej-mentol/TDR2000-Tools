@@ -48,14 +48,14 @@ namespace TDR.Tools.Services
 
         public bool Contains(string virtualPath)
         {
-            string norm = TDRArchive.SanitizePath(virtualPath).ToLowerInvariant();
-            return _entries.ContainsKey(norm);
+            string clean = TDRArchive.SanitizePath(virtualPath);
+            return _entries.ContainsKey(clean);
         }
 
         public byte[]? Get(string virtualPath)
         {
-            string norm = TDRArchive.SanitizePath(virtualPath).ToLowerInvariant();
-            return _entries.TryGetValue(norm, out var entry) ? entry.Content : null;
+            string clean = TDRArchive.SanitizePath(virtualPath);
+            return _entries.TryGetValue(clean, out var entry) ? entry.Content : null;
         }
 
         public string? GetText(string virtualPath, Encoding? encoding = null)
@@ -70,14 +70,14 @@ namespace TDR.Tools.Services
             if (string.IsNullOrWhiteSpace(virtualPath))
                 return ArchiveResult.Fail("[!] Cannot add file with empty virtual path.");
 
-            string norm = TDRArchive.SanitizePath(virtualPath).ToLowerInvariant();
-            _entries[norm] = new Entry
+            string clean = TDRArchive.SanitizePath(virtualPath);
+            _entries[clean] = new Entry
             {
-                VirtualPath = norm,
+                VirtualPath = clean,
                 Content = content ?? Array.Empty<byte>()
             };
 
-            return ArchiveResult.Ok($"[+] Added '{norm}' ({_entries[norm].Size} bytes)", 1);
+            return ArchiveResult.Ok($"[+] Added '{clean}' ({_entries[clean].Size} bytes)", 1);
         }
 
         public ArchiveResult Add(string virtualPath, ReadOnlySpan<byte> content)
@@ -101,7 +101,7 @@ namespace TDR.Tools.Services
 
             foreach (string file in Directory.GetFiles(diskFolderPath, "*", SearchOption.AllDirectories))
             {
-                string rel = Path.GetRelativePath(diskFolderPath, file).Replace('\\', '/').ToLowerInvariant();
+                string rel = Path.GetRelativePath(diskFolderPath, file).Replace('\\', '/');
                 string virtPath = !string.IsNullOrEmpty(virtualBasePrefix)
                     ? $"{virtualBasePrefix.TrimEnd('/')}/{rel}"
                     : (!string.IsNullOrEmpty(baseFolder) ? $"{baseFolder}/{rel}" : rel);
@@ -115,18 +115,18 @@ namespace TDR.Tools.Services
 
         public ArchiveResult Remove(string virtualPath)
         {
-            string norm = TDRArchive.SanitizePath(virtualPath).ToLowerInvariant();
-            if (!_entries.Remove(norm))
+            string clean = TDRArchive.SanitizePath(virtualPath);
+            if (!_entries.Remove(clean))
             {
-                return ArchiveResult.Fail($"[!] File '{norm}' not found in archive index.");
+                return ArchiveResult.Fail($"[!] File '{clean}' not found in archive index.");
             }
 
-            return ArchiveResult.Ok($"[+] Removed entry '{norm}' from archive index.", affectedCount: 1);
+            return ArchiveResult.Ok($"[+] Removed entry '{clean}' from archive index.", affectedCount: 1);
         }
 
         public ArchiveResult RemoveFolder(string virtualFolderPrefix)
         {
-            string prefix = TDRArchive.SanitizePath(virtualFolderPrefix).ToLowerInvariant().TrimEnd('/') + "/";
+            string prefix = TDRArchive.SanitizePath(virtualFolderPrefix).TrimEnd('/') + "/";
             var toRemove = _entries.Keys.Where(k => k.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)).ToList();
             foreach (var k in toRemove)
             {
@@ -141,17 +141,17 @@ namespace TDR.Tools.Services
 
         public ArchiveResult Rename(string oldVirtualPath, string newVirtualPath)
         {
-            string oldNorm = TDRArchive.SanitizePath(oldVirtualPath).ToLowerInvariant();
-            string newNorm = TDRArchive.SanitizePath(newVirtualPath).ToLowerInvariant();
+            string oldClean = TDRArchive.SanitizePath(oldVirtualPath);
+            string newClean = TDRArchive.SanitizePath(newVirtualPath);
 
-            if (!_entries.TryGetValue(oldNorm, out var entry))
-                return ArchiveResult.Fail($"[!] Cannot rename: '{oldNorm}' not found in archive index.");
+            if (!_entries.TryGetValue(oldClean, out var entry))
+                return ArchiveResult.Fail($"[!] Cannot rename: '{oldClean}' not found in archive index.");
 
-            _entries.Remove(oldNorm);
-            entry.VirtualPath = newNorm;
-            _entries[newNorm] = entry;
+            _entries.Remove(oldClean);
+            entry.VirtualPath = newClean;
+            _entries[newClean] = entry;
 
-            return ArchiveResult.Ok($"[+] Renamed '{oldNorm}' -> '{newNorm}'", 1);
+            return ArchiveResult.Ok($"[+] Renamed '{oldClean}' -> '{newClean}'", 1);
         }
 
         public ArchiveResult ExtractAll(string outputDirectory)
@@ -200,7 +200,7 @@ namespace TDR.Tools.Services
 
         public ArchiveResult ExtractSubfolder(string virtualFolderPrefix, string destinationDirectory)
         {
-            string prefix = TDRArchive.SanitizePath(virtualFolderPrefix).ToLowerInvariant().TrimEnd('/') + "/";
+            string prefix = TDRArchive.SanitizePath(virtualFolderPrefix).TrimEnd('/') + "/";
             int count = 0;
 
             try
@@ -259,7 +259,7 @@ namespace TDR.Tools.Services
                 if (read < e.Size) continue;
 
                 byte[] uncompressed = TDRArchive.DecompressZig(rawBlock);
-                string cleanName = TDRArchive.SanitizePath(e.Name).ToLowerInvariant();
+                string cleanName = TDRArchive.SanitizePath(e.Name);
 
                 _entries[cleanName] = new Entry
                 {
@@ -290,7 +290,7 @@ namespace TDR.Tools.Services
 
             foreach (string file in diskFiles)
             {
-                string relPath = Path.GetRelativePath(inputDirectoryPath, file).Replace('\\', '/').ToLowerInvariant();
+                string relPath = Path.GetRelativePath(inputDirectoryPath, file).Replace('\\', '/');
                 byte[] data = File.ReadAllBytes(file);
                 entries.Add(new Entry { VirtualPath = relPath, Content = data });
             }
@@ -335,9 +335,11 @@ namespace TDR.Tools.Services
                 {
                     foreach (var file in entryList)
                     {
-                        string normPath = file.VirtualPath.Replace('\\', '/').ToLowerInvariant();
+                        string normPath = TDRArchive.SanitizePath(file.VirtualPath);
 
-                        byte[] header = TDRArchive.CreateZigHeader(file.Content, compress);
+                        byte[] header = compress
+                            ? TDRArchive.CreateZigHeaderAuto(file.Content)
+                            : TDRArchive.CreateZigHeader(file.Content, compress: false);
                         TDRArchive.WriteAligned(pakStream, header);
 
                         uint offset = (uint)(pakStream.Position - header.Length);

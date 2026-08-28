@@ -69,7 +69,7 @@ namespace TDR.Tools.Services
             {
                 DateTime batchStartTime = DateTime.Now;
                 var activeLayers = vm.HieTreeNodes
-                    .Where(n => n.IsSelected != false && (n.IsSelected == true || n.Children.Any(c => c.IsSelected != false)))
+                    .Where(n => n.IsSelected == true || (n.IsSelected == null && HasExplicitlySelectedDescendant(n)))
                     .ToList();
 
                 int successCount = 0;
@@ -109,22 +109,29 @@ namespace TDR.Tools.Services
                         int layerBaseProgress = (int)((i * 100f) / total);
                         progressCallback?.Invoke(layerBaseProgress, $"Exporting scene '{displayLayer}' ({i + 1}/{total})...");
 
-                        var layerHies = new List<string>();
-                        ConvertTrackModalViewModel.CollectSelectedHiePaths(layerNode.Children, layerHies);
-
-                        // If exporting a variant layer (Race, Mission, MP), unconditionally include base track terrain, water, and environment meshes
-                        if (!string.IsNullOrEmpty(suffix) && baseHies.Count > 0)
+                        List<string>? layerHies = null;
+                        if (layerNode.IsSelected != true) // Indeterminate (null) -> partial custom selection inside layer
                         {
-                            foreach (var bh in baseHies)
+                            var selectedPaths = new List<string>();
+                            ConvertTrackModalViewModel.CollectSelectedHiePaths(layerNode.Children, selectedPaths);
+
+                            // If exporting a variant layer (Race, Mission, MP) with partial selection, include base track terrain, water, and environment meshes
+                            if (!string.IsNullOrEmpty(suffix) && baseHies.Count > 0)
                             {
-                                if (!layerHies.Contains(bh, StringComparer.OrdinalIgnoreCase))
+                                foreach (var bh in baseHies)
                                 {
-                                    layerHies.Add(bh);
+                                    if (!selectedPaths.Contains(bh, StringComparer.OrdinalIgnoreCase))
+                                    {
+                                        selectedPaths.Add(bh);
+                                    }
                                 }
                             }
-                        }
 
-                        var layerOptions = baseOptions with { SelectedHieFiles = layerHies.Count > 0 ? layerHies : null };
+                            layerHies = selectedPaths.Count > 0 ? selectedPaths : null;
+                        }
+                        // When layerNode.IsSelected == true: layerHies is null -> full unrestricted export of the entire layer!
+
+                        var layerOptions = baseOptions with { SelectedHieFiles = layerHies };
                         DateTime sceneStartTime = DateTime.Now;
 
                         bool ok = TrackExportPipeline.ExportTrack(vfs, vm.TrackName, suffix, vm.OutputDirectory, layerOptions, log, (subPct, subMsg) =>
@@ -182,6 +189,18 @@ namespace TDR.Tools.Services
 
                 return batchErrors == 0 && successCount == total;
             });
+        }
+
+        private static bool HasExplicitlySelectedDescendant(HieNodeViewModel node)
+        {
+            foreach (var child in node.Children)
+            {
+                if (!child.IsDirectory && child.IsSelected == true && !string.IsNullOrEmpty(child.VirtualPath))
+                    return true;
+                if (child.Children.Count > 0 && HasExplicitlySelectedDescendant(child))
+                    return true;
+            }
+            return false;
         }
     }
 }

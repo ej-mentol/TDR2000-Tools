@@ -1727,6 +1727,7 @@ namespace TDR.Tools.ViewModels
 
             LogSession($"[+] Staging drop onto PAK archive '{Path.GetFileName(pakPath)}'...");
             using var archive = File.Exists(pakPath) ? Services.PakArchive.Open(pakPath) : Services.PakArchive.Create(pakPath);
+            int filesAddedInSession = 0;
 
             // 1. Process dropped files/folders from OS file manager
             if (fileOrFolderPathsOnDisk != null)
@@ -1737,12 +1738,14 @@ namespace TDR.Tools.ViewModels
                     {
                         string rel = Path.GetFileName(path);
                         archive.Add(rel, File.ReadAllBytes(path));
+                        filesAddedInSession++;
                         LogSession($"  [+] Added file from OS: '{rel}'");
                     }
                     else if (Directory.Exists(path))
                     {
-                        archive.AddFolder(path);
-                        LogSession($"  [+] Added folder from OS: '{Path.GetFileName(path)}'");
+                        var res = archive.AddFolder(path);
+                        filesAddedInSession += res.AffectedCount;
+                        LogSession($"  [+] Added folder from OS: '{Path.GetFileName(path)}' ({res.AffectedCount} files)");
                     }
                 }
             }
@@ -1771,6 +1774,7 @@ namespace TDR.Tools.ViewModels
                             if (!string.IsNullOrEmpty(fileName))
                             {
                                 archive.Add(fileName, data);
+                                filesAddedInSession++;
                                 LogSession($"  [+] Added VFS file: '{fileName}' ({data.Length} bytes)");
                             }
                         }
@@ -1783,9 +1787,9 @@ namespace TDR.Tools.ViewModels
                 }
             }
 
-            if (archive.Count == 0)
+            if (filesAddedInSession == 0)
             {
-                LogSession($"[!] No files collected to pack into '{Path.GetFileName(pakPath)}'. Aborting pack to preserve existing archive.");
+                LogSession($"[!] No new files collected to pack into '{Path.GetFileName(pakPath)}'. Aborting pack to preserve existing archive.");
                 return;
             }
 

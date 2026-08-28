@@ -125,6 +125,7 @@ namespace TDR.Tools.Export
 
             if (txDesc != null)
             {
+                // Strict compliance with engine binary TTEX descriptor:
                 if (txDesc.TransparencyMode == TxTransparencyMode.Blend)
                 {
                     def.AlphaMode = MaterialAlphaMode.Blend;
@@ -139,124 +140,150 @@ namespace TDR.Tools.Export
                 {
                     def.AlphaMode = MaterialAlphaMode.Opaque;
                 }
-            }
-            else if (!string.IsNullOrEmpty(resolvedTextureFile))
-            {
-                // 2. Secondary Authority: Inspect actual TGA bit depth and alpha channel
-                byte[]? tgaBytes = (!string.IsNullOrEmpty(archivePath) ? vfs.LoadFileContext(resolvedTextureFile, archivePath) : null) ??
-                                   (!string.IsNullOrEmpty(trackContext) ? vfs.LoadFileContext(resolvedTextureFile, trackContext) : null) ??
-                                   vfs.LoadFile(resolvedTextureFile);
-                var tgaMode = TgaDecoder.DetectTgaTransparency(tgaBytes);
 
-                if (tgaMode == TxTransparencyMode.Mask)
+                // Check TTEX hardware shader flags (Additive glow / Water)
+                if ((txDesc.Flags & 4) != 0) // Additive Glow / Emissive
                 {
-                    def.AlphaMode = MaterialAlphaMode.Mask;
-                    def.AlphaCutoff = 0.5f;
+                    def.IsEmissive = true;
+                    def.AlphaMode = MaterialAlphaMode.Blend;
+                    def.EmissiveColor = new[] { 1.0f, 1.0f, 1.0f };
+                    def.Roughness = 1.0f;
                 }
-                else if (tgaMode == TxTransparencyMode.Blend)
-                {
-                    // Only assign BLEND for genuine translucent effects (glass, water, coronas, shadows).
-                    // Generic solid meshes (buildings, wheels, chassis, terrain) with 32-bit TGA edge anti-aliasing use MASK
-                    // to preserve depth-buffer (Z-write) and prevent see-through / X-ray artifacts!
-                    bool isKnownTranslucent = (normMat.Contains("glass") || normFile.Contains("glass") ||
-                                               normMat.Contains("windshield") || normFile.Contains("windshield") ||
-                                               normMat.Contains("windscreen") || normFile.Contains("windscreen") ||
-                                               normMat.Contains("water") || normFile.Contains("water") ||
-                                               normMat.Contains("shadow") || normFile.Contains("shadow") ||
-                                               normMat.Contains("corona") || normFile.Contains("corona") ||
-                                               normMat.Contains("glow")   || normFile.Contains("glow") ||
-                                               normMat.Contains("flare")  || normFile.Contains("flare")) &&
-                                              !normMat.Contains("wall") && !normMat.Contains("bld") && !normMat.Contains("facade");
 
-                    if (isKnownTranslucent)
-                    {
-                        def.AlphaMode = MaterialAlphaMode.Blend;
-                    }
-                    else
+                if ((txDesc.Flags & 16) != 0) // Water surface shader
+                {
+                    def.IsWater = true;
+                    def.AlphaMode = MaterialAlphaMode.Blend;
+                    def.Opacity = 0.65f;
+                    def.Roughness = 0.25f;
+                    def.Metallic = 0.0f;
+                    def.HasBumpMap = true;
+                }
+            }
+            else
+            {
+                // Fallback: When no native .tx descriptor exists, deduce from TGA bytes and semantic naming
+
+                // 2. Secondary Authority: Inspect actual TGA bit depth and alpha channel
+                if (!string.IsNullOrEmpty(resolvedTextureFile))
+                {
+                    byte[]? tgaBytes = (!string.IsNullOrEmpty(archivePath) ? vfs.LoadFileContext(resolvedTextureFile, archivePath) : null) ??
+                                       (!string.IsNullOrEmpty(trackContext) ? vfs.LoadFileContext(resolvedTextureFile, trackContext) : null) ??
+                                       vfs.LoadFile(resolvedTextureFile);
+                    var tgaMode = TgaDecoder.DetectTgaTransparency(tgaBytes);
+
+                    if (tgaMode == TxTransparencyMode.Mask)
                     {
                         def.AlphaMode = MaterialAlphaMode.Mask;
                         def.AlphaCutoff = 0.5f;
                     }
+                    else if (tgaMode == TxTransparencyMode.Blend)
+                    {
+                        // Only assign BLEND for genuine translucent effects (glass, water, coronas, shadows).
+                        // Generic solid meshes (buildings, wheels, chassis, terrain) with 32-bit TGA edge anti-aliasing use MASK
+                        // to preserve depth-buffer (Z-write) and prevent see-through / X-ray artifacts!
+                        bool isKnownTranslucent = (normMat.Contains("glass") || normFile.Contains("glass") ||
+                                                   normMat.Contains("windshield") || normFile.Contains("windshield") ||
+                                                   normMat.Contains("windscreen") || normFile.Contains("windscreen") ||
+                                                   normMat.Contains("water") || normFile.Contains("water") ||
+                                                   normMat.Contains("sea")   || normFile.Contains("sea") ||
+                                                   normMat.Contains("shadow") || normFile.Contains("shadow") ||
+                                                   normMat.Contains("corona") || normFile.Contains("corona") ||
+                                                   normMat.Contains("glow")   || normFile.Contains("glow") ||
+                                                   normMat.Contains("flare")  || normFile.Contains("flare")) &&
+                                                  !normMat.Contains("wall") && !normMat.Contains("bld") && !normMat.Contains("facade");
+
+                        if (isKnownTranslucent)
+                        {
+                            def.AlphaMode = MaterialAlphaMode.Blend;
+                        }
+                        else
+                        {
+                            def.AlphaMode = MaterialAlphaMode.Mask;
+                            def.AlphaCutoff = 0.5f;
+                        }
+                    }
+                    else
+                    {
+                        def.AlphaMode = MaterialAlphaMode.Opaque;
+                    }
                 }
-                else
+
+                // 3. Fallback Heuristic: Water & Liquids
+                if (normMat.Contains("water") || normFile.Contains("water") ||
+                    normMat.Contains("sea")   || normFile.Contains("sea")   ||
+                    normMat.Contains("river") || normFile.Contains("river") ||
+                    normMat.Contains("ocean") || normFile.Contains("ocean") ||
+                    normMat.Contains("lake")  || normFile.Contains("lake")  ||
+                    normMat.Contains("bay")   || normFile.Contains("bay")   ||
+                    normMat.Contains("pool")  || normFile.Contains("pool")  ||
+                    normMat.Contains("pond")  || normFile.Contains("pond")  ||
+                    normMat.Contains("swamp") || normFile.Contains("swamp") ||
+                    normMat.Contains("harbour") || normFile.Contains("harbour") ||
+                    normMat.Contains("bumpfx") || normFile.Contains("bumpfx"))
                 {
-                    def.AlphaMode = MaterialAlphaMode.Opaque;
+                    def.IsWater = true;
+                    def.AlphaMode = MaterialAlphaMode.Blend;
+                    def.Opacity = 0.65f;
+                    def.Roughness = 0.25f;
+                    def.Metallic = 0.0f;
+                    def.IsDoubleSided = true;
+                    def.HasBumpMap = true;
                 }
-            }
 
-            // 3. Water & Liquids (semi-transparent, non-metallic, smooth realistic liquid reflection)
-            if (normMat.Contains("water") || normFile.Contains("water") ||
-                normMat.Contains("sea")   || normFile.Contains("sea")   ||
-                normMat.Contains("river") || normFile.Contains("river") ||
-                normMat.Contains("ocean") || normFile.Contains("ocean") ||
-                normMat.Contains("lake")  || normFile.Contains("lake")  ||
-                normMat.Contains("bay")   || normFile.Contains("bay")   ||
-                normMat.Contains("pool")  || normFile.Contains("pool")  ||
-                normMat.Contains("pond")  || normFile.Contains("pond")  ||
-                normMat.Contains("swamp") || normFile.Contains("swamp") ||
-                normMat.Contains("harbour") || normFile.Contains("harbour") ||
-                normMat.Contains("bumpfx") || normFile.Contains("bumpfx"))
-            {
-                def.IsWater = true;
-                def.AlphaMode = MaterialAlphaMode.Blend;
-                def.Opacity = 0.65f;
-                def.Roughness = 0.25f;
-                def.Metallic = 0.0f;
-                def.IsDoubleSided = true;
-                def.HasBumpMap = true;
-            }
+                // 4. Fallback Heuristic: Shadows & Ground Decals
+                if (normMat.Contains("shadow") || normFile.Contains("shadow") ||
+                    normMat.StartsWith("shd_") || normFile.StartsWith("shd_") ||
+                    normMat.EndsWith("_shd")   || normFile.EndsWith("_shd"))
+                {
+                    def.IsShadow = true;
+                    def.AlphaMode = MaterialAlphaMode.Blend;
+                    def.Opacity = 0.6f;
+                    def.Roughness = 1.0f;
+                    def.Metallic = 0.0f;
+                    def.IsDoubleSided = true;
+                }
 
-            // 4. Shadows & Dark Ground Decals (matte, zero specularity, non-metallic)
-            if (normMat.Contains("shadow") || normFile.Contains("shadow") ||
-                normMat.Contains("shd_")   || normFile.Contains("shd_"))
-            {
-                def.IsShadow = true;
-                def.AlphaMode = MaterialAlphaMode.Blend;
-                def.Opacity = 0.6f;
-                def.Roughness = 1.0f;
-                def.Metallic = 0.0f;
-                def.IsDoubleSided = true;
-            }
+                // 5. Fallback Heuristic: Glass & Windshields
+                if ((normMat.Contains("clearglass") || normFile.Contains("clearglass") ||
+                     normMat.Contains("windshield") || normFile.Contains("windshield") ||
+                     normMat.Contains("windscreen") || normFile.Contains("windscreen")) &&
+                    !normMat.Contains("wall") && !normMat.Contains("bld") && !normMat.Contains("facade"))
+                {
+                    def.AlphaMode = MaterialAlphaMode.Blend;
+                    def.Opacity = 0.5f;
+                    def.Roughness = 0.1f;
+                    def.Metallic = 0.0f;
+                    def.IsDoubleSided = true;
+                }
 
-            // 5. Glass & Windshields (pure glass only, NOT building facades/walls with painted windows!)
-            if ((normMat.Contains("clearglass") || normFile.Contains("clearglass") ||
-                 normMat.Contains("windshield") || normFile.Contains("windshield") ||
-                 normMat.Contains("windscreen") || normFile.Contains("windscreen")) &&
-                !normMat.Contains("wall") && !normMat.Contains("bld") && !normMat.Contains("facade"))
-            {
-                def.AlphaMode = MaterialAlphaMode.Blend;
-                def.Opacity = 0.5f;
-                def.Roughness = 0.1f;
-                def.Metallic = 0.0f;
-                def.IsDoubleSided = true;
-            }
+                // 6. Fallback Heuristic: Emissive overlays (Halos, Coronas, Glows, Flares)
+                if (normMat.Contains("corona") || normFile.Contains("corona") ||
+                    normMat.Contains("halo")   || normFile.Contains("halo")   ||
+                    normMat.Contains("glow")   || normFile.Contains("glow")   ||
+                    normMat.Contains("flare")  || normFile.Contains("flare")  ||
+                    normMat.Contains("beam")   || normFile.Contains("beam"))
+                {
+                    def.IsEmissive = true;
+                    def.AlphaMode = MaterialAlphaMode.Blend;
+                    def.Opacity = 0.8f;
+                    def.EmissiveColor = new[] { 1.0f, 1.0f, 1.0f };
+                    def.Roughness = 1.0f;
+                    def.Metallic = 0.0f;
+                    def.IsDoubleSided = true;
+                }
 
-            // 6. Emissive overlays (Halos, Coronas, Glows, Flares)
-            if (normMat.Contains("corona") || normFile.Contains("corona") ||
-                normMat.Contains("halo")   || normFile.Contains("halo")   ||
-                normMat.Contains("glow")   || normFile.Contains("glow")   ||
-                normMat.Contains("flare")  || normFile.Contains("flare")  ||
-                normMat.Contains("beam")   || normFile.Contains("beam"))
-            {
-                def.IsEmissive = true;
-                def.AlphaMode = MaterialAlphaMode.Blend;
-                def.Opacity = 0.8f;
-                def.EmissiveColor = new[] { 1.0f, 1.0f, 1.0f };
-                def.Roughness = 1.0f;
-                def.Metallic = 0.0f;
-                def.IsDoubleSided = true;
-            }
-
-            // 7. Sky Sphere / Sky Dome: unlit emissive texture
-            if (normMat.Contains("sky") || normFile.Contains("sky") ||
-                normMat.Contains("cloud") || normMat.Contains("horizon"))
-            {
-                def.IsSky = true;
-                def.IsEmissive = true;
-                def.EmissiveColor = new[] { 1.0f, 1.0f, 1.0f };
-                def.Roughness = 1.0f;
-                def.Metallic = 0.0f;
-                def.IsDoubleSided = true;
+                // 7. Fallback Heuristic: Sky Sphere / Sky Dome
+                if (normMat.Contains("sky") || normFile.Contains("sky") ||
+                    normMat.Contains("cloud") || normMat.Contains("horizon"))
+                {
+                    def.IsSky = true;
+                    def.IsEmissive = true;
+                    def.EmissiveColor = new[] { 1.0f, 1.0f, 1.0f };
+                    def.Roughness = 1.0f;
+                    def.Metallic = 0.0f;
+                    def.IsDoubleSided = true;
+                }
             }
 
             return def;
