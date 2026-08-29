@@ -65,7 +65,7 @@
             </Setter>
         </Style>
 
-        <!-- Windows 11 Explorer Navigation Toolbar Buttons -->
+            <!-- Windows 11 Explorer Navigation Toolbar Buttons -->
         <Style Selector="Button.nav-btn">
             <Setter Property="Background" Value="Transparent"/>
             <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
@@ -92,6 +92,35 @@
         <Style Selector="Button.nav-btn:disabled /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="Transparent"/>
             <Setter Property="Opacity" Value="0.28"/>
+        </Style>
+
+        <!-- OneDark Emerald Primary Action Button Style -->
+        <Style Selector="Button.primary">
+            <Setter Property="Background" Value="#98C379"/>
+            <Setter Property="Foreground" Value="#0E0E0E"/>
+            <Setter Property="CornerRadius" Value="4"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Height" Value="32"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Transitions">
+                <Transitions>
+                    <BrushTransition Property="Background" Duration="0:0:0.08"/>
+                </Transitions>
+            </Setter>
+        </Style>
+        <Style Selector="Button.primary:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="#A8D489"/>
+            <Setter Property="Foreground" Value="#0E0E0E"/>
+        </Style>
+        <Style Selector="Button.primary:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="#88B369"/>
+            <Setter Property="Foreground" Value="#0E0E0E"/>
+        </Style>
+        <Style Selector="Button.primary:disabled /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="#2A3622"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
         </Style>
     </Application.Styles>
 </Application>

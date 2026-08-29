@@ -73,7 +73,7 @@
 
                         <CheckBox x:Name="ExportObjCheckBox" Content="Wavefront 3D Scene (.OBJ / .MTL)" Foreground="{DynamicResource TextPrimaryBrush}"/>
                         <CheckBox x:Name="ExportGltfCheckBox" Content="Export glTF 2.0 Scene (.GLTF / .GLB)" Foreground="{DynamicResource TextPrimaryBrush}"/>
-                        <CheckBox x:Name="ExportArmaturesCheckBox" IsChecked="False" IsEnabled="False" Content="Rigged Pedestrian Skeletons (FK Armatures)" Foreground="{DynamicResource TextSecondaryBrush}" Margin="20,0,0,0" ToolTip.Tip="[Temporarily Disabled] Exporting fully-rigged FK bone hierarchies for track pedestrians is temporarily disabled. Pedestrians will export as lightweight static meshes."/>
+                        <CheckBox x:Name="ExportArmaturesCheckBox" IsChecked="False" IsEnabled="False" Content="Rigged Pedestrian Skeletons (FK Armatures)" Foreground="{DynamicResource TextSecondaryBrush}" Margin="20,0,0,0" ToolTip.Tip="[Temporarily Disabled for Track Scenes] 200+ multi-pedestrian armature baking is disabled in track exports to avoid scene graph bloat and skin spikes. Track pedestrians export as lightweight meshes. Use standalone Pedestrian Exporter for rigged character models."/>
                         <CheckBox x:Name="ExportPngTexturesCheckBox" Content="Convert Textures to PNG (.png)" Foreground="{DynamicResource TextPrimaryBrush}"/>
                         <CheckBox x:Name="IncludeMovablePropsCheckBox" Content="Bake Props, Signs &amp; Checkpoints into .OBJ / glTF" Foreground="{DynamicResource TextPrimaryBrush}" Margin="20,0,0,0"/>
                         <CheckBox x:Name="ExportSceneJsonCheckBox" Content="Export Engine Scene Manifesto (.JSON)" Foreground="{DynamicResource TextPrimaryBrush}"/>
@@ -90,7 +90,7 @@
 
         <!-- Action Buttons (Standard Order: Save / Apply | Cancel | Reset) -->
         <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10" Margin="0,16,0,0">
-            <Button Content="Save Settings" Click="OnSaveClick" IsDefault="True" Background="{DynamicResource AccentBrush}" Foreground="#0E0E0E" FontWeight="SemiBold" FontSize="12" Height="32" Padding="16,0" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="1" CornerRadius="4"/>
+            <Button Classes="primary" Content="Save Settings" Click="OnSaveClick" IsDefault="True" Height="32" Padding="16,0"/>
             <Button Content="Cancel" Click="OnCancelClick" IsCancel="True" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextPrimaryBrush}" FontWeight="SemiBold" FontSize="12" Height="32" Padding="14,0" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="1" CornerRadius="4"/>
             <Button Content="Reset Defaults" Click="OnResetClick" Background="{DynamicResource BgInputBrush}" Foreground="{DynamicResource TextSecondaryBrush}" FontWeight="SemiBold" FontSize="12" Height="32" Padding="14,0" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="1" CornerRadius="4"/>
         </StackPanel>

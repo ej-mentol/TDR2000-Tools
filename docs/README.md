@@ -312,3 +312,43 @@ TDR2000 uses binary `.tx` descriptors (`TTEX` signature) to define texture LODs,
 
 ### 3. Scene Manifest (`scene.json`):
 * Complete level metadata, camera angles, lighting vectors, spline waypoints, and object instance transforms.
+
+---
+
+## 13. Export Architecture & Code Structure (`src/TDR.Tools/Export/`)
+
+The export engine is organized into single-responsibility submodules under `namespace TDR.Tools.Export`:
+
+```text
+src/TDR.Tools/Export/
+├── Model/                                 # Data transfer objects & schemas
+│   ├── Domain/
+│   │   ├── SceneEntity.cs                 # PlacedEntity, EntityCategory
+│   │   └── ExportResult.cs                # TrackExportResult record
+│   └── Gltf/
+│       └── GltfModel.cs                   # 18 glTF 2.0 schema DTOs (GltfManifest, GltfNode, etc.)
+│
+├── Pipeline/                              # High-level reconstruction & orchestration
+│   ├── TrackExportPipeline.cs             # Top-level coordinator for multi-format track exports
+│   ├── SceneReconstruction.cs             # Entity spawning, ground raycasting, drone capping
+│   └── LevelDescriptorParser.cs           # Parsing track descriptor scripts (.txt / .opt)
+│
+├── Resolvers/                             # Asset matching, geometry reading & format decoders
+│   ├── MaterialResolver.cs                # .tx transparency & PBR material state resolution
+│   ├── TextureResolver.cs                 # 5-tier VFS texture candidate matching & track isolation
+│   ├── SplineResolver.cs                  # Dynamic spline assignment (trains, sharks, planes)
+│   ├── MeshGeometryReader.cs              # Fast triangle stream extraction from MSHS containers
+│   └── TgaDecoder.cs                      # Raw TGA pixel decoder & transparency detection
+│
+├── Writers/                               # Low-level file format encoders
+│   ├── GltfExporter.cs                    # glTF 2.0 JSON + binary buffer writer
+│   ├── ObjExporter.cs                     # Wavefront .obj + .mtl geometry writer
+│   └── SceneJsonExporter.cs               # Engine scene manifesto JSON serializer
+│
+├── Services/                              # Domain services
+│   └── TextureResolutionService.cs        # Texture disk saving & PNG conversion service
+│
+└── Utilities/                             # Spatial acceleration & physics utilities
+    └── TerrainRaycaster.cs                # Spatial grid acceleration & Möller-Trumbore raycaster
+```
+

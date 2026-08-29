@@ -75,13 +75,13 @@ namespace TDR.PakLib.Formats
                     float.Parse(parts[offset + 3], CultureInfo.InvariantCulture)
                 );
                 int rawIdx = int.Parse(parts[offset + 4], CultureInfo.InvariantCulture);
-                TextureIndex = rawIdx > 0 ? rawIdx - 1 : -1;
+                TextureIndex = rawIdx >= 0 ? rawIdx : -1;
             }
             else if (parts.Length >= offset + 1)
             {
                 if (int.TryParse(parts[^1], NumberStyles.Integer, CultureInfo.InvariantCulture, out int texIdx))
                 {
-                    TextureIndex = texIdx > 0 ? texIdx - 1 : -1;
+                    TextureIndex = texIdx >= 0 ? texIdx : -1;
                 }
             }
         }
