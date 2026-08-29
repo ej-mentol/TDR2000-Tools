@@ -1135,22 +1135,32 @@ namespace TDR.Tools.Export
                 {
                     string? meshName = hie.Meshes.Count == 1
                         ? hie.Meshes[0]
-                        : (node.Index >= 0 && node.Index < hie.Meshes.Count ? hie.Meshes[node.Index] : null);
+                        : (node.Index >= 0 && node.Index < hie.Meshes.Count ? hie.Meshes[node.Index] : (hie.Meshes.Count > 0 ? hie.Meshes[0] : null));
 
                     if (meshName != null && TryLoadMesh(meshName, archivePath, out var container) && container != null)
                     {
-                        int subIndex = hie.Meshes.Count == 1 ? node.Index : -1;
+                        int subIndex = (node.Index >= 0 && node.Index < container.Meshes.Count)
+                            ? node.Index
+                            : (container.Meshes.Count == 1 ? 0 : -1);
                         if (subIndex >= 0 && subIndex < container.Meshes.Count)
                         {
                             var prim = BuildGltfPrimitive(container.Meshes[subIndex], activeTex, localMat, archivePath, gltf, bw, getMaterial, $"{hie.Name} -> {meshName}[{subIndex}]");
-                            if (prim != null) gMesh.Primitives.Add(prim);
+                            if (prim != null)
+                            {
+                                gMesh.Primitives.Add(prim);
+                                Log($"      [GLTF Mesh] {Path.GetFileName(hie.Name)} -> Submesh {subIndex}: Mat='{activeTex}' ({container.Meshes[subIndex].VertexCount} verts, {container.Meshes[subIndex].FaceCount} faces)", Services.LogLevel.Debug);
+                            }
                         }
                         else
                         {
                             for (int mIdx = 0; mIdx < container.Meshes.Count; mIdx++)
                             {
                                 var prim = BuildGltfPrimitive(container.Meshes[mIdx], activeTex, localMat, archivePath, gltf, bw, getMaterial, $"{hie.Name} -> {meshName}[{mIdx}]");
-                                if (prim != null) gMesh.Primitives.Add(prim);
+                                if (prim != null)
+                                {
+                                    gMesh.Primitives.Add(prim);
+                                    Log($"      [GLTF Mesh] {Path.GetFileName(hie.Name)} -> Submesh {mIdx}: Mat='{activeTex}' ({container.Meshes[mIdx].VertexCount} verts, {container.Meshes[mIdx].FaceCount} faces)", Services.LogLevel.Debug);
+                                }
                             }
                         }
                     }

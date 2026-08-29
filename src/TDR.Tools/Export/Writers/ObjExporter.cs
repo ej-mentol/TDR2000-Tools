@@ -1066,7 +1066,10 @@ namespace TDR.Tools.Export
             // Handle Mesh Node (NodeType 3)
             if (node.Type == TDRNode.NodeType.Mesh)
             {
-                string? meshName = hie.Meshes.Count == 1 ? hie.Meshes[0] : (node.Index >= 0 && node.Index < hie.Meshes.Count ? hie.Meshes[node.Index] : null);
+                string? meshName = hie.Meshes.Count == 1
+                    ? hie.Meshes[0]
+                    : (node.Index >= 0 && node.Index < hie.Meshes.Count ? hie.Meshes[node.Index] : (hie.Meshes.Count > 0 ? hie.Meshes[0] : null));
+
                 if (meshName != null && TryLoadMesh(meshName, archivePath, out var container) && container != null)
                 {
                         // Directive 'o' creates a distinct Scene Object in Blender/Unity Outliner;
@@ -1101,16 +1104,20 @@ namespace TDR.Tools.Export
 
                         bool isDoubleSided = MaterialResolver.IsDoubleSidedTexture(currentTexture);
 
-                        int subIndex = hie.Meshes.Count == 1 ? node.Index : -1;
+                        int subIndex = (node.Index >= 0 && node.Index < container.Meshes.Count)
+                            ? node.Index
+                            : (container.Meshes.Count == 1 ? 0 : -1);
                         if (subIndex >= 0 && subIndex < container.Meshes.Count)
                         {
                             WriteSubMesh(container.Meshes[subIndex], drawMatrix, w, ref v, ref vt, ref vn, isDoubleSided);
+                            if (_verbose) Log($"      [OBJ Mesh] {Path.GetFileName(hie.Name)} -> Submesh {subIndex}: Mat='{canonicalMat}' ({container.Meshes[subIndex].VertexCount} verts, {container.Meshes[subIndex].FaceCount} faces)");
                         }
                         else
                         {
-                            foreach (var subMesh in container.Meshes)
+                            for (int mIdx = 0; mIdx < container.Meshes.Count; mIdx++)
                             {
-                                WriteSubMesh(subMesh, drawMatrix, w, ref v, ref vt, ref vn, isDoubleSided);
+                                WriteSubMesh(container.Meshes[mIdx], drawMatrix, w, ref v, ref vt, ref vn, isDoubleSided);
+                                if (_verbose) Log($"      [OBJ Mesh] {Path.GetFileName(hie.Name)} -> Submesh {mIdx}: Mat='{canonicalMat}' ({container.Meshes[mIdx].VertexCount} verts, {container.Meshes[mIdx].FaceCount} faces)");
                             }
                         }
                     }

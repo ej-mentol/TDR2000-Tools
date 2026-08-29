@@ -121,6 +121,11 @@ namespace TDR.PakLib.Formats
                 switch (lineLower)
                 {
                     case "//version number":
+                        if (hie.Nodes.Count > 0 || hie.Meshes.Count > 0)
+                        {
+                            i = lines.Length; // Ignore trailing concatenated duplicate chunk (e.g. Stuka_DingableStuka_null.hie)
+                            break;
+                        }
                         if (i + 2 < lines.Length)
                         {
                             hie.Version = int.Parse(lines[i + 2], CultureInfo.InvariantCulture);

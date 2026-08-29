@@ -181,6 +181,8 @@ namespace TDR.Tools.Export
                         WorldTransform = worldMat,
                         Tag = m.ModelBaseName
                     });
+
+                    log?.Invoke($"    [+] Placed Movable '{instanceId}' ({m.HieName}) at ({m.Px:F1}, {finalPy:F1}, {m.Pz:F1})");
                 }
             }
 

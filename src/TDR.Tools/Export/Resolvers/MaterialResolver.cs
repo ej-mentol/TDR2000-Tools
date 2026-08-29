@@ -185,6 +185,9 @@ namespace TDR.Tools.Export
                         bool isKnownTranslucent = (normMat.Contains("glass") || normFile.Contains("glass") ||
                                                    normMat.Contains("windshield") || normFile.Contains("windshield") ||
                                                    normMat.Contains("windscreen") || normFile.Contains("windscreen") ||
+                                                   normMat.Contains("blade") || normFile.Contains("blade") ||
+                                                   normMat.Contains("rotor") || normFile.Contains("rotor") ||
+                                                   normMat.Contains("propeller") || normFile.Contains("propeller") ||
                                                    normMat.Contains("water") || normFile.Contains("water") ||
                                                    normMat.Contains("sea")   || normFile.Contains("sea") ||
                                                    normMat.Contains("shadow") || normFile.Contains("shadow") ||
