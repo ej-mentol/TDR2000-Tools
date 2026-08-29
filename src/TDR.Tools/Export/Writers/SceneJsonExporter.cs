@@ -499,20 +499,6 @@ namespace TDR.Tools.Export
                 });
             }
 
-            if (allDroneDescs.Count > 0)
-            {
-                foreach (string droneDesc in allDroneDescs)
-                {
-                    byte[]? droneData = loader(droneDesc);
-                    if (droneData != null)
-                    {
-                        int before = manifest.Entities.Count;
-                        ParseDrones(droneData, roadSplines, manifest.Entities);
-                        if (verbose) log?.Invoke($"  [JSON Drones] Parsed {manifest.Entities.Count - before} traffic drone placement(s) from '{droneDesc}'");
-                    }
-                }
-            }
-
             // 5. Variants
             PopulateVariants(trackName, variantArg, vfs, manifest.Variants);
             if (verbose) log?.Invoke($"  [JSON Variants] Registered {manifest.Variants.Count} variant entry(ies) in manifesto");
@@ -563,6 +549,12 @@ import json
 import bpy
 import mathutils
 
+def import_obj_file(filepath):
+    if hasattr(bpy.ops.wm, 'obj_import'):
+        bpy.ops.wm.obj_import(filepath=filepath)
+    elif hasattr(bpy.ops.import_scene, 'obj'):
+        bpy.ops.import_scene.obj(filepath=filepath)
+
 dir_path = os.path.dirname(os.path.realpath(__file__))
 json_files = [f for f in os.listdir(dir_path) if f.endswith('.json') and not f.startswith('.')]
 
@@ -574,7 +566,7 @@ if json_files:
     # 1. Import Base Combined Track Mesh if present
     base_mesh = data.get('baseMesh')
     if base_mesh and os.path.exists(os.path.join(dir_path, base_mesh)):
-        bpy.ops.import_scene.obj(filepath=os.path.join(dir_path, base_mesh))
+        import_obj_file(os.path.join(dir_path, base_mesh))
 
     # 2. Instantiate Dynamic Entity Prefabs with native (0,0,0) origins
     entities = data.get('entities', [])
@@ -588,11 +580,11 @@ if json_files:
 
         pos = ent.get('position', [0, 0, 0])
         rot = ent.get('rotation', [0, 0, 0, 1]) # qx, qy, qz, qw
-        inst_id = ent.get('instanceId', 'entity')
+        inst_id = ent.get('id') or ent.get('instanceId', 'entity')
 
         if prefab_rel not in prefab_cache:
             before = set(bpy.context.scene.objects)
-            bpy.ops.import_scene.obj(filepath=prefab_path)
+            import_obj_file(prefab_path)
             new_objs = list(set(bpy.context.scene.objects) - before)
             if new_objs:
                 tpl = new_objs[0]
