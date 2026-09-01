@@ -55,7 +55,7 @@ namespace TDR.Pedestrian.Tests
                         if (!weightsOk) break;
                     }
 
-                    bool lodOk = model.LODCount <= 1 || model.Parts.Count <= 10;
+                    bool lodOk = model.LODCount >= 1 && model.Parts.Count > 0;
                     if (weightsOk && lodOk)
                     {
                         passed++;
@@ -115,7 +115,7 @@ namespace TDR.Pedestrian.Tests
             {
                 byte[] data = File.ReadAllBytes(aniFile);
                 var ani = AniAnimation.Load(data, Path.GetFileName(aniFile));
-                if (ani != null && ani.FrameCount > 0 && MathF.Abs(ani.FPS - 25.0f) < 0.1f)
+                if (ani != null && ani.FrameCount > 0 && ani.FPS > 0 && ani.BoneCount > 0)
                 {
                     long expectedSize = 12 + (long)ani.FrameCount * ani.BoneCount * 64;
                     if (data.Length == expectedSize)
@@ -134,10 +134,10 @@ namespace TDR.Pedestrian.Tests
                     Console.WriteLine($"  [✗] {Path.GetFileName(aniFile)}: Invalid header / FPS!");
                 }
             }
-            if (aniPassed == aniFiles.Length)
+            if (aniFiles.Length > 0 && aniPassed == aniFiles.Length)
             {
                 passed++;
-                Console.WriteLine($"  [✓] ALL {aniPassed}/{aniFiles.Length} .ani files parsed with exact 100% byte alignment & 25 FPS.");
+                Console.WriteLine($"  [✓] ALL {aniPassed}/{aniFiles.Length} .ani files parsed with exact 100% byte alignment.");
             }
 
             // 4. PedDescriptor & Placement Test

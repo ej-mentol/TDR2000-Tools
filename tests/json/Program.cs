@@ -56,8 +56,9 @@ namespace TDR.Json.Tests
                     tempOutDir,
                     (path) => vfs.LoadFileContext(path, "Hollowood"),
                     dummyResult,
-                    false,
-                    null
+                    useZeroOriginForPrefabs: true,
+                    verbose: false,
+                    log: null
                 );
 
                 string manifestFile = Path.Combine(tempOutDir, "Hollowood.json");
